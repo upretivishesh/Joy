@@ -130,53 +130,76 @@ def extract_details(text):
         "Total Experience": experience or "-",
     }, years_float
 
-# ---------- FIT ANALYSIS + WHATSAPP ----------
+# ---------- JD-DRIVEN FIT ANALYSIS + WHATSAPP ----------
 
-def analyze_fit(resume_text, years_float, location, jd_available: bool):
-    """Rule-based Strong/Partial/Not‑fit remark (logistics‑oriented but generic)."""
-    if not jd_available:
-        return "No JD file found"
+def extract_jd_keywords(jd_text, top_n=30):
+    """
+    Simple keyword extractor: lowercase, split on non-letters,
+    drop common stopwords, keep top-N most frequent words.
+    """
+    if not jd_text:
+        return []
+
+    text = jd_text.lower()
+    tokens = re.split(r"[^a-z]+", text)
+    stopwords = {
+        "and", "or", "the", "a", "an", "of", "to", "for", "in", "on", "with",
+        "is", "are", "as", "at", "by", "from", "this", "that", "will", "be",
+        "you", "your", "our", "we", "they", "them", "their", "job", "role",
+        "responsibilities", "requirements", "skills", "experience", "minimum",
+        "must", "should", "have"
+    }
+    words = [w for w in tokens if len(w) > 2 and w not in stopwords]
+
+    if not words:
+        return []
+
+    from collections import Counter
+    counts = Counter(words)
+    return [w for w, _ in counts.most_common(top_n)]
+
+def analyze_fit(resume_text, years_float, jd_available: bool, jd_keywords=None):
+    """
+    JD-driven generic scoring:
+    - Use overlap between resume_text and jd_keywords.
+    - Use years of experience as additional weight.
+    """
+    if not jd_available or not jd_keywords:
+        return "No JD-based scoring available"
 
     t = resume_text.lower()
+    tokens = set(re.split(r"[^a-z]+", t))
 
-    in_logistics = any(w in t for w in ["logistics", "supply chain", "warehouse", "transport"])
-    has_export = any(w in t for w in ["export", "import", "cross border", "customs", "incoterm", "hs code"])
-    has_docs = any(w in t for w in [
-        "documentation", "export documentation", "shipping documents", "bill of lading", "bl "
-    ])
-    has_modes = any(w in t for w in ["road", "sea", "air"])
-    in_blr = "bengaluru" in t or "bangalore" in t or location.lower() in ["bengaluru", "bangalore"]
+    # Keyword overlap score
+    matches = [kw for kw in jd_keywords if kw in tokens]
+    kw_score = len(matches)
 
-    score = 0
-    score += 2 if years_float >= 3 else 0
-    score += 2 if in_logistics else 0
-    score += 2 if has_export else 0
-    score += 1 if has_docs else 0
-    score += 1 if has_modes else 0
-    score += 1 if in_blr else 0
+    # Experience weight
+    if years_float >= 5:
+        exp_score = 3
+    elif years_float >= 3:
+        exp_score = 2
+    elif years_float >= 1:
+        exp_score = 1
+    else:
+        exp_score = 0
 
-    if score >= 6:
+    total_score = kw_score + exp_score
+
+    if total_score >= 15:
         tag = "Strong fit"
-    elif score >= 4:
+    elif total_score >= 8:
         tag = "Partial fit"
     else:
         tag = "Not a fit"
 
-    bullets = []
+    brief_bits = []
     if years_float:
-        bullets.append(f"{years_float:.1f} yrs exp")
-    if in_logistics:
-        bullets.append("logistics/supply chain")
-    if has_export:
-        bullets.append("import/export")
-    if has_docs:
-        bullets.append("docs")
-    if has_modes:
-        bullets.append("road/sea/air")
-    if in_blr:
-        bullets.append("BLR-based")
+        brief_bits.append(f"{years_float:.1f} yrs exp")
+    if matches:
+        brief_bits.append(f"{len(matches)} JD keyword matches")
 
-    brief = ", ".join(bullets[:4]) if bullets else "limited match"
+    brief = ", ".join(brief_bits) if brief_bits else "limited match"
     return f"{tag} – {brief}"
 
 def build_whatsapp_text(name, role):
@@ -206,14 +229,21 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
     if uploaded_jd is not None:
         jd_text = read_any_fp(uploaded_jd)
         jd_available = bool(jd_text.strip())
+        jd_keywords = extract_jd_keywords(jd_text) if jd_available else []
     else:
         jd_available = False
+        jd_keywords = []
 
     rows = []
     for uf in uploaded_resumes:
         text = read_any_fp(uf)
         details, years_float = extract_details(text)
-        remark = analyze_fit(text, years_float, details["Location"], jd_available)
+        remark = analyze_fit(
+            text,
+            years_float,
+            jd_available,
+            jd_keywords=jd_keywords,
+        )
         details["Remark"] = remark
         details["WhatsApp Text"] = build_whatsapp_text(details["Applicant Name"], role)
         rows.append(details)
