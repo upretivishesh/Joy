@@ -1,1 +1,6 @@
-
+streamlit
+pandas
+pdfplumber
+python-docx
+openpyxl
+python-dateutil
