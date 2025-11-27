@@ -257,6 +257,8 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
         df = pd.DataFrame(rows)
 
     # Build Excel in memory
+    # Add serial number column starting from 1
+    df.insert(0, "Sr No", range(1, len(df) + 1))
     wb = Workbook()
     ws = wb.active
     ws.title = "Candidates"
@@ -313,3 +315,4 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
     os.remove(tmp.name)
 
     return df, excel_bytes
+
