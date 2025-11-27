@@ -1,26 +1,9 @@
 import streamlit as st
 from joy_core import process_resumes_with_jd
 
-st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
+st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
 
-# ---------- CUSTOM STYLING: WHITE BACKGROUND ----------
-st.markdown("""
-<style>
-    .stApp {
-        background-color: white;
-    }
-    [data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ---------- LOGO AT THE TOP CENTER ----------
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.image("logo.png", width=200)  # Replace with your actual logo URL
-
-st.title("Joy – Resume Screening App")
+st.title("Joy – Seven Hiring")
 
 st.markdown("### Role configuration")
 role = st.text_input("Role title", value="Assistant Manager – Logistics")
@@ -44,31 +27,4 @@ resume_files = st.file_uploader(
     key="resumes_uploader",
 )
 
-run_button = st.button("Run screening")
-
-if run_button:
-    if not jd_file:
-        st.error("Please upload a JD file.")
-    elif not resume_files:
-        st.error("Please upload at least one resume.")
-    else:
-        with st.spinner("Screening resumes..."):
-            df, excel_bytes = process_resumes_with_jd(
-                jd_file,
-                resume_files,
-                role=role,
-            )
-
-        if df.empty:
-            st.warning("No data extracted from the uploaded resumes.")
-        else:
-            st.success("Screening complete.")
-            st.subheader("Results")
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-            st.download_button(
-                label="Download Excel file",
-                data=excel_bytes,
-                file_name="candidates_details.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+run_button = st.button("Run screening
