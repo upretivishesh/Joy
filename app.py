@@ -6,7 +6,7 @@ st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
 st.title("Joy – Seven Hiring")
 
 st.markdown("### Role configuration")
-role = st.text_input("Role title", value="Assistant Manager – Logistics")
+role = st.text_input("Role title", value="")
 
 st.markdown(
     "Upload a Job Description (JD) and one or more resumes. "
