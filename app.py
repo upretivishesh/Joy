@@ -1,9 +1,9 @@
 import streamlit as st
 from joy_core import process_resumes_with_jd
 
-st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
+st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
 
-st.title("Joy – Resume Screening App")
+st.title("Joy – Seven Hiring")
 
 st.markdown("### Role configuration")
 role = st.text_input("Role title", value="")
