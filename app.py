@@ -1,12 +1,29 @@
 import streamlit as st
 from joy_core import process_resumes_with_jd
 
-st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
+st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
 
-st.title("Joy – Seven Hiring")
+# ---------- CUSTOM STYLING: WHITE BACKGROUND ----------
+st.markdown("""
+<style>
+    .stApp {
+        background-color: white;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #f8f9fa;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- LOGO AT THE TOP CENTER ----------
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.image("https://sevenhiring.com/logo.png", width=200)  # Replace with your actual logo URL
+
+st.title("Joy – Resume Screening App")
 
 st.markdown("### Role configuration")
-role = st.text_input("Role title", value="")
+role = st.text_input("Role title", value="Assistant Manager – Logistics")
 
 st.markdown(
     "Upload a Job Description (JD) and one or more resumes. "
@@ -47,7 +64,7 @@ if run_button:
         else:
             st.success("Screening complete.")
             st.subheader("Results")
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
             st.download_button(
                 label="Download Excel file",
