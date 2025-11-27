@@ -206,15 +206,15 @@ def build_whatsapp_text(name, role):
     first_name = name.split()[0] if name and name != "-" else "there"
     return (
         f"Hi {first_name}, this is Joy from Seven Hiring.\n\n"
-        f"I’m reaching out regarding an opportunity for {role}. "
-        f"Your background looks relevant, and I’d like to check your interest and availability.\n\n"
+        f"I'm reaching out regarding an opportunity for {role}. "
+        f"Your background looks relevant, and I'd like to check your interest and availability.\n\n"
         f"Could you please reply with:\n"
         f"1. Your Current CTC (fixed + variable)\n"
         f"2. Your Expected CTC\n"
         f"3. Your Notice Period\n"
-        f"4. Any other interview processes or offers you’re currently involved in\n"
+        f"4. Any other interview processes or offers you're currently involved in\n"
         f"5. Your virtual interview availability over the next 2–3 days\n\n"
-        f"Once you share these, I’ll coordinate the next steps and schedule discussions accordingly."
+        f"Once you share these, I'll coordinate the next steps and schedule discussions accordingly."
     )
 
 # ---------- MAIN API FOR app.py ----------
@@ -256,9 +256,15 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
     else:
         df = pd.DataFrame(rows)
 
-    # Build Excel in memory
-    # Add serial number column starting from 1
+    # Sort by fit level: Strong fit → Partial fit → Not a fit
+    fit_order = {"Strong fit": 0, "Partial fit": 1, "Not a fit": 2}
+    df["_fit_rank"] = df["Remark"].str.extract(r"^(.*?) –")[0].map(fit_order).fillna(3)
+    df = df.sort_values("_fit_rank").drop(columns=["_fit_rank"]).reset_index(drop=True)
+
+    # Add Sr No column (1-indexed)
     df.insert(0, "Sr No", range(1, len(df) + 1))
+
+    # Build Excel in memory
     wb = Workbook()
     ws = wb.active
     ws.title = "Candidates"
@@ -315,4 +321,3 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
     os.remove(tmp.name)
 
     return df, excel_bytes
-
