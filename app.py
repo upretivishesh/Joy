@@ -27,4 +27,31 @@ resume_files = st.file_uploader(
     key="resumes_uploader",
 )
 
-run_button = st.button("Run screening)
+run_button = st.button("Run screening")
+
+if run_button:
+    if not jd_file:
+        st.error("Please upload a JD file.")
+    elif not resume_files:
+        st.error("Please upload at least one resume.")
+    else:
+        with st.spinner("Screening resumes..."):
+            df, excel_bytes = process_resumes_with_jd(
+                jd_file,
+                resume_files,
+                role=role,
+            )
+
+        if df.empty:
+            st.warning("No data extracted from the uploaded resumes.")
+        else:
+            st.success("Screening complete.")
+            st.subheader("Results")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                label="Download Excel file",
+                data=excel_bytes,
+                file_name="candidates_details.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
