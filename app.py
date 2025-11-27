@@ -5,19 +5,26 @@ st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
 
 st.title("Joy – Resume Screening App")
 
+st.markdown("### Role configuration")
+role = st.text_input("Role title", value="Assistant Manager – Logistics")
+
 st.markdown(
     "Upload a Job Description (JD) and one or more resumes. "
     "Joy will extract basic details, screen them against the JD, "
     "and generate WhatsApp messages for outreach."
 )
 
-# --- File uploads ---
+st.markdown("### Uploads")
+
 jd_file = st.file_uploader(
     "Upload JD (PDF, DOCX or TXT)", type=["pdf", "docx", "txt"], key="jd_uploader"
 )
 
 resume_files = st.file_uploader(
-    "Upload Resumes (PDF or DOCX)", type=["pdf", "docx"], accept_multiple_files=True, key="resumes_uploader"
+    "Upload Resumes (PDF or DOCX)",
+    type=["pdf", "docx"],
+    accept_multiple_files=True,
+    key="resumes_uploader",
 )
 
 run_button = st.button("Run screening")
@@ -29,7 +36,11 @@ if run_button:
         st.error("Please upload at least one resume.")
     else:
         with st.spinner("Screening resumes..."):
-            df, excel_bytes = process_resumes_with_jd(jd_file, resume_files)
+            df, excel_bytes = process_resumes_with_jd(
+                jd_file,
+                resume_files,
+                role=role,
+            )
 
         if df.empty:
             st.warning("No data extracted from the uploaded resumes.")
