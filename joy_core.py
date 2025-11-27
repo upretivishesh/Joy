@@ -47,14 +47,16 @@ def read_any_fp(uploaded_file):
     else:
         return uploaded_file.read().decode("utf-8", errors="ignore")
 
-# ---------- RESUME PARSING ----------
+# ---------- RESUME PARSING (NO LOCATION) ----------
 
 def extract_details(text):
-    """Extract name, mobile, email, location, total experience (string) + years (float)."""
+    """
+    Extract name, mobile, email, total experience (string) + years (float).
+    Location is intentionally removed for now.
+    """
     email = "-"
     mobile = "-"
     experience = "-"
-    location = "-"
     name = "-"
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -84,32 +86,7 @@ def extract_details(text):
         parts = [p.capitalize() for p in parts if len(p) > 1]
         name = " ".join(parts) if parts else email
 
-    # Location – more flexible patterns
-    # 1) Lines that contain 'India' or a 6‑digit pin code near top
-    city_candidates = []
-    for l in lines[:25]:
-        low = l.lower()
-        if "india" in low or re.search(r"\b\d{6}\b", l):
-            city_candidates.append(l)
-
-    if city_candidates:
-        first = city_candidates[0]
-        # Take the part before first comma, then last word
-        before = re.split(r",", first)[0]
-        parts = before.split()
-        if parts:
-            location = parts[-1].title()
-    else:
-        # 2) Look for 'Current Location' or 'Location:'
-        for l in lines[:40]:
-            low = l.lower()
-            if "current location" in low or low.startswith("location"):
-                after = l.split(":", 1)[-1].strip()
-                if after:
-                    location = after.title()
-                    break
-
-    # Experience
+    # Experience (very rough)
     exp_periods = []
     now = dt_parser.parse("Nov 2025")
 
@@ -130,7 +107,7 @@ def extract_details(text):
     for sy, ey in re.findall(r"(\d{4})\s*[-–]\s*(\d{4})", text):
         try:
             yrs = int(ey) - int(sy)
-            if yrs > 0:
+            if 0 < yrs < 50:  # crude guard against crazy numbers
                 exp_periods.append(float(yrs))
         except Exception:
             pass
@@ -143,7 +120,6 @@ def extract_details(text):
         "Applicant Name": name or "-",
         "Mobile No.": mobile or "-",
         "Email Address": email or "-",
-        "Location": location or "-",
         "Total Experience": experience or "-",
     }, years_float
 
@@ -268,7 +244,7 @@ def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manag
     if not rows:
         df = pd.DataFrame(columns=[
             "Applicant Name", "Mobile No.", "Email Address",
-            "Location", "Total Experience", "Remark", "WhatsApp Text"
+            "Total Experience", "Remark", "WhatsApp Text"
         ])
     else:
         df = pd.DataFrame(rows)
