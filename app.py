@@ -6,7 +6,7 @@ st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
 st.title("Joy – Resume Screening App")
 
 st.markdown("### Role configuration")
-role = st.text_input("Role title", value="Assistant Manager – Logistics")
+role = st.text_input("Role title", value="")
 
 st.markdown(
     "Upload a Job Description (JD) and one or more resumes. "
