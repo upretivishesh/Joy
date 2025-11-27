@@ -27,4 +27,4 @@ resume_files = st.file_uploader(
     key="resumes_uploader",
 )
 
-run_button = st.button("Run screening
+run_button = st.button("Run screening)
