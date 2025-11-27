@@ -18,7 +18,7 @@ st.markdown("""
 # ---------- LOGO AT THE TOP CENTER ----------
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image("https://sevenhiring.com/logo.png", width=200)  # Replace with your actual logo URL
+    st.image("logo.png", width=200)  # Replace with your actual logo URL
 
 st.title("Joy – Resume Screening App")
 
