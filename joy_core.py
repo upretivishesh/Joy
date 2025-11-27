@@ -1,12 +1,14 @@
 import os
 import re
 import logging
+import tempfile
 
 import pandas as pd
 import pdfplumber
 from docx import Document
-from openpyxl import load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils.dataframe import dataframe_to_rows
 from dateutil import parser as dt_parser
 from dateutil.relativedelta import relativedelta
 
@@ -15,49 +17,40 @@ logging.getLogger("pdfminer").setLevel(logging.ERROR)
 logging.getLogger("pdfplumber").setLevel(logging.ERROR)
 logging.getLogger("PIL").setLevel(logging.ERROR)
 
-# ---------- CONFIG ----------
-base_dir = r"C:\Users\vishe\OneDrive\Documents\Projects\Project_Joy"
-resume_folder = os.path.join(base_dir, "resumes")
-jd_folder = os.path.join(base_dir, "jd")
-output_file = os.path.join(base_dir, "outputs", "candidates_details.xlsx")
+# ---------- FILE READING HELPERS ----------
 
-columns = [
-    "Applicant Name", "Mobile No.", "Email Address",
-    "Location", "Total Experience", "Remark", "WhatsApp Text"
-]
-
-# ---------- BASIC IO ----------
-def read_pdf(path):
-    with pdfplumber.open(path) as pdf:
+def read_pdf_fp(file_obj):
+    """Read PDF text from a file-like object (UploadedFile / BytesIO)."""
+    file_obj.seek(0)
+    with pdfplumber.open(file_obj) as pdf:
         return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-def read_docx(path):
-    doc = Document(path)
+def read_docx_fp(file_obj):
+    """Read DOCX text from a file-like object."""
+    file_obj.seek(0)
+    doc = Document(file_obj)
     return "\n".join(p.text for p in doc.paragraphs)
 
-def read_any(path):
-    ext = os.path.splitext(path)[1].lower()
+def read_any_fp(uploaded_file):
+    """
+    Detect extension from uploaded_file.name and read content accordingly.
+    Works with Streamlit's UploadedFile or any object with .name and .read().
+    """
+    name = uploaded_file.name
+    ext = os.path.splitext(name)[1].lower()
+    uploaded_file.seek(0)
+
     if ext == ".pdf":
-        return read_pdf(path)
+        return read_pdf_fp(uploaded_file)
     elif ext == ".docx":
-        return read_docx(path)
+        return read_docx_fp(uploaded_file)
     else:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
-
-def load_jd_text_and_flag():
-    if not os.path.isdir(jd_folder):
-        return "", False
-    for fname in os.listdir(jd_folder):
-        path = os.path.join(jd_folder, fname)
-        if os.path.isfile(path) and path.lower().endswith((".pdf", ".docx", ".txt")):
-            return read_any(path), True
-    return "", False
-
-JD_TEXT, JD_AVAILABLE = load_jd_text_and_flag()
+        return uploaded_file.read().decode("utf-8", errors="ignore")
 
 # ---------- RESUME PARSING ----------
+
 def extract_details(text):
+    """Extract name, mobile, email, location, total experience (string) + years (float)."""
     email = "-"
     mobile = "-"
     experience = "-"
@@ -79,20 +72,19 @@ def extract_details(text):
     if m:
         mobile = m.group(0)
 
-    # Name – first all‑caps line near top (e.g. "MEENAKSHI NEGI")
+    # Name – first all‑caps line near top
     for l in lines[:8]:
         if re.match(r"^[A-Z][A-Z ]+$", l) and "SOURCED" not in l:
             name = l.title()
             break
     if name == "-" and email_local:
         user = re.sub(r"\d+", "", email_local)
-        # small custom split for your own case
         user = re.sub(r"(vishesh)(upreti)", r"\1 \2", user, flags=re.IGNORECASE)
         parts = re.split(r"[._\-\s]+", user)
         parts = [p.capitalize() for p in parts if len(p) > 1]
         name = " ".join(parts) if parts else email
 
-    # Location – "<City>, India" near top
+    # Location – "<City>, India"
     for l in lines[:15]:
         if "india" in l.lower() and "," in l:
             before = l.split(",")[0]
@@ -100,7 +92,7 @@ def extract_details(text):
             location = city.title()
             break
 
-    # Experience – month‑year ranges & year–year ranges
+    # Experience
     exp_periods = []
     now = dt_parser.parse("Nov 2025")
 
@@ -138,9 +130,11 @@ def extract_details(text):
         "Total Experience": experience or "-",
     }, years_float
 
-# ---------- FIT ANALYSIS ----------
-def analyze_fit(resume_text, years_float, location):
-    if not JD_AVAILABLE:
+# ---------- FIT ANALYSIS + WHATSAPP ----------
+
+def analyze_fit(resume_text, years_float, location, jd_available: bool):
+    """Rule-based Strong/Partial/Not‑fit remark (logistics‑oriented but generic)."""
+    if not jd_available:
         return "No JD file found"
 
     t = resume_text.lower()
@@ -185,13 +179,12 @@ def analyze_fit(resume_text, years_float, location):
     brief = ", ".join(bullets[:4]) if bullets else "limited match"
     return f"{tag} – {brief}"
 
-# ---------- WHATSAPP TEXT ----------
-def build_whatsapp_text(name):
+def build_whatsapp_text(name, role):
     first_name = name.split()[0] if name and name != "-" else "there"
     return (
         f"Hi {first_name}, this is Joy from Seven Hiring.\n\n"
-        f"I’m reaching out regarding an opportunity for Assistant Manager – Logistics with Atomgrid in Bengaluru. "
-        f"Your background in logistics and supply chain looks relevant, and I’d like to check your interest and availability.\n\n"
+        f"I’m reaching out regarding an opportunity for {role}. "
+        f"Your background looks relevant, and I’d like to check your interest and availability.\n\n"
         f"Could you please reply with:\n"
         f"1. Your Current CTC (fixed + variable)\n"
         f"2. Your Expected CTC\n"
@@ -201,28 +194,61 @@ def build_whatsapp_text(name):
         f"Once you share these, I’ll coordinate the next steps and schedule discussions accordingly."
     )
 
-# ---------- EXCEL FORMAT WITH FULL-ROW COLORS ----------
-def format_excel(path):
-    wb = load_workbook(path)
+# ---------- MAIN API FOR app.py ----------
+
+def process_resumes_with_jd(uploaded_jd, uploaded_resumes, role="Assistant Manager – Logistics"):
+    """
+    Main API used by app.py.
+    uploaded_jd: single UploadedFile or None
+    uploaded_resumes: list of UploadedFile
+    Returns: (df, excel_bytes)
+    """
+    if uploaded_jd is not None:
+        jd_text = read_any_fp(uploaded_jd)
+        jd_available = bool(jd_text.strip())
+    else:
+        jd_available = False
+
+    rows = []
+    for uf in uploaded_resumes:
+        text = read_any_fp(uf)
+        details, years_float = extract_details(text)
+        remark = analyze_fit(text, years_float, details["Location"], jd_available)
+        details["Remark"] = remark
+        details["WhatsApp Text"] = build_whatsapp_text(details["Applicant Name"], role)
+        rows.append(details)
+
+    if not rows:
+        df = pd.DataFrame(columns=[
+            "Applicant Name", "Mobile No.", "Email Address",
+            "Location", "Total Experience", "Remark", "WhatsApp Text"
+        ])
+    else:
+        df = pd.DataFrame(rows)
+
+    # Build Excel in memory
+    wb = Workbook()
     ws = wb.active
+    ws.title = "Candidates"
+
+    for row in dataframe_to_rows(df, index=False, header=True):
+        ws.append(row)
+
     yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
     bold = Font(bold=True)
     center = Alignment(horizontal="center", vertical="center")
 
-    # Header styling
     for cell in ws[1]:
         cell.font = bold
         cell.fill = yellow
         cell.alignment = center
 
-    # Column widths + center alignment
     for col in ws.columns:
         col_letter = col[0].column_letter
         ws.column_dimensions[col_letter].width = 26.3
         for cell in col:
             cell.alignment = center
 
-    # Find Remark column index
     remark_col_idx = None
     for idx, cell in enumerate(ws[1], start=1):
         if cell.value == "Remark":
@@ -245,37 +271,15 @@ def format_excel(path):
                 fill = red
             else:
                 fill = None
-
             if fill:
                 for col in range(1, ws.max_column + 1):
                     ws.cell(row=row, column=col).fill = fill
 
-    wb.save(path)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    wb.save(tmp.name)
+    tmp.seek(0)
+    excel_bytes = tmp.read()
+    tmp.close()
+    os.remove(tmp.name)
 
-# ---------- MAIN FLOW ----------
-os.makedirs(os.path.join(base_dir, "outputs"), exist_ok=True)
-rows = []
-
-for fname in os.listdir(resume_folder):
-    path = os.path.join(resume_folder, fname)
-    if os.path.isfile(path) and path.lower().endswith((".pdf", ".docx")):
-        print("Parsing:", fname)
-        text = read_any(path)
-        details, years_float = extract_details(text)
-        remark = analyze_fit(text, years_float, details["Location"])
-        details["Remark"] = remark
-        details["WhatsApp Text"] = build_whatsapp_text(details["Applicant Name"])
-        rows.append(details)
-
-if not rows:
-    print("No applicant data found.")
-else:
-    df_new = pd.DataFrame(rows, columns=columns)
-    if os.path.exists(output_file):
-        existing = pd.read_excel(output_file)
-        df = pd.concat([existing, df_new], ignore_index=True)
-    else:
-        df = df_new
-    df.to_excel(output_file, index=False)
-    format_excel(output_file)
-    print("Done. Written to:", output_file)
+    return df, excel_bytes
