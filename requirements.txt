@@ -2,5 +2,6 @@ streamlit
 pandas
 pdfplumber
 python-docx
+spacy
+python-dotenv
 openpyxl
-python-dateutil
