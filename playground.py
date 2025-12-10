@@ -21,7 +21,7 @@ st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
 
 USERS = {
     "yogitachauhan": {"password": "Yogita@$7", "name": "Yogita"},
-    "visheshupreti": {"password": "Vishesh@$7", "name": "Vishesh"},
+    "visheshupreti": {"password": "Vishesh@$11", "name": "Vishesh"},
     "gaurikaaggarwal": {"password": "Gaurika@$7", "name": "Gaurika"},
     # Add more users here
 }
