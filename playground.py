@@ -89,51 +89,48 @@ if not st.session_state.logged_in:
     st.stop()
 
 
-# ---------- ANIMATED 2D JOY BOT (Simplified for Streamlit) ----------
+# ---------- INTERACTIVE ANIMATED JOY BOT (CSS ONLY) ----------
 
 st.markdown("""
 <style>
 @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-15px); }
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-15px) rotate(2deg); }
 }
 
 @keyframes blink {
-    0%, 90%, 100% { height: 12px; }
-    95% { height: 2px; }
+    0%, 90%, 100% { transform: scaleY(1); }
+    93%, 97% { transform: scaleY(0.1); }
 }
 
-@keyframes look-left {
-    0%, 100% { transform: translateX(0px); }
-    50% { transform: translateX(-3px); }
-}
-
-@keyframes look-right {
-    0%, 100% { transform: translateX(0px); }
-    50% { transform: translateX(3px); }
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
 }
 
 .joy-bot {
     position: fixed;
     bottom: 40px;
     right: 40px;
-    width: 100px;
-    height: 100px;
-    background: linear-gradient(145deg, #ffffff, #f0f0f0);
+    width: 110px;
+    height: 110px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-radius: 50%;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15), inset 0 -5px 10px rgba(0,0,0,0.05);
+    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
     display: flex;
     align-items: center;
     justify-content: center;
     animation: float 3s ease-in-out infinite;
     cursor: pointer;
     z-index: 99999;
+    border: 4px solid #ffffff;
+    overflow: visible;
     transition: all 0.3s ease;
 }
 
 .joy-bot:hover {
     transform: scale(1.15) translateY(-5px);
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 15px 40px rgba(102, 126, 234, 0.6);
 }
 
 .joy-bot:active {
@@ -153,83 +150,82 @@ st.markdown("""
 .joy-eyes {
     display: flex;
     gap: 20px;
-    margin-bottom: 12px;
-    transition: all 0.3s ease;
+    margin-bottom: 10px;
+    position: relative;
 }
 
 .joy-eye {
-    width: 12px;
-    height: 12px;
-    background: #1a1a1a;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
     border-radius: 50%;
-    position: relative;
     animation: blink 4s infinite;
+    position: relative;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 .joy-eye::after {
     content: '';
     position: absolute;
-    width: 4px;
-    height: 4px;
-    background: white;
-    border-radius: 50%;
-    top: 2px;
+    top: 3px;
     left: 3px;
+    width: 8px;
+    height: 8px;
+    background: #1a1a1a;
+    border-radius: 50%;
 }
 
 .joy-mouth {
     width: 35px;
     height: 18px;
-    border: 3px solid #1a1a1a;
+    border: 3px solid #ffffff;
     border-top: none;
     border-radius: 0 0 35px 35px;
-    margin-top: 3px;
-    transition: all 0.3s ease;
+    margin-top: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.joy-bot.surprised .joy-eye {
-    width: 16px;
-    height: 16px;
-    animation: none;
-}
-
-.joy-bot.surprised .joy-mouth {
-    width: 20px;
-    height: 25px;
+.joy-sparkle {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: white;
     border-radius: 50%;
-    border: 3px solid #1a1a1a;
+    animation: pulse 2s ease-in-out infinite;
 }
 
-.joy-bot.annoyed {
-    animation: none;
+.sparkle-1 {
+    top: 15%;
+    right: 10%;
+    animation-delay: 0s;
 }
 
-.joy-bot.annoyed .joy-eye {
-    width: 10px;
-    height: 6px;
-    border-radius: 50% 50% 0 0;
+.sparkle-2 {
+    top: 25%;
+    left: 8%;
+    animation-delay: 0.5s;
 }
 
-.joy-bot.annoyed .joy-mouth {
-    transform: rotate(180deg);
-    width: 30px;
-    height: 15px;
+.sparkle-3 {
+    bottom: 20%;
+    right: 15%;
+    animation-delay: 1s;
 }
 
 .joy-speech {
     position: fixed;
-    bottom: 155px;
-    right: 25px;
+    bottom: 165px;
+    right: 30px;
     background: white;
-    padding: 14px 24px;
-    border-radius: 25px;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    padding: 12px 20px;
+    border-radius: 20px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: #667eea;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.4s ease, transform 0.4s ease;
+    transition: all 0.3s ease;
     z-index: 99998;
     white-space: nowrap;
     transform: translateY(10px);
@@ -243,18 +239,56 @@ st.markdown("""
 .joy-speech::after {
     content: '';
     position: absolute;
-    bottom: -10px;
-    right: 45px;
+    bottom: -8px;
+    right: 50px;
     width: 0;
     height: 0;
-    border-left: 12px solid transparent;
-    border-right: 12px solid transparent;
-    border-top: 12px solid white;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid white;
+}
+
+.joy-bot:hover .joy-eye::after {
+    animation: eyeMove 2s ease-in-out infinite;
+}
+
+@keyframes eyeMove {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(2px, -1px); }
+    50% { transform: translate(-2px, 0); }
+    75% { transform: translate(1px, 1px); }
+}
+
+.joy-label {
+    position: fixed;
+    bottom: 150px;
+    right: 165px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 99998;
+    white-space: nowrap;
+    transform: translateX(10px);
+}
+
+.joy-bot:hover ~ .joy-label {
+    opacity: 1;
+    transform: translateX(0);
 }
 </style>
 
-<div class="joy-bot" id="joy-bot" onclick="handleJoyClick()">
+<div class="joy-bot" onclick="handleJoyClick()" title="Joy - Your AI Assistant">
     <div class="joy-face">
+        <div class="joy-sparkle sparkle-1"></div>
+        <div class="joy-sparkle sparkle-2"></div>
+        <div class="joy-sparkle sparkle-3"></div>
         <div class="joy-eyes">
             <div class="joy-eye"></div>
             <div class="joy-eye"></div>
@@ -263,63 +297,35 @@ st.markdown("""
     </div>
 </div>
 <div id="joy-speech" class="joy-speech">Hi, I'm Joy!</div>
+<div class="joy-label">Click me! 👋</div>
 
 <script>
-let clickCount = 0;
-let resetTimer;
+let joyClickCount = 0;
+let joyResetTimer;
 
 function handleJoyClick() {
-    clickCount++;
-    const joyBot = document.getElementById('joy-bot');
+    joyClickCount++;
     const speechBubble = document.getElementById('joy-speech');
     
-    // Remove previous states
-    joyBot.classList.remove('surprised', 'annoyed');
-    
-    if (clickCount === 1) {
+    if (joyClickCount === 1) {
         speechBubble.textContent = "um-";
-        joyBot.classList.add('surprised');
-    } else if (clickCount === 2) {
-        speechBubble.textContent = "um- again?";
-        joyBot.classList.add('surprised');
-    } else if (clickCount >= 3) {
-        speechBubble.textContent = "what's up with you?!";
-        joyBot.classList.add('annoyed');
+    } else if (joyClickCount === 2) {
+        speechBubble.textContent = "um- seriously?";
+    } else if (joyClickCount >= 3) {
+        speechBubble.textContent = "what's up with you?! 😤";
     }
     
     speechBubble.classList.add('show');
     
     setTimeout(() => {
         speechBubble.classList.remove('show');
-        setTimeout(() => {
-            joyBot.classList.remove('surprised', 'annoyed');
-        }, 400);
-    }, 2500);
+    }, 2000);
     
-    clearTimeout(resetTimer);
-    resetTimer = setTimeout(() => {
-        clickCount = 0;
+    clearTimeout(joyResetTimer);
+    joyResetTimer = setTimeout(() => {
+        joyClickCount = 0;
     }, 5000);
 }
-
-// Cursor tracking for eye movement
-document.addEventListener('mousemove', (e) => {
-    const joyBot = document.getElementById('joy-bot');
-    const eyes = document.querySelectorAll('.joy-eye');
-    const rect = joyBot.getBoundingClientRect();
-    const joyX = rect.left + rect.width / 2;
-    const joyY = rect.top + rect.height / 2;
-    
-    const angle = Math.atan2(e.clientY - joyY, e.clientX - joyX);
-    const distance = Math.min(3, Math.sqrt(Math.pow(e.clientX - joyX, 2) + Math.pow(e.clientY - joyY, 2)) / 100);
-    
-    const moveX = Math.cos(angle) * distance;
-    const moveY = Math.sin(angle) * distance;
-    
-    eyes.forEach(eye => {
-        eye.style.transform = `translate(${moveX}px, ${moveY}px)`;
-    });
-});
 </script>
 """, unsafe_allow_html=True)
 
