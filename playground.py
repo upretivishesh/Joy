@@ -462,7 +462,7 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### User Session")
     st.write(f"**Logged in as:** {st.session_state.user_name}")
-    if st.button("🚪 Logout", type="secondary", use_container_width=True):
+    if st.button("🚪 Logout", type="secondary", use_container_width=True, key="logout_sidebar"):
         st.session_state.logged_in = False
         st.session_state.user_name = ""
         st.rerun()
