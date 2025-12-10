@@ -15,14 +15,14 @@ from parser import (
 
 # ---------- PAGE CONFIG ----------
 
-st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
+st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
 
 # ---------- USER DATABASE ----------
 
 USERS = {
-    "yogita": {"password": "yogita123", "name": "Yogita"},
-    "vishesh": {"password": "vishesh123", "name": "Vishesh"},
-    "admin": {"password": "admin123", "name": "Admin"},
+    "yogitachauhan": {"password": "Yogita@$7", "name": "Yogita"},
+    "visheshupreti": {"password": "Vishesh@$7", "name": "Vishesh"},
+    "gaurikaaggarwal": {"password": "Gaurika@$7", "name": "Gaurika"},
     # Add more users here
 }
 
@@ -163,7 +163,7 @@ section[data-testid="stSidebar"] {
 }
 </style>
 
-<div class="joy-bot" title="Joy - AI Resume Screener">
+<div class="joy-bot" title="Joy - Seven Hiring">
     <div class="joy-face">
         <div class="joy-eyes">
             <div class="joy-eye"></div>
@@ -455,7 +455,7 @@ def scoring_breakdown(resume_text: str, jd_keywords: list, experience_str: str, 
 # Header with personalized greeting and logout
 col1, col2 = st.columns([4, 1])
 with col1:
-    st.title(f"Hi {st.session_state.user_name}! Here to help you with the screening process.")
+    st.title(f"Hi {st.session_state.user_name}!")
 with col2:
     if st.button("Logout", type="secondary"):
         st.session_state.logged_in = False
