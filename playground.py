@@ -26,10 +26,10 @@ st.set_page_config(page_title="Joy - Seven Hiring", layout="wide")
 # ---------- USER DATABASE ----------
 
 USERS = {
-    "gaurikaaggarwal": {"password": "Gaurika@$7", "name": "Gaurika"},
-    "yogitachauhan": {"password": "Yogita@$7", "name": "Yogita"},
-    "visheshupreti": {"password": "Vishesh@$11", "name": "Vishesh"},
-    "nilanjanadas": {"password": "Nilanjana@$7", "name": "Nilanjana"},
+    "gaurika": {"password": "Gaurika@$7", "name": "Gaurika"},
+    "yogita": {"password": "Yogita@$7", "name": "Yogita"},
+    "vishesh": {"password": "Vishesh@$11", "name": "Vishesh"},
+    "nilanjana": {"password": "Nilanjana@$7", "name": "Nilanjana"},
 }
 
 # ---------- LOGIN SYSTEM ----------
