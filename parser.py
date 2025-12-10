@@ -1,75 +1,46 @@
-import re
 import spacy
+from typing import List, Dict
+import os
+import subprocess
 
-nlp = spacy.load("en_core_web_sm")
+# Download spaCy model if not present
+def ensure_spacy_model():
+    try:
+        nlp = spacy.load("en_core_web_sm")
+        return nlp
+    except OSError:
+        print("Downloading spaCy model...")
+        subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+        nlp = spacy.load("en_core_web_sm")
+        return nlp
 
-BAD_TOKENS = {"professional", "summary", "resume", "cv", "curriculum", "vitae", "profile"}
-
-
-def _clean_name_candidate(s: str) -> str:
-    """Normalize and validate a possible name string."""
-    s = s.strip()
-    # Keep only letters and spaces
-    s = re.sub(r"[^A-Za-z\s]", " ", s)
-    parts = [p for p in s.split() if p]
-    if not (1 <= len(parts) <= 4):
-        return ""
-    if any(p.lower() in BAD_TOKENS for p in parts):
-        return ""
-    return " ".join(w.capitalize() for w in parts)
-
-
-def extract_name(text: str) -> str:
-    """
-    Hybrid strategy:
-    1) Look at first few lines for a clean-looking line.
-    2) Then try spaCy PERSON entities.
-    (Filename fallback is handled outside this function.)
-    """
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-
-    # 1) Top-line heuristic
-    for l in lines[:8]:
-        cand = _clean_name_candidate(l)
-        if cand:
-            return cand
-
-    # 2) spaCy PERSON entities
-    doc = nlp(text)
-    for ent in doc.ents:
-        if ent.label_ != "PERSON":
-            continue
-        cand = _clean_name_candidate(ent.text)
-        if cand:
-            return cand
-
-    return "-"  # let caller fall back to filename
+nlp = ensure_spacy_model()
 
 
-def extract_location(text: str) -> str:
-    """Use first GPE/LOC entity as current location."""
-    doc = nlp(text)
-    locs = [ent.text.strip() for ent in doc.ents if ent.label_ in ("GPE", "LOC")]
-    return locs[0] if locs else "-"
-
-
-def extract_jd_keywords(jd_text: str, top_n: int = 30) -> list[str]:
-    """
-    Basic JD keyword extractor: lemmatize, drop stopwords,
-    return top-N most frequent lemmas.
-    """
+def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
+    """Extract top_n lemmatized keywords from JD text."""
     doc = nlp(jd_text.lower())
-    tokens = [t.lemma_ for t in doc if t.is_alpha and not t.is_stop]
-    from collections import Counter
+    words = [
+        tok.lemma_
+        for tok in doc
+        if tok.is_alpha and not tok.is_stop and len(tok.text) > 2
+    ]
+    
+    # Count frequency
+    freq: Dict[str, int] = {}
+    for w in words:
+        freq[w] = freq.get(w, 0) + 1
+    
+    # Sort by frequency and return top N
+    sorted_words = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    return [w for w, _ in sorted_words[:top_n]]
 
-    counts = Counter(tokens)
-    return [w for w, _ in counts.most_common(top_n)]
 
-
-def score_resume_against_jd(resume_text: str, jd_keywords: list[str]) -> int:
-    """
-    Count how many JD lemmas appear in the resume lemmas.
-    """
-    doc = nlp(resume_text.lower())
-    tokens = {t.lemma_ for t in doc if t.is_alpha}
-    return sum(1 for kw in jd_keywords if kw in tokens)
+def score_resume_against_jd(resume_text: str, jd_keywords: List[str]) -> float:
+    """Return % of JD keywords present in resume."""
+    if not jd_keywords:
+        return 0.0
+    
+    text_lower = resume_text.lower()
+    hits = sum(1 for kw in jd_keywords if kw in text_lower)
+    return round(100.0 * hits / len(jd_keywords), 1)
