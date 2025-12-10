@@ -1,20 +1,12 @@
 import spacy
 from typing import List, Dict
-import os
-import subprocess
 
-# Download spaCy model if not present
-def ensure_spacy_model():
-    try:
-        nlp = spacy.load("en_core_web_sm")
-        return nlp
-    except OSError:
-        print("Downloading spaCy model...")
-        subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
-        nlp = spacy.load("en_core_web_sm")
-        return nlp
-
-nlp = ensure_spacy_model()
+# Load spaCy model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    import en_core_web_sm
+    nlp = en_core_web_sm.load()
 
 
 def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
