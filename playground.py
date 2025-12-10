@@ -47,8 +47,7 @@ if "logged_in" not in st.session_state:
 
 # Show login page if not logged in
 if not st.session_state.logged_in:
-    st.title("Joy – Resume Screening Tool")
-    st.markdown("### Please log in to continue")
+    st.title("Joy")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
