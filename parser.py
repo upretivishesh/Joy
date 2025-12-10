@@ -1,32 +1,19 @@
-import spacy
-from typing import List, Dict
-
-# Load spaCy model
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    import en_core_web_sm
-    nlp = en_core_web_sm.load()
-
+from typing import List
+from collections import Counter
+import re
 
 def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
-    """Extract top_n lemmatized keywords from JD text."""
-    doc = nlp(jd_text.lower())
-    words = [
-        tok.lemma_
-        for tok in doc
-        if tok.is_alpha and not tok.is_stop and len(tok.text) > 2
-    ]
+    """Extract top keywords using simple word frequency."""
+    words = re.findall(r'\b[a-z]{3,}\b', jd_text.lower())
     
-    # Count frequency
-    freq: Dict[str, int] = {}
-    for w in words:
-        freq[w] = freq.get(w, 0) + 1
+    stop_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 
+                  'will', 'are', 'was', 'were', 'been', 'has', 'had', 'can', 
+                  'could', 'would', 'should', 'may', 'might', 'must', 'shall',
+                  'but', 'not', 'all', 'any', 'your', 'our', 'their'}
+    words = [w for w in words if w not in stop_words]
     
-    # Sort by frequency and return top N
-    sorted_words = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    return [w for w, _ in sorted_words[:top_n]]
-
+    counter = Counter(words)
+    return [word for word, _ in counter.most_common(top_n)]
 
 def score_resume_against_jd(resume_text: str, jd_keywords: List[str]) -> float:
     """Return % of JD keywords present in resume."""
