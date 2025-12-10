@@ -47,11 +47,33 @@ if "logged_in" not in st.session_state:
 
 # Show login page if not logged in
 if not st.session_state.logged_in:
-    st.title("Joy - Resume Screening Tool")
+    # Add custom CSS for login page
+    st.markdown("""
+    <style>
+    .login-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-top: 50px;
+    }
+    .login-title {
+        text-align: center;
+        font-size: 3em;
+        font-weight: bold;
+        margin-bottom: 80px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
+    # Centered title
+    st.markdown('<div class="login-title">Joy – Resume Screening Tool</div>', unsafe_allow_html=True)
+    
+    # Login form centered
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
+        st.markdown("### Please log in to continue")
         username = st.text_input("Username", key="username_input")
         password = st.text_input("Password", type="password", key="password_input")
         
@@ -65,6 +87,7 @@ if not st.session_state.logged_in:
                 st.error("Invalid username or password")
     
     st.stop()
+
 
 # ---------- FLOATING JOY BOT ----------
 
@@ -421,15 +444,34 @@ def detect_red_flags(text: str, experience_str: str) -> str:
 
 # ---------- STREAMLIT UI ----------
 
-# Header with personalized greeting and logout
-col1, col2 = st.columns([4, 1])
-with col1:
-    st.title(f"Hi {st.session_state.user_name}!")
-with col2:
-    if st.button("Logout", type="secondary"):
+# ---------- MAIN PAGE HEADER ----------
+
+# Add logout button in top-right corner
+st.markdown("""
+<style>
+.logout-btn {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    z-index: 9999;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Create logout in sidebar to position it properly
+with st.sidebar:
+    st.markdown("### User Session")
+    st.write(f"**Logged in as:** {st.session_state.user_name}")
+    if st.button("🚪 Logout", type="secondary", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_name = ""
         st.rerun()
+
+# Main title
+st.title(f"Hi {st.session_state.user_name}! 👋")
+st.markdown("### Here to help you with the screening process")
+
+st.markdown("---")
 
 st.markdown(
     "Upload **one JD** (or paste text) and **multiple resumes**. "
