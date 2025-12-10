@@ -2,141 +2,216 @@ from typing import List, Dict, Tuple
 from collections import Counter
 import re
 
-# Industry-specific skill taxonomies
-SKILL_SYNONYMS = {
-    'python': ['python', 'py', 'django', 'flask', 'fastapi'],
-    'javascript': ['javascript', 'js', 'node', 'nodejs', 'react', 'angular', 'vue'],
-    'java': ['java', 'spring', 'springboot', 'hibernate'],
-    'aws': ['aws', 'amazon web services', 'ec2', 's3', 'lambda'],
-    'data analysis': ['data analysis', 'analytics', 'business intelligence', 'bi', 'powerbi', 'tableau'],
-    'machine learning': ['machine learning', 'ml', 'deep learning', 'ai', 'artificial intelligence'],
-    'project management': ['project management', 'pmp', 'agile', 'scrum', 'kanban'],
-    'sales': ['sales', 'business development', 'account management', 'revenue'],
-    'marketing': ['marketing', 'digital marketing', 'seo', 'sem', 'social media'],
-    'finance': ['finance', 'accounting', 'financial analysis', 'cpa', 'cfa'],
-}
-
-# Common stop words to filter
+# Stop words
 STOP_WORDS = {
     'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'will', 
     'are', 'was', 'were', 'been', 'has', 'had', 'can', 'could', 'would', 
     'should', 'may', 'might', 'must', 'shall', 'but', 'not', 'all', 'any', 
-    'your', 'our', 'their', 'who', 'what', 'where', 'when', 'why', 'how',
-    'able', 'about', 'also', 'both', 'each', 'even', 'its', 'more', 'most',
-    'only', 'such', 'than', 'them', 'then', 'these', 'those', 'very', 'well'
+    'your', 'our', 'their', 'who', 'what', 'where', 'when', 'why', 'how'
 }
 
-def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
-    """Extract keywords with context awareness and skill grouping."""
+# Job role categories and their keywords
+JOB_ROLES = {
+    'sales': ['sales', 'business development', 'account manager', 'sales manager', 
+              'territory manager', 'key account', 'channel sales', 'inside sales',
+              'outside sales', 'revenue', 'quota', 'client acquisition'],
+    'hr': ['hr', 'human resources', 'recruiter', 'talent acquisition', 'hrbp',
+           'hr manager', 'recruitment', 'people operations', 'employee relations'],
+    'software': ['software engineer', 'developer', 'programmer', 'sde', 'full stack',
+                 'frontend', 'backend', 'software developer', 'application developer'],
+    'marketing': ['marketing', 'digital marketing', 'marketing manager', 'brand manager',
+                  'content marketing', 'growth marketing', 'performance marketing'],
+    'finance': ['finance', 'accountant', 'financial analyst', 'cfo', 'accounts manager',
+                'financial controller', 'treasury', 'audit'],
+    'operations': ['operations', 'operations manager', 'supply chain', 'logistics',
+                   'warehouse', 'procurement', 'inventory'],
+    'data': ['data analyst', 'data scientist', 'business analyst', 'data engineer',
+             'analytics', 'bi analyst', 'ml engineer'],
+}
+
+# Industry keywords
+INDUSTRIES = {
+    'chemical': ['chemical', 'chemicals', 'pharmaceutical', 'pharma', 'api', 'formulation'],
+    'technology': ['software', 'it', 'tech', 'saas', 'cloud', 'digital'],
+    'manufacturing': ['manufacturing', 'production', 'industrial', 'assembly'],
+    'healthcare': ['healthcare', 'medical', 'hospital', 'clinical', 'health'],
+    'finance': ['banking', 'financial services', 'fintech', 'insurance'],
+    'retail': ['retail', 'ecommerce', 'e-commerce', 'consumer goods'],
+}
+
+
+def extract_jd_role_and_industry(jd_text: str) -> Tuple[str, str]:
+    """
+    Extract the PRIMARY role and industry from JD.
+    Returns (role_category, industry)
+    """
     jd_lower = jd_text.lower()
-    keywords = []
     
-    # Extract multi-word technical skills first (higher priority)
-    multi_word_skills = [
-        'machine learning', 'data science', 'project management', 'business development',
-        'full stack', 'front end', 'back end', 'cloud computing', 'data analysis',
-        'business intelligence', 'customer service', 'sales management', 'digital marketing',
-        'financial analysis', 'human resources', 'supply chain', 'quality assurance'
+    # Detect role
+    role_scores = {}
+    for role, keywords in JOB_ROLES.items():
+        score = sum(jd_lower.count(kw) for kw in keywords)
+        if score > 0:
+            role_scores[role] = score
+    
+    primary_role = max(role_scores, key=role_scores.get) if role_scores else 'unknown'
+    
+    # Detect industry
+    industry_scores = {}
+    for industry, keywords in INDUSTRIES.items():
+        score = sum(jd_lower.count(kw) for kw in keywords)
+        if score > 0:
+            industry_scores[industry] = score
+    
+    primary_industry = max(industry_scores, key=industry_scores.get) if industry_scores else 'unknown'
+    
+    return primary_role, primary_industry
+
+
+def extract_resume_role(resume_text: str) -> str:
+    """
+    Extract candidate's PRIMARY role from resume (current/most recent title).
+    """
+    resume_lower = resume_text.lower()
+    lines = resume_text.split('\n')
+    
+    # Look for current role indicators in first 30 lines
+    for i, line in enumerate(lines[:30]):
+        line_lower = line.lower()
+        if any(indicator in line_lower for indicator in ['current', 'present', 'experience', 'working as']):
+            # Check next 3 lines for job title
+            for j in range(i, min(i+4, len(lines))):
+                for role, keywords in JOB_ROLES.items():
+                    if any(kw in lines[j].lower() for kw in keywords):
+                        return role
+    
+    # Fallback: count all role mentions
+    role_scores = {}
+    for role, keywords in JOB_ROLES.items():
+        score = sum(resume_lower.count(kw) for kw in keywords)
+        if score > 0:
+            role_scores[role] = score
+    
+    return max(role_scores, key=role_scores.get) if role_scores else 'unknown'
+
+
+def calculate_role_match_score(resume_text: str, jd_role: str) -> float:
+    """
+    Calculate how well the resume matches the JD role.
+    Returns 0-100 score.
+    """
+    if jd_role == 'unknown':
+        return 50.0  # Neutral if can't determine
+    
+    resume_role = extract_resume_role(resume_text)
+    
+    if resume_role == jd_role:
+        return 100.0  # Perfect match
+    
+    # Check for role keywords in resume
+    resume_lower = resume_text.lower()
+    jd_role_keywords = JOB_ROLES.get(jd_role, [])
+    
+    matches = sum(1 for kw in jd_role_keywords if kw in resume_lower)
+    total = len(jd_role_keywords)
+    
+    if total == 0:
+        return 50.0
+    
+    score = (matches / total) * 100
+    return round(min(score, 100.0), 1)
+
+
+def calculate_industry_match_score(resume_text: str, jd_industry: str) -> float:
+    """
+    Calculate industry relevance score.
+    Returns 0-100 score.
+    """
+    if jd_industry == 'unknown':
+        return 50.0
+    
+    resume_lower = resume_text.lower()
+    industry_keywords = INDUSTRIES.get(jd_industry, [])
+    
+    matches = sum(resume_lower.count(kw) for kw in industry_keywords)
+    
+    # Score based on mentions
+    if matches >= 5:
+        return 100.0
+    elif matches >= 3:
+        return 75.0
+    elif matches >= 1:
+        return 50.0
+    else:
+        return 0.0
+
+
+def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
+    """Extract technical keywords from JD (skills, tools, qualifications)."""
+    jd_lower = jd_text.lower()
+    
+    # Technical skills to look for
+    technical_skills = [
+        'python', 'java', 'javascript', 'react', 'angular', 'node', 'aws', 'azure',
+        'sql', 'excel', 'powerbi', 'tableau', 'salesforce', 'sap', 'crm', 'erp',
+        'project management', 'agile', 'scrum', 'leadership', 'negotiation',
+        'b2b', 'b2c', 'market research', 'pricing', 'distribution', 'supply chain'
     ]
     
-    for skill in multi_word_skills:
-        if skill in jd_lower:
-            keywords.append(skill)
+    found_skills = [skill for skill in technical_skills if skill in jd_lower]
     
-    # Extract single words
-    words = re.findall(r'\b[a-z]{3,}\b', jd_lower)
+    # Extract other keywords
+    words = re.findall(r'\b[a-z]{4,}\b', jd_lower)
     words = [w for w in words if w not in STOP_WORDS]
     
-    # Weight words by context (skills section = higher weight)
-    word_weights = {}
+    word_freq = Counter(words)
+    top_words = [w for w, _ in word_freq.most_common(top_n - len(found_skills))]
     
-    # Find skills/requirements sections (higher weight)
-    skills_section = re.search(r'(skills?|requirements?|qualifications?):(.{0,500})', jd_lower)
-    if skills_section:
-        skills_words = re.findall(r'\b[a-z]{3,}\b', skills_section.group(2))
-        for word in skills_words:
-            if word not in STOP_WORDS:
-                word_weights[word] = word_weights.get(word, 0) + 3  # Triple weight
-    
-    # Count all words with base weight
-    for word in words:
-        word_weights[word] = word_weights.get(word, 0) + 1
-    
-    # Get top weighted words
-    sorted_words = sorted(word_weights.items(), key=lambda x: x[1], reverse=True)
-    keywords.extend([word for word, _ in sorted_words[:top_n - len(keywords)]])
-    
-    return keywords[:top_n]
+    return found_skills + top_words
 
 
 def score_resume_against_jd(resume_text: str, jd_keywords: List[str]) -> float:
-    """Score with semantic matching and synonym recognition."""
+    """Calculate keyword match percentage."""
     if not jd_keywords:
         return 0.0
     
     resume_lower = resume_text.lower()
-    hits = 0
-    
-    for keyword in jd_keywords:
-        # Direct match
-        if keyword in resume_lower:
-            hits += 1
-            continue
-        
-        # Check synonyms
-        for skill_group, synonyms in SKILL_SYNONYMS.items():
-            if keyword in synonyms:
-                # Check if any synonym exists in resume
-                if any(syn in resume_lower for syn in synonyms):
-                    hits += 1
-                    break
+    hits = sum(1 for kw in jd_keywords if kw in resume_lower)
     
     return round(100.0 * hits / len(jd_keywords), 1)
 
 
-def get_industry_relevance_score(resume_text: str, jd_text: str) -> Tuple[float, str]:
+def calculate_final_score(
+    role_match: float,
+    industry_match: float,
+    keyword_match: float,
+    experience_years: float
+) -> float:
     """
-    Calculate industry relevance to filter out candidates from wrong industries.
-    Returns (score, reasoning)
+    Calculate weighted final score with role/industry as PRIMARY factors.
+    
+    Weights:
+    - Role Match: 40%
+    - Industry Match: 25%
+    - Keyword Match: 25%
+    - Experience: 10%
     """
-    resume_lower = resume_text.lower()
-    jd_lower = jd_text.lower()
+    # If role match is below 30%, heavily penalize
+    if role_match < 30:
+        return round(role_match * 0.3, 1)  # Max 9 points if wrong role
     
-    # Define industry indicators
-    industries = {
-        'technology': ['software', 'developer', 'programming', 'coding', 'engineer', 'tech', 'it', 'computer'],
-        'healthcare': ['medical', 'hospital', 'healthcare', 'patient', 'clinical', 'nurse', 'doctor'],
-        'finance': ['banking', 'financial', 'investment', 'trading', 'accounting', 'audit', 'cpa'],
-        'sales': ['sales', 'revenue', 'quota', 'client acquisition', 'business development', 'crm'],
-        'marketing': ['marketing', 'campaign', 'brand', 'advertising', 'content', 'seo', 'social media'],
-        'operations': ['operations', 'logistics', 'supply chain', 'inventory', 'warehouse', 'procurement'],
-        'hr': ['hr', 'human resources', 'recruitment', 'talent', 'hiring', 'onboarding', 'payroll'],
-    }
+    # If industry match is below 30%, penalize
+    if industry_match < 30:
+        return round((role_match * 0.4 + industry_match * 0.3) * 0.6, 1)
     
-    # Detect JD industry
-    jd_industry_scores = {}
-    for industry, keywords in industries.items():
-        score = sum(1 for kw in keywords if kw in jd_lower)
-        if score > 0:
-            jd_industry_scores[industry] = score
+    # Normal weighted calculation
+    exp_score = min(100, (experience_years / 10) * 100)  # Cap at 10 years = 100
     
-    if not jd_industry_scores:
-        return 100.0, "Industry neutral"  # Can't determine, give benefit of doubt
+    final = (
+        role_match * 0.40 +
+        industry_match * 0.25 +
+        keyword_match * 0.25 +
+        exp_score * 0.10
+    )
     
-    primary_industry = max(jd_industry_scores, key=jd_industry_scores.get)
-    
-    # Check if resume matches primary industry
-    resume_match_score = sum(1 for kw in industries[primary_industry] if kw in resume_lower)
-    
-    # Calculate relevance percentage
-    max_possible = len(industries[primary_industry])
-    relevance_pct = min(100, (resume_match_score / max(max_possible * 0.3, 1)) * 100)
-    
-    if relevance_pct < 30:
-        reason = f"Low relevance to {primary_industry} industry"
-    elif relevance_pct < 60:
-        reason = f"Moderate relevance to {primary_industry}"
-    else:
-        reason = f"Strong {primary_industry} background"
-    
-    return round(relevance_pct, 1), reason
+    return round(final, 1)
