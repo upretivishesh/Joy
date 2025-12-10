@@ -89,215 +89,71 @@ if not st.session_state.logged_in:
     st.stop()
 
 
-# ---------- INTERACTIVE ANIMATED JOY BOT (CSS ONLY) ----------
+# ---------- MINIMALIST JOY BOT ----------
 
 st.markdown("""
 <style>
-@keyframes float {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-15px) rotate(2deg); }
-}
-
-@keyframes blink {
-    0%, 90%, 100% { transform: scaleY(1); }
-    93%, 97% { transform: scaleY(0.1); }
-}
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
+@keyframes subtleFloat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
 }
 
 .joy-bot {
     position: fixed;
-    bottom: 40px;
-    right: 40px;
-    width: 110px;
-    height: 110px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    bottom: 30px;
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    background: #1f2937;
     border-radius: 50%;
-    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: float 3s ease-in-out infinite;
+    animation: subtleFloat 4s ease-in-out infinite;
     cursor: pointer;
     z-index: 99999;
-    border: 4px solid #ffffff;
-    overflow: visible;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
 }
 
 .joy-bot:hover {
-    transform: scale(1.15) translateY(-5px);
-    box-shadow: 0 15px 40px rgba(102, 126, 234, 0.6);
+    background: #374151;
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
 
-.joy-bot:active {
-    transform: scale(0.95);
-}
-
-.joy-face {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.joy-eyes {
-    display: flex;
-    gap: 20px;
-    margin-bottom: 10px;
-    position: relative;
-}
-
-.joy-eye {
-    width: 14px;
-    height: 14px;
-    background: #ffffff;
-    border-radius: 50%;
-    animation: blink 4s infinite;
-    position: relative;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-
-.joy-eye::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 8px;
-    height: 8px;
-    background: #1a1a1a;
-    border-radius: 50%;
-}
-
-.joy-mouth {
-    width: 35px;
-    height: 18px;
-    border: 3px solid #ffffff;
-    border-top: none;
-    border-radius: 0 0 35px 35px;
-    margin-top: 5px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.joy-sparkle {
-    position: absolute;
-    width: 8px;
-    height: 8px;
-    background: white;
-    border-radius: 50%;
-    animation: pulse 2s ease-in-out infinite;
-}
-
-.sparkle-1 {
-    top: 15%;
-    right: 10%;
-    animation-delay: 0s;
-}
-
-.sparkle-2 {
-    top: 25%;
-    left: 8%;
-    animation-delay: 0.5s;
-}
-
-.sparkle-3 {
-    bottom: 20%;
-    right: 15%;
-    animation-delay: 1s;
+.joy-initial {
+    color: white;
+    font-size: 24px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .joy-speech {
     position: fixed;
-    bottom: 165px;
-    right: 30px;
-    background: white;
-    padding: 12px 20px;
-    border-radius: 20px;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-    font-size: 16px;
-    font-weight: 600;
-    color: #667eea;
+    bottom: 100px;
+    right: 25px;
+    background: #1f2937;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
     opacity: 0;
     pointer-events: none;
-    transition: all 0.3s ease;
+    transition: opacity 0.2s ease;
     z-index: 99998;
-    white-space: nowrap;
-    transform: translateY(10px);
 }
 
 .joy-speech.show {
     opacity: 1;
-    transform: translateY(0);
-}
-
-.joy-speech::after {
-    content: '';
-    position: absolute;
-    bottom: -8px;
-    right: 50px;
-    width: 0;
-    height: 0;
-    border-left: 10px solid transparent;
-    border-right: 10px solid transparent;
-    border-top: 10px solid white;
-}
-
-.joy-bot:hover .joy-eye::after {
-    animation: eyeMove 2s ease-in-out infinite;
-}
-
-@keyframes eyeMove {
-    0%, 100% { transform: translate(0, 0); }
-    25% { transform: translate(2px, -1px); }
-    50% { transform: translate(-2px, 0); }
-    75% { transform: translate(1px, 1px); }
-}
-
-.joy-label {
-    position: fixed;
-    bottom: 150px;
-    right: 165px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 8px 16px;
-    border-radius: 20px;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    font-size: 13px;
-    font-weight: 600;
-    color: white;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-    z-index: 99998;
-    white-space: nowrap;
-    transform: translateX(10px);
-}
-
-.joy-bot:hover ~ .joy-label {
-    opacity: 1;
-    transform: translateX(0);
 }
 </style>
 
-<div class="joy-bot" onclick="handleJoyClick()" title="Joy - Your AI Assistant">
-    <div class="joy-face">
-        <div class="joy-sparkle sparkle-1"></div>
-        <div class="joy-sparkle sparkle-2"></div>
-        <div class="joy-sparkle sparkle-3"></div>
-        <div class="joy-eyes">
-            <div class="joy-eye"></div>
-            <div class="joy-eye"></div>
-        </div>
-        <div class="joy-mouth"></div>
-    </div>
+<div class="joy-bot" onclick="handleJoyClick()">
+    <div class="joy-initial">J</div>
 </div>
-<div id="joy-speech" class="joy-speech">Hi, I'm Joy!</div>
-<div class="joy-label">Click me! 👋</div>
+<div id="joy-speech" class="joy-speech"></div>
 
 <script>
 let joyClickCount = 0;
@@ -310,16 +166,16 @@ function handleJoyClick() {
     if (joyClickCount === 1) {
         speechBubble.textContent = "um-";
     } else if (joyClickCount === 2) {
-        speechBubble.textContent = "um- seriously?";
+        speechBubble.textContent = "um- again?";
     } else if (joyClickCount >= 3) {
-        speechBubble.textContent = "what's up with you?! 😤";
+        speechBubble.textContent = "what's up with you?!";
     }
     
     speechBubble.classList.add('show');
     
     setTimeout(() => {
         speechBubble.classList.remove('show');
-    }, 2000);
+    }, 1800);
     
     clearTimeout(joyResetTimer);
     joyResetTimer = setTimeout(() => {
@@ -328,6 +184,7 @@ function handleJoyClick() {
 }
 </script>
 """, unsafe_allow_html=True)
+
 
 # ---------- MAIN PAGE HEADER ----------
 
