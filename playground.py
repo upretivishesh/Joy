@@ -21,18 +21,15 @@ from parser import (
 
 # ---------- PAGE CONFIG ----------
 
-st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
+st.set_page_config(page_title="Joy - Seven Hiring", layout="wide")
 
 # ---------- USER DATABASE ----------
 
 USERS = {
-    "joy": {"password": "joy123", "name": "Joy"},
-    "shalini": {"password": "shalini123", "name": "Shalini"},
-    "manish": {"password": "manish123", "name": "Manish"},
-    "anurag": {"password": "anurag123", "name": "Anurag"},
-    "yogita": {"password": "yogita123", "name": "Yogita"},
-    "vishesh": {"password": "vishesh123", "name": "Vishesh"},
-    "admin": {"password": "admin123", "name": "Admin"},
+    "gaurikaaggarwal": {"password": "Gaurika@$7", "name": "Gaurika"},
+    "yogitachauhan": {"password": "Yogita@$7", "name": "Yogita"},
+    "vishesh": {"password": "Vishesh@$11", "name": "Vishesh"},
+    "nilanjanadas": {"password": "Nilanjana@$7", "name": "Nilanjana"},
 }
 
 # ---------- LOGIN SYSTEM ----------
@@ -428,7 +425,7 @@ def detect_red_flags(text: str, experience_str: str) -> str:
 # Header with personalized greeting and logout
 col1, col2 = st.columns([4, 1])
 with col1:
-    st.title(f"Hi {st.session_state.user_name}! Here to help you with the screening process.")
+    st.title(f"Hi {st.session_state.user_name}!")
 with col2:
     if st.button("Logout", type="secondary"):
         st.session_state.logged_in = False
@@ -476,7 +473,7 @@ resume_files = st.file_uploader(
 )
 
 # Extra keywords
-extra_kw = st.text_input("Optional: Extra keywords to highlight (comma-separated)")
+extra_kw = st.text_input("Extra keywords to highlight (comma-separated)")
 
 if st.button("Screen Resumes", type="primary"):
     if not jd_text or not resume_files:
