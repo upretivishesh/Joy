@@ -5,25 +5,34 @@ import pandas as pd
 import re
 import warnings
 from collections import Counter
+import base64
 
 warnings.filterwarnings("ignore")
 
 from parser import (
     extract_jd_keywords,
     score_resume_against_jd,
+    get_role_from_jd,
+    get_industry_from_jd,
+    check_role_match,
+    check_industry_match,
+    calculate_weighted_score,
 )
 
 # ---------- PAGE CONFIG ----------
 
-st.set_page_config(page_title="Joy – Seven Hiring", layout="wide")
+st.set_page_config(page_title="Joy – Resume Screener", layout="wide")
 
 # ---------- USER DATABASE ----------
 
 USERS = {
-    "yogitachauhan": {"password": "Yogita@$7", "name": "Yogita"},
-    "visheshupreti": {"password": "Vishesh@$11", "name": "Vishesh"},
-    "gaurikaaggarwal": {"password": "Gaurika@$7", "name": "Gaurika"},
-    # Add more users here
+    "joy": {"password": "joy123", "name": "Joy"},
+    "shalini": {"password": "shalini123", "name": "Shalini"},
+    "manish": {"password": "manish123", "name": "Manish"},
+    "anurag": {"password": "anurag123", "name": "Anurag"},
+    "yogita": {"password": "yogita123", "name": "Yogita"},
+    "vishesh": {"password": "vishesh123", "name": "Vishesh"},
+    "admin": {"password": "admin123", "name": "Admin"},
 }
 
 # ---------- LOGIN SYSTEM ----------
@@ -163,7 +172,7 @@ section[data-testid="stSidebar"] {
 }
 </style>
 
-<div class="joy-bot" title="Joy - Seven Hiring">
+<div class="joy-bot" title="Joy - AI Resume Screener">
     <div class="joy-face">
         <div class="joy-eyes">
             <div class="joy-eye"></div>
@@ -414,48 +423,12 @@ def detect_red_flags(text: str, experience_str: str) -> str:
     return ", ".join(flags) if flags else "None"
 
 
-def skills_matching(text: str, jd_keywords: list) -> tuple:
-    """Return matched skills and match percentage."""
-    text_lower = text.lower()
-    matched = [kw for kw in jd_keywords if kw in text_lower]
-    match_pct = round(100 * len(matched) / len(jd_keywords), 1) if jd_keywords else 0
-    return matched, match_pct
-
-
-def scoring_breakdown(resume_text: str, jd_keywords: list, experience_str: str, education: str) -> str:
-    """Detailed scoring breakdown."""
-    components = []
-    
-    _, skills_match = skills_matching(resume_text, jd_keywords)
-    components.append(f"Skills:{skills_match}%")
-    
-    try:
-        exp_val = float(experience_str.replace(" Years", "").replace("-", "0"))
-        if exp_val >= 5:
-            exp_score = 100
-        elif exp_val >= 2:
-            exp_score = 75
-        elif exp_val >= 1:
-            exp_score = 50
-        else:
-            exp_score = 25
-        components.append(f"Exp:{exp_score}%")
-    except:
-        components.append("Exp:N/A")
-    
-    edu_scores = {"PhD": 100, "Master's": 80, "Bachelor's": 60, "Diploma": 40}
-    edu_score = edu_scores.get(education, 0)
-    components.append(f"Edu:{edu_score}%")
-    
-    return " | ".join(components)
-
-
 # ---------- STREAMLIT UI ----------
 
 # Header with personalized greeting and logout
 col1, col2 = st.columns([4, 1])
 with col1:
-    st.title(f"Hi {st.session_state.user_name}!")
+    st.title(f"Hi {st.session_state.user_name}! Here to help you with the screening process.")
 with col2:
     if st.button("Logout", type="secondary"):
         st.session_state.logged_in = False
@@ -464,7 +437,7 @@ with col2:
 
 st.markdown(
     "Upload **one JD** (or paste text) and **multiple resumes**. "
-    "Joy will perform comprehensive screening with 10+ data points."
+    "Joy will perform intelligent screening with role & industry matching."
 )
 
 # JD Input
@@ -487,7 +460,7 @@ else:
     jd_text_input = st.text_area(
         "Paste Job Description here:",
         height=250,
-        placeholder="Paste your JD text here...\n\nExample:\nWe are looking for a Senior Python Developer with 5+ years experience in Django, AWS, Docker...",
+        placeholder="Paste your JD text here...",
     )
     if jd_text_input.strip():
         jd_text = jd_text_input
@@ -509,17 +482,30 @@ if st.button("Screen Resumes", type="primary"):
     if not jd_text or not resume_files:
         st.error("Please provide both a JD (file or text) and at least one resume.")
     else:
-        with st.spinner("Processing resumes with advanced screening..."):
+        with st.spinner("Analyzing JD and screening resumes..."):
+            # Detect JD role and industry
+            jd_role = get_role_from_jd(jd_text)
+            jd_industry = get_industry_from_jd(jd_text)
             jd_keywords = extract_jd_keywords(jd_text)
+            
+            st.info(f"**JD Analysis:** Role = `{jd_role.title()}` | Industry = `{jd_industry.title()}`")
 
             extra_list = []
             if extra_kw.strip():
                 extra_list = [w.strip().lower() for w in extra_kw.split(",") if w.strip()]
 
+            # Store uploaded files for download links
+            if 'resume_file_objects' not in st.session_state:
+                st.session_state.resume_file_objects = {}
+            
             rows = []
             for uf in resume_files:
                 text = read_any_fp(uf)
                 resume_name = uf.name
+                
+                # Store file object
+                uf.seek(0)
+                st.session_state.resume_file_objects[resume_name] = uf.read()
 
                 name = extract_name(text, resume_name)
                 email = extract_email(text)
@@ -532,9 +518,21 @@ if st.button("Screen Resumes", type="primary"):
                 top_skills = extract_top_skills(text)
                 red_flags = detect_red_flags(text, experience)
                 
-                matched_skills, skills_match_pct = skills_matching(text, jd_keywords)
-                jd_score = score_resume_against_jd(text, jd_keywords)
-                breakdown = scoring_breakdown(text, jd_keywords, experience, education)
+                # NEW SCORING SYSTEM
+                role_match, role_score, role_reason = check_role_match(text, jd_role)
+                industry_match, industry_score, industry_reason = check_industry_match(text, jd_industry)
+                keyword_match = score_resume_against_jd(text, jd_keywords)
+                
+                try:
+                    exp_float = float(experience.replace(" Years", "").replace("-", "0"))
+                except:
+                    exp_float = 0.0
+                
+                final_score = calculate_weighted_score(
+                    role_match, role_score,
+                    industry_match, industry_score,
+                    keyword_match, exp_float
+                )
                 
                 extra_hits = []
                 if extra_list:
@@ -548,45 +546,81 @@ if st.button("Screen Resumes", type="primary"):
                     "Email": email,
                     "Mobile": mobile,
                     "Experience": experience,
+                    "Final Score": final_score,
+                    "Role Match": "✓" if role_match else "✗",
+                    "Role %": role_score,
+                    "Industry Match": "✓" if industry_match else "✗",
+                    "Industry %": industry_score,
+                    "Keyword %": keyword_match,
                     "Education": education,
                     "Notice Period": notice_period,
                     "Current Company": current_company,
-                    "JD Match %": jd_score,
-                    "Matched Skills": ", ".join(matched_skills[:5]) if matched_skills else "-",
                     "Top Skills": top_skills,
                     "Employment Gaps": gaps,
                     "Red Flags": red_flags,
-                    "Score Breakdown": breakdown,
                     "Extra Keywords": ", ".join(extra_hits) if extra_hits else "-",
                     "Resume File": resume_name,
                 })
 
         df = pd.DataFrame(rows)
-        df = df.sort_values(by="JD Match %", ascending=False).reset_index(drop=True)
+        df = df.sort_values(by="Final Score", ascending=False).reset_index(drop=True)
         df.insert(0, "Rank", range(1, len(df) + 1))
 
         st.success(f"Screening complete! Processed {len(df)} resumes.")
         
-        st.dataframe(df, width="stretch", hide_index=True, height=400)
+        # Display with clickable resume names
+        st.markdown("### Screening Results")
+        st.markdown("**Click on resume names below to download**")
         
+        # Create download links column
+        def make_download_link(filename):
+            if filename in st.session_state.resume_file_objects:
+                b64 = base64.b64encode(st.session_state.resume_file_objects[filename]).decode()
+                return f'<a href="data:application/pdf;base64,{b64}" download="{filename}">{filename}</a>'
+            return filename
+        
+        # Display table
+        st.dataframe(df, use_container_width=True, hide_index=True, height=400)
+        
+        # Download links section
+        st.markdown("### Download Individual Resumes")
+        for idx, row in df.iterrows():
+            filename = row['Resume File']
+            col1, col2, col3 = st.columns([2, 2, 6])
+            with col1:
+                st.write(f"**{row['Name']}**")
+            with col2:
+                st.write(f"Score: {row['Final Score']}")
+            with col3:
+                if filename in st.session_state.resume_file_objects:
+                    st.download_button(
+                        label=f"📄 Download {filename}",
+                        data=st.session_state.resume_file_objects[filename],
+                        file_name=filename,
+                        mime="application/pdf",
+                        key=f"download_{idx}"
+                    )
+        
+        # CSV export
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download Detailed Report (CSV)",
+            label="📊 Download Full Report (CSV)",
             data=csv,
-            file_name="joy_advanced_screening.csv",
+            file_name="joy_screening_report.csv",
             mime="text/csv",
         )
         
+        # Summary metrics
         st.markdown("### Screening Summary")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Resumes", len(df))
         with col2:
-            avg_score = df["JD Match %"].mean()
-            st.metric("Avg JD Match", f"{avg_score:.1f}%")
+            avg_score = df["Final Score"].mean()
+            st.metric("Avg Score", f"{avg_score:.1f}")
         with col3:
-            high_match = len(df[df["JD Match %"] >= 70])
-            st.metric("High Match (≥70%)", high_match)
+            high_match = len(df[df["Final Score"] >= 60])
+            st.metric("Strong Matches (≥60)", high_match)
         with col4:
-            with_flags = len(df[df["Red Flags"] != "None"])
-            st.metric("With Red Flags", with_flags)
+            role_industry_match = len(df[(df["Role Match"] == "✓") & (df["Industry Match"] == "✓")])
+            st.metric("Perfect Fit", role_industry_match)
