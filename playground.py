@@ -89,86 +89,29 @@ if not st.session_state.logged_in:
     st.stop()
 
 
-# ---------- FLOATING JOY BOT ----------
+# ---------- INTERACTIVE 3D JOY BOT ----------
 
 st.markdown("""
 <style>
-@keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-}
-
-@keyframes blink {
-    0%, 90%, 100% { opacity: 1; }
-    95% { opacity: 0; }
-}
-
-.joy-bot {
+#joy-container {
     position: fixed;
-    bottom: 40px;
+    bottom: 20px;
     right: 40px;
-    width: 90px;
-    height: 90px;
-    background: #ffffff;
-    border-radius: 50%;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: float 3s ease-in-out infinite;
-    cursor: pointer;
+    width: 120px;
+    height: 120px;
     z-index: 99999;
-    border: 3px solid #e0e0e0;
-    overflow: visible;
+    cursor: pointer;
 }
 
-.joy-bot:hover {
-    transform: scale(1.1);
-    transition: transform 0.3s ease;
-}
-
-.joy-face {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.joy-eyes {
-    display: flex;
-    gap: 18px;
-    margin-bottom: 8px;
-}
-
-.joy-eye {
-    width: 12px;
-    height: 12px;
-    background: #1a1a1a;
-    border-radius: 50%;
-    animation: blink 4s infinite;
-}
-
-.joy-mouth {
-    width: 30px;
-    height: 15px;
-    border: 3px solid #1a1a1a;
-    border-top: none;
-    border-radius: 0 0 30px 30px;
-    margin-top: 2px;
-}
-
-.joy-label {
+.joy-speech {
     position: fixed;
-    bottom: 140px;
+    bottom: 150px;
     right: 30px;
     background: white;
-    padding: 10px 18px;
+    padding: 12px 20px;
     border-radius: 20px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    font-size: 13px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    font-size: 15px;
     font-weight: 500;
     color: #333;
     opacity: 0;
@@ -178,30 +121,195 @@ st.markdown("""
     white-space: nowrap;
 }
 
-.joy-bot:hover ~ .joy-label {
+.joy-speech.show {
     opacity: 1;
 }
 
-section[data-testid="stSidebar"] {
-    z-index: 999 !important;
-}
-
-.main .block-container {
-    z-index: 1 !important;
+.joy-speech::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    right: 50px;
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid white;
 }
 </style>
 
-<div class="joy-bot" title="Joy - AI Resume Screener">
-    <div class="joy-face">
-        <div class="joy-eyes">
-            <div class="joy-eye"></div>
-            <div class="joy-eye"></div>
-        </div>
-        <div class="joy-mouth"></div>
-    </div>
-</div>
-<div class="joy-label">Hi, I am Joy. Just observing.</div>
+<div id="joy-container"></div>
+<div id="joy-speech" class="joy-speech">Hi, I'm Joy!</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function() {
+    let scene, camera, renderer, joyHead, leftEye, rightEye, mouth;
+    let mouseX = 0, mouseY = 0;
+    let clickCount = 0;
+    let resetTimer;
+    
+    function init() {
+        const container = document.getElementById('joy-container');
+        if (!container) return;
+        
+        // Scene setup
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+        camera.position.z = 5;
+        
+        renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(120, 120);
+        renderer.setClearColor(0x000000, 0);
+        container.appendChild(renderer.domElement);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0xffffff, 0.8);
+        pointLight.position.set(5, 5, 5);
+        scene.add(pointLight);
+        
+        // Create Joy's head (sphere)
+        const headGeometry = new THREE.SphereGeometry(1.2, 32, 32);
+        const headMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff,
+            shininess: 100
+        });
+        joyHead = new THREE.Mesh(headGeometry, headMaterial);
+        scene.add(joyHead);
+        
+        // Create eyes (smaller spheres)
+        const eyeGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+        const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0x1a1a1a });
+        
+        leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+        leftEye.position.set(-0.3, 0.2, 1);
+        joyHead.add(leftEye);
+        
+        rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+        rightEye.position.set(0.3, 0.2, 1);
+        joyHead.add(rightEye);
+        
+        // Create mouth (torus for smile)
+        const mouthGeometry = new THREE.TorusGeometry(0.35, 0.05, 16, 32, Math.PI);
+        const mouthMaterial = new THREE.MeshPhongMaterial({ color: 0x1a1a1a });
+        mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+        mouth.position.set(0, -0.3, 0.95);
+        mouth.rotation.x = Math.PI;
+        joyHead.add(mouth);
+        
+        // Mouse move tracking
+        document.addEventListener('mousemove', onMouseMove);
+        
+        // Click handler
+        container.addEventListener('click', onJoyClick);
+        
+        // Animate
+        animate();
+    }
+    
+    function onMouseMove(event) {
+        mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+        mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+    }
+    
+    function onJoyClick() {
+        clickCount++;
+        const speechBubble = document.getElementById('joy-speech');
+        
+        if (clickCount === 1) {
+            speechBubble.textContent = "um-";
+            speechBubble.classList.add('show');
+            
+            // Surprised expression
+            leftEye.scale.set(1.5, 1.5, 1.5);
+            rightEye.scale.set(1.5, 1.5, 1.5);
+            mouth.scale.set(1.2, 1.2, 1.2);
+            
+            setTimeout(() => {
+                leftEye.scale.set(1, 1, 1);
+                rightEye.scale.set(1, 1, 1);
+                mouth.scale.set(1, 1, 1);
+            }, 500);
+            
+        } else if (clickCount === 2) {
+            speechBubble.textContent = "um- again?";
+            
+            // Confused expression
+            leftEye.position.x = -0.35;
+            rightEye.position.x = 0.25;
+            
+            setTimeout(() => {
+                leftEye.position.x = -0.3;
+                rightEye.position.x = 0.3;
+            }, 800);
+            
+        } else if (clickCount >= 3) {
+            speechBubble.textContent = "what's up with you?!";
+            
+            // Annoyed expression
+            joyHead.rotation.z = Math.PI * 0.1;
+            leftEye.scale.set(0.7, 1.3, 1);
+            rightEye.scale.set(0.7, 1.3, 1);
+            mouth.rotation.x = 0;
+            
+            setTimeout(() => {
+                joyHead.rotation.z = 0;
+                leftEye.scale.set(1, 1, 1);
+                rightEye.scale.set(1, 1, 1);
+                mouth.rotation.x = Math.PI;
+            }, 1000);
+        }
+        
+        setTimeout(() => {
+            speechBubble.classList.remove('show');
+        }, 2000);
+        
+        // Reset click count after 5 seconds
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => {
+            clickCount = 0;
+        }, 5000);
+    }
+    
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        // Make Joy look at cursor
+        const targetRotationY = mouseX * 0.5;
+        const targetRotationX = mouseY * 0.3;
+        
+        joyHead.rotation.y += (targetRotationY - joyHead.rotation.y) * 0.1;
+        joyHead.rotation.x += (targetRotationX - joyHead.rotation.x) * 0.1;
+        
+        // Subtle floating animation
+        joyHead.position.y = Math.sin(Date.now() * 0.001) * 0.1;
+        
+        // Blinking animation
+        if (Math.random() > 0.99) {
+            leftEye.scale.y = 0.1;
+            rightEye.scale.y = 0.1;
+            setTimeout(() => {
+                leftEye.scale.y = 1;
+                rightEye.scale.y = 1;
+            }, 150);
+        }
+        
+        renderer.render(scene, camera);
+    }
+    
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+</script>
 """, unsafe_allow_html=True)
+
 
 # ---------- FILE READING ----------
 
