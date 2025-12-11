@@ -90,18 +90,6 @@ if not st.session_state.logged_in:
 
 # ---------- MAIN PAGE HEADER ----------
 
-# Add logout button in top-right corner
-st.markdown("""
-<style>
-.logout-btn {
-    position: fixed;
-    top: 70px;
-    right: 20px;
-    z-index: 9999;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # Create logout in sidebar to position it properly
 with st.sidebar:
     st.markdown("### User Session")
