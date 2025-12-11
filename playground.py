@@ -100,7 +100,7 @@ with st.sidebar:
         st.rerun()
 
 # Main title
-st.title(f"Hi {st.session_state.user_name}! 👋")
+st.title(f"Hi {st.session_state.user_name}!")
 st.markdown("### Here to help you with the screening process")
 
 st.markdown("---")
@@ -109,7 +109,6 @@ st.markdown(
     "Upload **one JD** (or paste text) and **multiple resumes**. "
     "Joy will perform intelligent screening with role & industry matching."
 )
-
 
 # ---------- FILE READING ----------
 
@@ -351,40 +350,6 @@ def detect_red_flags(text: str, experience_str: str) -> str:
 
 
 # ---------- STREAMLIT UI ----------
-
-# ---------- MAIN PAGE HEADER ----------
-
-# Add logout button in top-right corner
-st.markdown("""
-<style>
-.logout-btn {
-    position: fixed;
-    top: 70px;
-    right: 20px;
-    z-index: 9999;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Create logout in sidebar to position it properly
-with st.sidebar:
-    st.markdown("### User Session")
-    st.write(f"**Logged in as:** {st.session_state.user_name}")
-    if st.button("🚪 Logout", type="secondary", use_container_width=True, key="logout_sidebar"):
-        st.session_state.logged_in = False
-        st.session_state.user_name = ""
-        st.rerun()
-
-# Main title
-st.title(f"Hi {st.session_state.user_name}! 👋")
-st.markdown("### Here to help you with the screening process")
-
-st.markdown("---")
-
-st.markdown(
-    "Upload **one JD** (or paste text) and **multiple resumes**. "
-    "Joy will perform intelligent screening with role & industry matching."
-)
 
 # JD Input
 st.subheader("Job Description")
