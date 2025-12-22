@@ -461,7 +461,7 @@ if st.button("Screen Resumes", type="primary"):
             with col1:
                 st.metric("Total Resumes", len(df))
             with col2:
-                st.metric("Avg Score", f"{df['Final Score"].mean():.1f}")
+                st.metric("Avg Score", f"{df['Final Score'].mean():.1f}")
             with col3:
                 st.metric("Strong Matches (≥60)", len(df[df["Final Score"] >= 60]))
             with col4:
