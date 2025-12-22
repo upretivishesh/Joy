@@ -5,15 +5,15 @@ import re
 # ---------- BASIC UTILITIES ----------
 
 STOP_WORDS = {
-    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'will', 'are',
-    'was', 'were', 'been', 'has', 'had', 'can', 'could', 'would', 'should',
-    'may', 'might', 'must', 'shall', 'not', 'all', 'any', 'your', 'our',
-    'their', 'who', 'what', 'where', 'when', 'why', 'how'
+    "the", "and", "for", "with", "this", "that", "from", "have", "will", "are",
+    "was", "were", "been", "has", "had", "can", "could", "would", "should",
+    "may", "might", "must", "shall", "not", "all", "any", "your", "our",
+    "their", "who", "what", "where", "when", "why", "how"
 }
 
 def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
     """Simple frequency‑based keyword extraction from JD."""
-    words = re.findall(r'\b[a-z]{3,}\b', jd_text.lower())
+    words = re.findall(r"\b[a-z]{3,}\b", jd_text.lower())
     words = [w for w in words if w not in STOP_WORDS]
     freq = Counter(words)
     return [w for w, _ in freq.most_common(top_n)]
@@ -29,59 +29,70 @@ def score_resume_against_jd(resume_text: str, jd_keywords: List[str]) -> float:
 # ---------- ROLE & INDUSTRY DETECTION ----------
 
 JOB_ROLE_KEYWORDS = {
-    'sales': [
-        'sales', 'business development', 'bdm', 'account manager',
-        'territory', 'key account', 'channel sales', 'export sales',
-        'client acquisition', 'revenue'
+    "sales": [
+        "sales", "business development", "bdm", "account manager",
+        "territory", "key account", "channel sales", "export sales",
+        "client acquisition", "revenue"
     ],
-    'hr': [
-        'hr', 'human resources', 'recruiter', 'talent acquisition',
-        'recruitment', 'people operations', 'hr manager', 'hrbp'
+    "hr": [
+        "hr", "human resources", "recruiter", "talent acquisition",
+        "recruitment", "people operations", "hr manager", "hrbp"
     ],
-    'technology': [
-        'software engineer', 'developer', 'programmer', 'sde',
-        'backend', 'frontend', 'full stack', 'devops'
+    "technology": [
+        "software engineer", "developer", "programmer", "sde",
+        "backend", "frontend", "full stack", "devops"
     ],
-    'marketing': [
-        'marketing', 'digital marketing', 'brand manager',
-        'performance marketing', 'seo', 'content marketing'
+    "marketing": [
+        "marketing", "digital marketing", "brand manager",
+        "performance marketing", "seo", "content marketing"
     ],
-    'operations': [
-        'operations', 'supply chain', 'logistics', 'warehouse',
-        'procurement', 'inventory'
+    "operations": [
+        "operations", "supply chain", "logistics", "warehouse",
+        "procurement", "inventory"
     ],
-    'finance': [
-        'finance', 'accountant', 'financial analyst', 'audit',
-        'controller', 'treasury'
+    "finance": [
+        "finance", "accountant", "financial analyst", "audit",
+        "controller", "treasury"
     ],
-    'data': [
-        'data analyst', 'data scientist', 'business analyst',
-        'analytics', 'data engineer', 'bi analyst'
+    "data": [
+        "data analyst", "data scientist", "business analyst",
+        "analytics", "data engineer", "bi analyst"
+    ],
+
+    # R&D / Technical Team Lead
+    "rnd_lead": [
+        "r&d", "research and development", "research & development",
+        "lab head", "laboratory head", "lab incharge", "lab in-charge",
+        "rd manager", "r&d manager", "r and d manager",
+        "team leader", "technical lead", "technical leader",
+        "product development", "formulation development",
+        "process development", "scale up", "scale-up",
+        "new product development", "npd"
     ],
 }
 
 INDUSTRY_KEYWORDS = {
-    'chemical': [
-        'chemical', 'chemicals', 'pharmaceutical', 'pharma', 'api',
-        'magnesium', 'calcium', 'potassium', 'chloride'
+    "chemical": [
+        "chemical", "chemicals", "pharmaceutical", "pharma", "api",
+        "magnesium", "calcium", "potassium", "chloride"
     ],
-    'jewelry': [
-        'jewelry', 'jewellery', 'diamond', 'gold', 'silver', 'gems'
+    "jewelry": [
+        "jewelry", "jewellery", "diamond", "gold", "silver", "gems"
     ],
-    'technology': [
-        'software', 'it', 'saas', 'tech', 'digital', 'application'
+    "technology": [
+        "software", "it", "saas", "tech", "digital", "application"
     ],
-    'manufacturing': [
-        'manufacturing', 'production', 'factory', 'industrial'
+    "manufacturing": [
+        "manufacturing", "production", "factory", "industrial"
     ],
-    'retail': [
-        'retail', 'ecommerce', 'e-commerce', 'store', 'consumer goods'
+    "retail": [
+        "retail", "ecommerce", "e-commerce", "store", "consumer goods"
     ],
-    'finance': [
-        'banking', 'fintech', 'insurance', 'bfsi', 'financial services'
+    "finance": [
+        "banking", "fintech", "insurance", "bfsi", "financial services"
     ],
-    'healthcare': [
-        'healthcare', 'hospital', 'medical', 'clinical', 'patient'
+    "healthcare": [
+        "healthcare", "hospital", "medical", "clinical", "patient"
     ],
 }
 
@@ -92,7 +103,15 @@ def get_role_from_jd(jd_text: str) -> str:
         s = sum(jd.count(kw) for kw in kws)
         if s > 0:
             scores[role] = s
-    return max(scores, key=scores.get) if scores else 'other'
+
+    if not scores:
+        return "other"
+
+    # Prefer R&D lead when there is decent R&D signal, even if HR words exist
+    if "rnd_lead" in scores and scores["rnd_lead"] >= 3:
+        return "rnd_lead"
+
+    return max(scores, key=scores.get)
 
 def get_industry_from_jd(jd_text: str) -> str:
     jd = jd_text.lower()
@@ -101,7 +120,7 @@ def get_industry_from_jd(jd_text: str) -> str:
         s = sum(jd.count(kw) for kw in kws)
         if s > 0:
             scores[ind] = s
-    return max(scores, key=scores.get) if scores else 'other'
+    return max(scores, key=scores.get) if scores else "other"
 
 def check_role_match(resume_text: str, jd_role: str) -> Tuple[bool, float, str]:
     """Return (is_match, score 0–100, explanation)."""
@@ -147,14 +166,10 @@ def calculate_weighted_score(
     semantic_score: float,
     experience_years: float,
 ) -> float:
-    """
-    Final score combining role, industry, keywords, semantic similarity and experience.
-    """
-    # Very strict: wrong role + very low semantics → basically reject
+    """Final score combining role, industry, keywords, semantic similarity and experience."""
     if not role_match and semantic_score < 25:
         return min(15.0, semantic_score * 0.2)
 
-    # Wrong industry and low semantics → heavy penalty
     if not industry_match and semantic_score < 30:
         return min(25.0, (role_score * 0.3 + semantic_score * 0.3))
 
