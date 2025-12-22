@@ -328,11 +328,23 @@ if st.button("Screen Resumes", type="primary"):
             jd_industry = get_industry_from_jd(jd_text)
             jd_keywords = extract_jd_keywords(jd_text)
 
-            st.info(f"**JD Analysis:** Role = `{jd_role.title()}` | Industry = `{jd_industry.title()}`")
+            ROLE_LABELS = {
+                "rnd_lead": "R&D Team Leader",
+                "hr": "HR",
+                "sales": "Sales",
+                "technology": "Technology",
+                "marketing": "Marketing",
+                "operations": "Operations",
+                "finance": "Finance",
+                "data": "Data / Analytics",
+                "other": "Other",
+            }
+            pretty_role = ROLE_LABELS.get(jd_role, jd_role.title())
+            st.info(f"**JD Analysis:** Role = `{pretty_role}` | Industry = `{jd_industry.title()}`")
 
             extra_list = [w.strip().lower() for w in extra_kw.split(",") if w.strip()] if extra_kw.strip() else []
 
-            if 'resume_file_objects' not in st.session_state:
+            if "resume_file_objects" not in st.session_state:
                 st.session_state.resume_file_objects = {}
 
             rows = []
@@ -407,13 +419,13 @@ if st.button("Screen Resumes", type="primary"):
                 })
 
         if not rows:
-            st.warning("No resumes passed the basic relevance filters. Try relaxing the JD or filters.")
+            st.warning("No resumes passed the relevance filters. Try relaxing the JD or filters.")
         else:
             df = pd.DataFrame(rows)
             df = df.sort_values(by="Final Score", ascending=False).reset_index(drop=True)
             df.insert(0, "Rank", range(1, len(df) + 1))
 
-            st.success(f"Screening complete! Processed {len(rows)} relevant resumes.")
+            st.success(f"Screening complete! Processed {len(rows)} resumes.")
 
             st.markdown("### Screening Results")
             st.dataframe(df, use_container_width=True, hide_index=True, height=400)
@@ -449,7 +461,7 @@ if st.button("Screen Resumes", type="primary"):
             with col1:
                 st.metric("Total Resumes", len(df))
             with col2:
-                st.metric("Avg Score", f"{df['Final Score'].mean():.1f}")
+                st.metric("Avg Score", f"{df['Final Score"].mean():.1f}")
             with col3:
                 st.metric("Strong Matches (≥60)", len(df[df["Final Score"] >= 60]))
             with col4:
