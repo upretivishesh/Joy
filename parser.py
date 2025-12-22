@@ -2,143 +2,141 @@ from typing import List, Tuple
 from collections import Counter
 import re
 
-STOP_WORDS = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'will', 'are', 'was', 'were', 'been', 'has', 'had'}
+# ---------- BASIC UTILITIES ----------
+
+STOP_WORDS = {
+    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'will', 'are',
+    'was', 'were', 'been', 'has', 'had', 'can', 'could', 'would', 'should',
+    'may', 'might', 'must', 'shall', 'not', 'all', 'any', 'your', 'our',
+    'their', 'who', 'what', 'where', 'when', 'why', 'how'
+}
 
 def extract_jd_keywords(jd_text: str, top_n: int = 30) -> List[str]:
-    """Basic keyword extraction."""
+    """Simple frequency‑based keyword extraction from JD."""
     words = re.findall(r'\b[a-z]{3,}\b', jd_text.lower())
     words = [w for w in words if w not in STOP_WORDS]
-    counter = Counter(words)
-    return [w for w, _ in counter.most_common(top_n)]
+    freq = Counter(words)
+    return [w for w, _ in freq.most_common(top_n)]
 
 def score_resume_against_jd(resume_text: str, jd_keywords: List[str]) -> float:
-    """Basic keyword match."""
+    """Keyword overlap score (0–100)."""
     if not jd_keywords:
         return 0.0
-    resume_lower = resume_text.lower()
-    hits = sum(1 for kw in jd_keywords if kw in resume_lower)
+    text = resume_text.lower()
+    hits = sum(1 for kw in jd_keywords if kw in text)
     return round(100.0 * hits / len(jd_keywords), 1)
 
+# ---------- ROLE & INDUSTRY DETECTION ----------
+
+JOB_ROLE_KEYWORDS = {
+    'sales': [
+        'sales', 'business development', 'bdm', 'account manager',
+        'territory', 'key account', 'channel sales', 'export sales',
+        'client acquisition', 'revenue'
+    ],
+    'hr': [
+        'hr', 'human resources', 'recruiter', 'talent acquisition',
+        'recruitment', 'people operations', 'hr manager', 'hrbp'
+    ],
+    'technology': [
+        'software engineer', 'developer', 'programmer', 'sde',
+        'backend', 'frontend', 'full stack', 'devops'
+    ],
+    'marketing': [
+        'marketing', 'digital marketing', 'brand manager',
+        'performance marketing', 'seo', 'content marketing'
+    ],
+    'operations': [
+        'operations', 'supply chain', 'logistics', 'warehouse',
+        'procurement', 'inventory'
+    ],
+    'finance': [
+        'finance', 'accountant', 'financial analyst', 'audit',
+        'controller', 'treasury'
+    ],
+    'data': [
+        'data analyst', 'data scientist', 'business analyst',
+        'analytics', 'data engineer', 'bi analyst'
+    ],
+}
+
+INDUSTRY_KEYWORDS = {
+    'chemical': [
+        'chemical', 'chemicals', 'pharmaceutical', 'pharma', 'api',
+        'magnesium', 'calcium', 'potassium', 'chloride'
+    ],
+    'jewelry': [
+        'jewelry', 'jewellery', 'diamond', 'gold', 'silver', 'gems'
+    ],
+    'technology': [
+        'software', 'it', 'saas', 'tech', 'digital', 'application'
+    ],
+    'manufacturing': [
+        'manufacturing', 'production', 'factory', 'industrial'
+    ],
+    'retail': [
+        'retail', 'ecommerce', 'e-commerce', 'store', 'consumer goods'
+    ],
+    'finance': [
+        'banking', 'fintech', 'insurance', 'bfsi', 'financial services'
+    ],
+    'healthcare': [
+        'healthcare', 'hospital', 'medical', 'clinical', 'patient'
+    ],
+}
+
 def get_role_from_jd(jd_text: str) -> str:
-    """Detect primary role from JD."""
-    jd_lower = jd_text.lower()
-    
-    # Check for specific role keywords
-    if any(kw in jd_lower for kw in ['business development', 'sales', 'account manager', 'territory', 'revenue', 'export sales']):
-        return 'sales'
-    elif any(kw in jd_lower for kw in ['hr', 'human resource', 'recruiter', 'talent acquisition', 'recruitment']):
-        return 'hr'
-    elif any(kw in jd_lower for kw in ['software', 'developer', 'engineer', 'programmer', 'coding', 'backend', 'frontend']):
-        return 'technology'
-    elif any(kw in jd_lower for kw in ['marketing', 'brand', 'digital marketing', 'content', 'seo', 'social media']):
-        return 'marketing'
-    elif any(kw in jd_lower for kw in ['operations', 'logistics', 'supply chain', 'warehouse', 'procurement']):
-        return 'operations'
-    elif any(kw in jd_lower for kw in ['finance', 'accounting', 'audit', 'financial analyst', 'controller']):
-        return 'finance'
-    elif any(kw in jd_lower for kw in ['data analyst', 'data scientist', 'business analyst', 'analytics']):
-        return 'data'
-    
-    return 'other'
+    jd = jd_text.lower()
+    scores = {}
+    for role, kws in JOB_ROLE_KEYWORDS.items():
+        s = sum(jd.count(kw) for kw in kws)
+        if s > 0:
+            scores[role] = s
+    return max(scores, key=scores.get) if scores else 'other'
 
 def get_industry_from_jd(jd_text: str) -> str:
-    """Detect industry from JD."""
-    jd_lower = jd_text.lower()
-    
-    if any(kw in jd_lower for kw in ['chemical', 'chemicals', 'pharmaceutical', 'pharma', 'api', 'reagent', 'compound', 'magnesium', 'calcium', 'potassium']):
-        return 'chemical'
-    elif any(kw in jd_lower for kw in ['jewelry', 'jewellery', 'diamond', 'gold', 'gems', 'ornament', 'silver']):
-        return 'jewelry'
-    elif any(kw in jd_lower for kw in ['software', 'it', 'saas', 'tech', 'technology', 'digital']):
-        return 'technology'
-    elif any(kw in jd_lower for kw in ['manufacturing', 'production', 'factory', 'industrial']):
-        return 'manufacturing'
-    elif any(kw in jd_lower for kw in ['retail', 'ecommerce', 'e-commerce', 'consumer goods']):
-        return 'retail'
-    elif any(kw in jd_lower for kw in ['banking', 'finance', 'fintech', 'insurance', 'bfsi']):
-        return 'finance'
-    elif any(kw in jd_lower for kw in ['healthcare', 'hospital', 'medical', 'clinical']):
-        return 'healthcare'
-    
-    return 'other'
+    jd = jd_text.lower()
+    scores = {}
+    for ind, kws in INDUSTRY_KEYWORDS.items():
+        s = sum(jd.count(kw) for kw in kws)
+        if s > 0:
+            scores[ind] = s
+    return max(scores, key=scores.get) if scores else 'other'
 
 def check_role_match(resume_text: str, jd_role: str) -> Tuple[bool, float, str]:
-    """
-    Check if resume matches the JD role.
-    Returns (is_match, score, reason)
-    """
-    resume_lower = resume_text.lower()
-    
-    role_keywords = {
-        'sales': ['sales', 'business development', 'account manager', 'revenue', 'territory manager', 
-                  'key account', 'sales manager', 'business development manager', 'export sales', 'client acquisition'],
-        'hr': ['hr', 'human resource', 'recruiter', 'talent acquisition', 'recruitment', 'hrbp', 'employee relations'],
-        'technology': ['software engineer', 'developer', 'programmer', 'sde', 'tech lead', 'backend', 'frontend', 'full stack'],
-        'marketing': ['marketing', 'brand manager', 'digital marketing', 'content marketing', 'seo', 'social media'],
-        'operations': ['operations manager', 'supply chain', 'logistics', 'warehouse', 'procurement', 'inventory'],
-        'finance': ['finance', 'accountant', 'financial analyst', 'audit', 'controller', 'treasury'],
-        'data': ['data analyst', 'data scientist', 'business analyst', 'analytics', 'data engineer', 'bi analyst'],
-    }
-    
-    if jd_role not in role_keywords:
-        return True, 50.0, "Cannot determine role"
-    
-    # Count how many role keywords appear in resume
-    required_keywords = role_keywords[jd_role]
-    matches = sum(1 for kw in required_keywords if kw in resume_lower)
-    
+    """Return (is_match, score 0–100, explanation)."""
+    if jd_role not in JOB_ROLE_KEYWORDS:
+        return True, 50.0, "JD role unclear"
+    text = resume_text.lower()
+    kws = JOB_ROLE_KEYWORDS[jd_role]
+    matches = sum(1 for kw in kws if kw in text)
     if matches == 0:
-        return False, 0.0, f"No {jd_role} experience found"
-    
-    # Calculate score
-    score = min(100, (matches / len(required_keywords)) * 200)
-    
+        return False, 0.0, f"No {jd_role} signals"
+    score = min(100.0, (matches / len(kws)) * 200.0)
     if score < 30:
-        return False, score, f"Minimal {jd_role} keywords"
-    
-    return True, score, f"Found {jd_role} experience"
+        return False, score, f"Weak {jd_role} signals"
+    return True, score, f"{jd_role} experience detected"
 
 def check_industry_match(resume_text: str, jd_industry: str) -> Tuple[bool, float, str]:
-    """
-    Check if resume matches the JD industry.
-    Returns (is_match, score, reason)
-    """
-    resume_lower = resume_text.lower()
-    
-    industry_keywords = {
-        'chemical': ['chemical', 'chemicals', 'pharmaceutical', 'pharma', 'api', 'export', 'import', 
-                     'magnesium', 'calcium', 'potassium', 'chloride', 'reagent', 'compound'],
-        'jewelry': ['jewelry', 'jewellery', 'diamond', 'gold', 'silver', 'gems', 'ornament'],
-        'technology': ['software', 'it', 'saas', 'tech', 'application', 'coding', 'digital'],
-        'manufacturing': ['manufacturing', 'production', 'factory', 'assembly', 'industrial'],
-        'retail': ['retail', 'ecommerce', 'e-commerce', 'consumer goods', 'store'],
-        'finance': ['banking', 'fintech', 'insurance', 'bfsi', 'investment'],
-        'healthcare': ['healthcare', 'hospital', 'medical', 'clinical', 'patient'],
-    }
-    
-    if jd_industry not in industry_keywords:
-        return True, 50.0, "Cannot determine industry"
-    
-    required_keywords = industry_keywords[jd_industry]
-    matches = sum(resume_lower.count(kw) for kw in required_keywords)
-    
+    """Return (is_match, score 0–100, explanation)."""
+    if jd_industry not in INDUSTRY_KEYWORDS:
+        return True, 50.0, "JD industry unclear"
+    text = resume_text.lower()
+    kws = INDUSTRY_KEYWORDS[jd_industry]
+    matches = sum(text.count(kw) for kw in kws)
     if matches == 0:
-        return False, 0.0, f"No {jd_industry} industry experience"
-    
-    # Score based on frequency
+        return False, 0.0, f"No {jd_industry} domain signals"
     if matches >= 5:
         score = 100.0
     elif matches >= 3:
         score = 75.0
-    elif matches >= 1:
-        score = 40.0
     else:
-        score = 0.0
-    
+        score = 40.0
     if score < 30:
-        return False, score, f"Minimal {jd_industry} exposure"
-    
-    return True, score, f"Has {jd_industry} experience"
+        return False, score, f"Weak {jd_industry} domain signals"
+    return True, score, f"{jd_industry} domain experience"
+
+# ---------- FINAL SCORING ----------
 
 def calculate_weighted_score(
     role_match: bool,
@@ -146,29 +144,27 @@ def calculate_weighted_score(
     industry_match: bool,
     industry_score: float,
     keyword_score: float,
-    experience_years: float
+    semantic_score: float,
+    experience_years: float,
 ) -> float:
     """
-    Calculate final weighted score.
-    STRICT: If role or industry doesn't match, heavily penalize.
+    Final score combining role, industry, keywords, semantic similarity and experience.
     """
-    
-    # HARD REJECTION: If role doesn't match, max score = 15
-    if not role_match:
-        return min(15.0, keyword_score * 0.3)
-    
-    # HARD REJECTION: If industry doesn't match, max score = 25
-    if not industry_match:
-        return min(25.0, (role_score * 0.3 + keyword_score * 0.2))
-    
-    # Normal weighted calculation if both match
-    exp_score = min(100, (experience_years / 15) * 100)
-    
+    # Very strict: wrong role + very low semantics → basically reject
+    if not role_match and semantic_score < 25:
+        return min(15.0, semantic_score * 0.2)
+
+    # Wrong industry and low semantics → heavy penalty
+    if not industry_match and semantic_score < 30:
+        return min(25.0, (role_score * 0.3 + semantic_score * 0.3))
+
+    exp_score = min(100.0, (experience_years / 15.0) * 100.0)
+
     final = (
-        role_score * 0.35 +
-        industry_score * 0.30 +
-        keyword_score * 0.25 +
+        role_score * 0.25 +
+        industry_score * 0.20 +
+        keyword_score * 0.20 +
+        semantic_score * 0.25 +
         exp_score * 0.10
     )
-    
     return round(final, 1)
