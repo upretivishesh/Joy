@@ -376,11 +376,12 @@ if st.button("Screen Resumes", type="primary"):
                 except:
                     exp_float = 0.0
 
-                # Hard filters: skip totally irrelevant profiles
+                # Relevance flag instead of dropping
+                is_relevant = True
                 if semantic_match < 15:
-                    continue
+                    is_relevant = False
                 if not role_match and semantic_match < 25:
-                    continue
+                    is_relevant = False
 
                 final_score = calculate_weighted_score(
                     role_match, role_score,
@@ -408,6 +409,7 @@ if st.button("Screen Resumes", type="primary"):
                     "Role %": role_score,
                     "Industry Match": "✓" if industry_match else "✗",
                     "Industry %": industry_score,
+                    "Relevant": "Yes" if is_relevant else "No",
                     "Education": education,
                     "Notice Period": notice_period,
                     "Current Company": current_company,
@@ -419,13 +421,24 @@ if st.button("Screen Resumes", type="primary"):
                 })
 
         if not rows:
-            st.warning("No resumes passed the relevance filters. Try relaxing the JD or filters.")
+            st.warning("No resumes could be processed.")
         else:
             df = pd.DataFrame(rows)
-            df = df.sort_values(by="Final Score", ascending=False).reset_index(drop=True)
+
+            # Relevant first, then by score
+            df["RelevantFlag"] = df["Relevant"].eq("Yes").astype(int)
+            df = df.sort_values(
+                by=["RelevantFlag", "Final Score"],
+                ascending=[False, False]
+            ).reset_index(drop=True)
+            df.drop(columns=["RelevantFlag"], inplace=True)
+
             df.insert(0, "Rank", range(1, len(df) + 1))
 
-            st.success(f"Screening complete! Processed {len(rows)} resumes.")
+            st.success(
+                f"Screening complete! Uploaded {len(resume_files)} resumes, "
+                f"showing {len(df)} (relevant first, then others)."
+            )
 
             st.markdown("### Screening Results")
             st.dataframe(df, use_container_width=True, hide_index=True, height=400)
