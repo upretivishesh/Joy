@@ -95,9 +95,10 @@ st.markdown(
     "Joy uses role, industry and semantic similarity to rank candidates."
 )
 
-# ---------- HELPERS ----------
+# ---------- HELPER FUNCTIONS ----------
 
 def read_any_fp(uploaded_file):
+    """Read text from PDF/DOCX/TXT uploads."""
     name = uploaded_file.name.lower()
     uploaded_file.seek(0)
     if name.endswith(".pdf"):
@@ -294,6 +295,7 @@ jd_input_method = st.radio(
 )
 
 jd_text = ""
+
 if jd_input_method == "Upload file (PDF/DOCX/TXT)":
     jd_file = st.file_uploader("Upload JD file", type=["pdf", "docx", "txt"], key="jd_file")
     if jd_file:
@@ -304,6 +306,7 @@ else:
         "Paste Job Description here:",
         height=250,
         placeholder="Paste your JD text here...",
+        key="jd_text_area"
     )
     if jd_text_input.strip():
         jd_text = jd_text_input
@@ -319,7 +322,7 @@ resume_files = st.file_uploader(
 
 extra_kw = st.text_input("Extra keywords to highlight (comma-separated)")
 
-if st.button("Screen Resumes", type="primary"):
+if st.button("Screen Resumes", type="primary", key="screen_btn"):
     if not jd_text or not resume_files:
         st.error("Please provide both a JD and at least one resume.")
     else:
@@ -332,151 +335,3 @@ if st.button("Screen Resumes", type="primary"):
                 "rnd_lead": "R&D Team Leader",
                 "hr": "HR",
                 "sales": "Sales",
-                "technology": "Technology",
-                "marketing": "Marketing",
-                "operations": "Operations",
-                "finance": "Finance",
-                "data": "Data / Analytics",
-                "other": "Other",
-            }
-            pretty_role = ROLE_LABELS.get(jd_role, jd_role.title())
-            st.info(f"**JD Analysis:** Role = `{pretty_role}` | Industry = `{jd_industry.title()}`")
-
-            extra_list = [w.strip().lower() for w in extra_kw.split(",") if w.strip()] if extra_kw.strip() else []
-
-            if "resume_file_objects" not in st.session_state:
-                st.session_state.resume_file_objects = {}
-
-            rows = []
-            for uf in resume_files:
-                text = read_any_fp(uf)
-                resume_name = uf.name
-
-                uf.seek(0)
-                st.session_state.resume_file_objects[resume_name] = uf.read()
-
-                name = extract_name(text, resume_name)
-                email = extract_email(text)
-                mobile = extract_mobile(text)
-                experience = extract_experience_years(text, filename=resume_name)
-                education = extract_education(text)
-                notice_period = extract_notice_period(text)
-                current_company = extract_current_company(text)
-                gaps = detect_gaps(text)
-                top_skills = extract_top_skills(text)
-                red_flags = detect_red_flags(text, experience)
-
-                role_match, role_score, _ = check_role_match(text, jd_role)
-                industry_match, industry_score, _ = check_industry_match(text, jd_industry)
-                keyword_match = score_resume_against_jd(text, jd_keywords)
-                semantic_match = jd_resume_similarity(jd_text, text)
-
-                try:
-                    exp_float = float(experience.replace(" Years", "").replace("-", "0"))
-                except:
-                    exp_float = 0.0
-
-                # Relevance flag instead of dropping
-                is_relevant = True
-                if semantic_match < 15:
-                    is_relevant = False
-                if not role_match and semantic_match < 25:
-                    is_relevant = False
-
-                final_score = calculate_weighted_score(
-                    role_match, role_score,
-                    industry_match, industry_score,
-                    keyword_match, semantic_match,
-                    exp_float
-                )
-
-                extra_hits = []
-                if extra_list:
-                    tl = text.lower()
-                    for w in extra_list:
-                        if w in tl:
-                            extra_hits.append(w)
-
-                rows.append({
-                    "Name": name,
-                    "Email": email,
-                    "Mobile": mobile,
-                    "Experience": experience,
-                    "Final Score": final_score,
-                    "Semantic %": semantic_match,
-                    "Keyword %": keyword_match,
-                    "Role Match": "✓" if role_match else "✗",
-                    "Role %": role_score,
-                    "Industry Match": "✓" if industry_match else "✗",
-                    "Industry %": industry_score,
-                    "Relevant": "Yes" if is_relevant else "No",
-                    "Education": education,
-                    "Notice Period": notice_period,
-                    "Current Company": current_company,
-                    "Top Skills": top_skills,
-                    "Employment Gaps": gaps,
-                    "Red Flags": red_flags,
-                    "Extra Keywords": ", ".join(extra_hits) if extra_hits else "-",
-                    "Resume File": resume_name,
-                })
-
-        if not rows:
-            st.warning("No resumes could be processed.")
-        else:
-            df = pd.DataFrame(rows)
-
-            # Relevant first, then by score
-            df["RelevantFlag"] = df["Relevant"].eq("Yes").astype(int)
-            df = df.sort_values(
-                by=["RelevantFlag", "Final Score"],
-                ascending=[False, False]
-            ).reset_index(drop=True)
-            df.drop(columns=["RelevantFlag"], inplace=True)
-
-            df.insert(0, "Rank", range(1, len(df) + 1))
-
-            st.success(
-                f"Screening complete! Uploaded {len(resume_files)} resumes, "
-                f"showing {len(df)} (relevant first, then others)."
-            )
-
-            st.markdown("### Screening Results")
-            st.dataframe(df, use_container_width=True, hide_index=True, height=400)
-
-            st.markdown("### Download Individual Resumes")
-            for idx, row in df.iterrows():
-                filename = row["Resume File"]
-                col1, col2, col3 = st.columns([2, 2, 6])
-                with col1:
-                    st.write(f"**{row['Name']}**")
-                with col2:
-                    st.write(f"Score: {row['Final Score']}")
-                with col3:
-                    if filename in st.session_state.resume_file_objects:
-                        st.download_button(
-                            label=f"📄 Download {filename}",
-                            data=st.session_state.resume_file_objects[filename],
-                            file_name=filename,
-                            mime="application/pdf",
-                            key=f"download_{idx}"
-                        )
-
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📊 Download Full Report (CSV)",
-                data=csv,
-                file_name="joy_screening_report.csv",
-                mime="text/csv",
-            )
-
-            st.markdown("### Screening Summary")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Resumes", len(df))
-            with col2:
-                st.metric("Avg Score", f"{df['Final Score'].mean():.1f}")
-            with col3:
-                st.metric("Strong Matches (≥60)", len(df[df["Final Score"] >= 60]))
-            with col4:
-                perfect = len(df[(df["Role Match"] == "✓") & (df["Industry Match"] == "✓")])
-                st.metric("Perfect Fit", perfect)
