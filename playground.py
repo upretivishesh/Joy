@@ -29,7 +29,6 @@ st.set_page_config(page_title="Joy - Seven Hiring", layout="wide")
 # ---------- USER DATABASE ----------
 
 USERS = {
-    "gaurika": {"password": "Gaurika@$7", "name": "Gaurika"},
     "vishesh": {"password": "Qwerty@0987", "name": "Vishesh"},
 }
 
