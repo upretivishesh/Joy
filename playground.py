@@ -31,6 +31,7 @@ st.set_page_config(page_title="Joy - Seven Hiring", layout="wide")
 USERS = {
     "vishesh": {"password": "Qwerty@0987", "name": "Vishesh"},
     "rubani": {"password": "Rubani@$67", "name": "Rubani"},
+    "amisha": {"password": "Amisha@$11", "name": "Amisha"}
 }
 
 # ---------- LOGIN SYSTEM ----------
