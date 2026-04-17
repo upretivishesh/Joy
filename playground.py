@@ -4,6 +4,10 @@ import pdfplumber
 from docx import Document
 from datetime import datetime
 import io
+import pytz
+
+ist = pytz.timezone("Asia/Kolkata")
+hour = datetime.now(ist).hour
 
 from parser import (
     extract_name, extract_email, extract_phone, extract_experience,
