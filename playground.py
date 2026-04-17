@@ -6,8 +6,6 @@ import io
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
-
 from parser import (
     extract_name, extract_email, extract_phone, extract_experience,
     score_resume_against_jd, get_role_from_jd, get_industry_from_jd,
@@ -213,7 +211,7 @@ def verdict_color(verdict):
 # PAGE: SCREEN RESUMES
 # ─────────────────────────────────────────────
 if page == "Screen Resumes":
-    hour = datetime.now().hour
+    hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
     greet = "Good Morning" if hour < 12 else ("Good Afternoon" if hour < 18 else "Good Evening")
     st.title(f"{greet}, {st.session_state.user_name.split()[0]}!")
     st.caption("AI-powered candidate screening by Seven Hiring")
