@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 from docx import Document
-from datetime import datetime
 import io
-import pytz
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-ist = pytz.timezone("Asia/Kolkata")
-hour = datetime.now(ist).hour
+hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
 
 from parser import (
     extract_name, extract_email, extract_phone, extract_experience,
