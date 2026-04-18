@@ -8,7 +8,7 @@ from docx import Document
 from datetime import datetime
 import json, re
 
-from parser import (
+from resume_parser import (
     extract_name, extract_email, extract_phone, extract_experience,
     score_resume_against_jd, get_role_from_jd, get_industry_from_jd,
     suggest_checks
