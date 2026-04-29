@@ -3,6 +3,7 @@ import pandas as pd
 import pdfplumber
 from docx import Document
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import re
 
 from resume_parser import (
@@ -361,18 +362,30 @@ page = st.session_state.page
 # ═════════════════════════════════════════════════════════════════
 if page == "home":
 
-    hour  = datetime.now().hour
-    greet = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
-    first = st.session_state.user_name.split()[0]
+    # Get current time in India timezone
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    hour = now.hour
 
-    st.markdown(f'<p class="greeting-title">{greet}, {first}.</p>', unsafe_allow_html=True)
-    st.markdown('<p class="greeting-sub">What would you like to do today?</p>', unsafe_allow_html=True)
+    # Greeting logic
+    if hour < 12:
+        greet = "Good morning"
+    elif hour < 18:
+        greet = "Good afternoon"
+    else:
+        greet = "Good evening"
 
-    # Show last Joy message if any
-    if st.session_state.chat_history:
-        last = next((t for t in reversed(st.session_state.chat_history) if t["role"] == "assistant"), None)
-        if last:
-            joy_bubble(last["content"])
+    # Get first name safely
+    first = st.session_state.get("user_name", "User").split()[0]
+
+    # Display
+    st.markdown(
+        f'<p class="greeting-title">{greet}, {first}.</p>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<p class="greeting-sub">What would you like to do today?</p>',
+        unsafe_allow_html=True
+    )
 
     # ── ACTION CARDS ──
     c1, c2, c3, c4 = st.columns(4)
