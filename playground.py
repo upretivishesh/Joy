@@ -13,7 +13,7 @@ from resume_parser import (
 )
 from gpt_utils import gpt_score_resume, gpt_generate_email, gpt_generate_call_script
 from email_utils import send_email
-from database import save_to_db, load_history, clear_history, get_history_stats
+from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history
 from joy_ai import get_greeting, joy_analyze_candidate
 from jd_generator import generate_jd, refine_jd
 
@@ -260,6 +260,21 @@ def check_login(u, p):
         return True, USERS[u]["name"]
     return False, None
 
+def is_valid_user(username_key):
+    """Check if a previously logged-in user still exists in USERS."""
+    return username_key in USERS
+
+# ─────────────────────────────────────────────────────────────────
+# PERSISTENT LOGIN via streamlit-cookies-controller
+# ─────────────────────────────────────────────────────────────────
+try:
+    from streamlit_cookies_controller import CookieController
+    cookies = CookieController()
+    COOKIES_OK = True
+except Exception:
+    cookies = None
+    COOKIES_OK = False
+
 # ─────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────
@@ -272,11 +287,28 @@ defaults = {
     "chat_history": [], "call_log": [],
     "generated_jd": "", "jd_role": "",
     "email_draft": "", "call_script": "",
-    "sender_name": ""
+    "sender_name": "",
+    "_session_restored": False
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── RESTORE SESSION FROM COOKIE (runs once per browser session) ──
+if not st.session_state._session_restored:
+    st.session_state._session_restored = True
+    if COOKIES_OK:
+        try:
+            saved_user = cookies.get("joy_user")
+            if saved_user and is_valid_user(saved_user):
+                st.session_state.logged_in    = True
+                st.session_state.username_key = saved_user
+                st.session_state.user_name    = USERS[saved_user]["name"]
+                st.session_state.sender_name  = USERS[saved_user]["name"]
+                # Restore chat history from disk
+                st.session_state.chat_history = load_chat_history(saved_user)
+        except Exception:
+            pass
 
 # ─────────────────────────────────────────────────────────────────
 # HELPERS
@@ -305,6 +337,10 @@ def go(page):
     st.session_state.page = page
     st.rerun()
 
+def persist_chat(history):
+    """Save chat history to disk every time a message is added."""
+    save_chat_history(st.session_state.username_key, history)
+
 # ─────────────────────────────────────────────────────────────────
 # LOGIN
 # ─────────────────────────────────────────────────────────────────
@@ -321,10 +357,19 @@ if not st.session_state.logged_in:
         if st.button("Sign in", use_container_width=True):
             ok, name = check_login(u.strip().lower(), p)
             if ok:
+                ukey = u.strip().lower()
                 st.session_state.logged_in    = True
                 st.session_state.user_name    = name
-                st.session_state.username_key = u.strip().lower()
+                st.session_state.username_key = ukey
                 st.session_state.sender_name  = name
+                # Restore chat history from disk
+                st.session_state.chat_history = load_chat_history(ukey)
+                # Set persistent cookie — stays until credentials removed
+                if COOKIES_OK:
+                    try:
+                        cookies.set("joy_user", ukey, max_age=60*60*24*365)  # 1 year
+                    except Exception:
+                        pass
                 st.rerun()
             else:
                 st.error("Invalid credentials.")
