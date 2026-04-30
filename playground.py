@@ -50,6 +50,9 @@ html, body, [class*="css"] {
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding: 2rem 2rem 4rem 2rem; max-width: 900px; margin: 0 auto; }
 
+/* Hide sidebar collapse toggle (shows as ugly block on login) */
+[data-testid="collapsedControl"] { display: none !important; }
+
 /* Sidebar */
 section[data-testid="stSidebar"] {
     background-color: #161616;
@@ -362,30 +365,19 @@ page = st.session_state.page
 # ═════════════════════════════════════════════════════════════════
 if page == "home":
 
-    # Get current time in India timezone
-    now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    hour = now.hour
+    now   = datetime.now(ZoneInfo("Asia/Kolkata"))
+    hour  = now.hour
+    greet = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
+    first = st.session_state.user_name.split()[0]
 
-    # Greeting logic
-    if hour < 12:
-        greet = "Good morning"
-    elif hour < 18:
-        greet = "Good afternoon"
-    else:
-        greet = "Good evening"
+    st.markdown(f'<p class="greeting-title">{greet}, {first}.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="greeting-sub">What would you like to do today?</p>', unsafe_allow_html=True)
 
-    # Get first name safely
-    first = st.session_state.get("user_name", "User").split()[0]
-
-    # Display
-    st.markdown(
-        f'<p class="greeting-title">{greet}, {first}.</p>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        '<p class="greeting-sub">What would you like to do today?</p>',
-        unsafe_allow_html=True
-    )
+    # Show last Joy message if any
+    if st.session_state.chat_history:
+        last = next((t for t in reversed(st.session_state.chat_history) if t["role"] == "assistant"), None)
+        if last:
+            joy_bubble(last["content"])
 
     # ── ACTION CARDS ──
     c1, c2, c3, c4 = st.columns(4)
