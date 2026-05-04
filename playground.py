@@ -30,7 +30,7 @@ st.set_page_config(
     page_title="Joy | AI Recruiter",
     page_icon="✦",
     layout="wide",
-    initial_sidebar_state="hidden"
+    initial_sidebar_state="collapsed"
 )
 
 # ─────────────────────────────────────────────────────────────────
@@ -321,6 +321,15 @@ def go(page):
 # LOGIN
 # ─────────────────────────────────────────────────────────────────
 if not st.session_state.logged_in:
+    # Inject directly into DOM — fires before page renders, kills ghost box
+    st.markdown("""
+    <style>
+    [data-testid="collapsedControl"] { display: none !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    .stAppDeployButton { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, mid, _ = st.columns([1, 1.1, 1])
     with mid:
