@@ -50,8 +50,10 @@ html, body, [class*="css"] {
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding: 2rem 2rem 4rem 2rem; max-width: 900px; margin: 0 auto; }
 
-/* Hide sidebar collapse toggle (shows as ugly block on login) */
-[data-testid="collapsedControl"] { display: none !important; }
+/* Hide sidebar collapse toggle (shows as ghost box on login) */
+[data-testid="collapsedControl"],
+[data-testid="collapsedControl"] button,
+button[kind="header"] { display: none !important; visibility: hidden !important; }
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
@@ -80,26 +82,30 @@ section[data-testid="stSidebar"] h3 { color: #ECECEC !important; font-size: 1rem
     color: #fff;
 }
 
-/* Action cards on landing */
-.action-card {
-    background: #161616;
-    border: 1px solid #2A2A2A;
-    border-radius: 12px;
-    padding: 20px 22px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    height: 110px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+/* Action cards — full button styled as card */
+.card-btn > div > button {
+    background: #161616 !important;
+    border: 1px solid #2A2A2A !important;
+    border-radius: 12px !important;
+    padding: 18px 20px !important;
+    height: 110px !important;
+    width: 100% !important;
+    text-align: left !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    white-space: normal !important;
+    line-height: 1.4 !important;
+    font-size: 0.88rem !important;
+    color: #ECECEC !important;
 }
-.action-card:hover {
-    border-color: #444;
-    background: #1C1C1C;
+.card-btn > div > button:hover {
+    border-color: #444 !important;
+    background: #1C1C1C !important;
 }
-.action-card .icon { font-size: 1.3rem; margin-bottom: 6px; }
-.action-card .label { font-size: 0.88rem; font-weight: 500; color: #ECECEC; }
-.action-card .desc  { font-size: 0.75rem; color: #666; }
 
 /* Joy bubble */
 .joy-bubble {
@@ -383,44 +389,28 @@ if page == "home":
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        st.markdown("""
-        <div class="action-card">
-            <div class="icon">🔍</div>
-            <div class="label">Screen Resumes</div>
-            <div class="desc">Rank candidates against a JD</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Open", key="card_screen"):
+        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
+        if st.button("🔍\n\n**Screen Resumes**\n\nRank candidates against a JD", key="card_screen", use_container_width=True):
             go("screen")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with c2:
-        st.markdown("""
-        <div class="action-card">
-            <div class="icon">✍️</div>
-            <div class="label">Write a JD</div>
-            <div class="desc">Generate a full job description</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Open", key="card_jd"):
+        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
+        if st.button("✍️\n\n**Write a JD**\n\nGenerate a full job description", key="card_jd", use_container_width=True):
             go("jd")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with c3:
-        st.markdown("""
-        <div class="action-card">
-            <div class="icon">📬</div>
-            <div class="label">Outreach</div>
-            <div class="desc">Email & call shortlisted candidates</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Open", key="card_outreach"):
+        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
+        if st.button("📬\n\n**Outreach**\n\nEmail & call shortlisted candidates", key="card_outreach", use_container_width=True):
             go("outreach")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with c4:
-        st.markdown("""
-        <div class="action-card">
-            <div class="icon">🕓</div>
-            <div class="label">History</div>
-            <div class="desc">Past screenings & candidates</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Open", key="card_history"):
+        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
+        if st.button("🕓\n\n**History**\n\nPast screenings & candidates", key="card_history", use_container_width=True):
             go("history")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
