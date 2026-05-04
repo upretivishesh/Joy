@@ -56,7 +56,12 @@ html, body, [class*="css"] {
 
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
-.block-container { padding: 2rem 2rem 4rem 2rem; max-width: 900px; margin: 0 auto; }
+.block-container { padding: 2rem 2rem 4rem 2rem; max-width: 960px; margin: 0 auto; }
+
+/* Hide "Press Enter to apply" tooltip on all inputs */
+.stTextInput div[data-baseweb="input"] + div,
+small.st-emotion-cache-1gulkj5,
+[data-testid="InputInstructions"] { display: none !important; }
 
 /* Hide sidebar collapse toggle — every selector Streamlit has ever used */
 [data-testid="collapsedControl"],
@@ -344,10 +349,12 @@ if not st.session_state.logged_in:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
         st.markdown("### ✦ Joy")
         st.markdown('<p style="color:#555;font-size:0.85rem;margin-bottom:1.5rem">AI Recruiter — Seven Hiring</p>', unsafe_allow_html=True)
-        u = st.text_input("Username", placeholder="Enter username")
-        p = st.text_input("Password", type="password", placeholder="Enter password")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Sign in", use_container_width=True):
+        with st.form("login_form"):
+            u = st.text_input("Username", placeholder="Enter username")
+            p = st.text_input("Password", type="password", placeholder="Enter password")
+            st.markdown("<br>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Sign in", use_container_width=True)
+        if submitted:
             ok, name = check_login(u.strip().lower(), p)
             if ok:
                 st.session_state.logged_in    = True
@@ -372,13 +379,11 @@ def render_nav():
     with n3:
         if st.button("Screen",   use_container_width=True, key="nav_screen"):   go("screen")
     with n4:
-        if st.button("Write JD", use_container_width=True, key="nav_jd"):       go("jd")
+        if st.button("Outreach", use_container_width=True, key="nav_outreach"): go("outreach")
     with n5:
-        if st.button("Settings", use_container_width=True, key="nav_settings"): go("settings")
+        if st.button("History",  use_container_width=True, key="nav_history"):  go("history")
     with n6:
-        if st.button("Logout",   use_container_width=True, key="nav_logout"):
-            for k in list(st.session_state.keys()): del st.session_state[k]
-            st.rerun()
+        if st.button("Settings", use_container_width=True, key="nav_settings"): go("settings")
     st.markdown('<hr style="margin:0.5rem 0 1.5rem 0;border-color:#2A2A2A">', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
@@ -394,91 +399,124 @@ if page == "home":
 
     now   = datetime.now(ZoneInfo("Asia/Kolkata"))
     hour  = now.hour
-    greet = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
     first = st.session_state.user_name.split()[0]
 
-    st.markdown(f'<p class="greeting-title">{greet}, {first}.</p>', unsafe_allow_html=True)
-    st.markdown('<p class="greeting-sub">What would you like to do today?</p>', unsafe_allow_html=True)
+    # Fun greeting lines paired with time of day
+    if hour < 12:
+        greet     = f"Good morning, {first}."
+        subtitles = [
+            "Let's find someone brilliant before lunch.",
+            "Coffee's brewing. Let's hire someone great.",
+            "Early bird gets the best candidate.",
+            "Morning. Your next great hire is waiting.",
+        ]
+    elif hour < 18:
+        greet     = f"Good afternoon, {first}."
+        subtitles = [
+            "Afternoon slump? Let Joy do the heavy lifting.",
+            "Inbox zero can wait. Let's find talent.",
+            "The best candidates are still out there. Let's go.",
+            "Ready when you are. What are we hiring for?",
+        ]
+    else:
+        greet     = f"Good evening, {first}."
+        subtitles = [
+            "Late night hiring session? Joy never sleeps.",
+            "The best recruiters work when others don't.",
+            "Evening. Let's make tomorrow's pipeline stronger.",
+            "Still at it? Let's make it count.",
+        ]
+
+    import hashlib
+    # Pick a subtitle deterministically by date so it changes daily but isn't random on rerun
+    day_seed = int(hashlib.md5(str(now.date()).encode()).hexdigest(), 16)
+    subtitle = subtitles[day_seed % len(subtitles)]
+
+    # ── CENTERED GREETING ──
+    st.markdown(f"""
+    <div style="text-align:center; padding: 3rem 0 1rem 0;">
+        <p style="font-size:2.4rem; font-weight:300; color:#ECECEC; letter-spacing:-0.02em; margin-bottom:0.5rem; font-family:'Georgia',serif;">
+            {greet}
+        </p>
+        <p style="font-size:1.05rem; color:#555; font-style:italic; margin-bottom:2.5rem;">
+            {subtitle}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Show last Joy message if any
     if st.session_state.chat_history:
         last = next((t for t in reversed(st.session_state.chat_history) if t["role"] == "assistant"), None)
         if last:
-            joy_bubble(last["content"])
+            _, mc, _ = st.columns([1, 4, 1])
+            with mc:
+                joy_bubble(last["content"])
 
-    # ── ACTION CARDS ──
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
-        if st.button("🔍\n\n**Screen Resumes**\n\nRank candidates against a JD", key="card_screen", use_container_width=True):
-            go("screen")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c2:
-        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
-        if st.button("✍️\n\n**Write a JD**\n\nGenerate a full job description", key="card_jd", use_container_width=True):
-            go("jd")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c3:
-        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
-        if st.button("📬\n\n**Outreach**\n\nEmail & call shortlisted candidates", key="card_outreach", use_container_width=True):
-            go("outreach")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c4:
-        st.markdown('<div class="card-btn">', unsafe_allow_html=True)
-        if st.button("🕓\n\n**History**\n\nPast screenings & candidates", key="card_history", use_container_width=True):
-            go("history")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # ── ASK JOY ──
-    section_label("Ask Joy anything")
-
+    # ── CHAT HISTORY ──
     for turn in st.session_state.chat_history[-6:]:
-        if turn["role"] == "assistant":
-            joy_bubble(turn["content"])
-        else:
-            user_bubble(turn["content"])
+        _, mc, _ = st.columns([1, 4, 1])
+        with mc:
+            if turn["role"] == "assistant":
+                joy_bubble(turn["content"])
+            else:
+                user_bubble(turn["content"])
 
-    ci, cb = st.columns([6, 1])
-    with ci:
-        msg = st.text_input("Ask Joy", placeholder="Who were the top candidates last time? / Draft a JD for a QC Manager...", label_visibility="collapsed")
-    with cb:
-        if st.button("Send", use_container_width=True):
-            if msg.strip():
-                from joy_ai import route_intent
-                st.session_state.chat_history.append({"role": "user", "content": msg.strip()})
-                ctx = f"Last screening had {len(st.session_state.results_df)} candidates for {st.session_state.role_detected}." if st.session_state.results_df is not None else ""
-                with st.spinner(""):
-                    result = route_intent(msg.strip(), st.session_state.user_name, ctx)
-                reply  = result.get("reply", "On it.")
-                intent = result.get("intent", "chat")
-                ad     = result.get("action_data", {})
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-                if intent == "write_jd" and ad.get("role"):
-                    st.session_state.jd_role = ad["role"]
-                st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── ASK JOY INPUT — Enter submits ──
+    _, ic, _ = st.columns([1, 4, 1])
+    with ic:
+        # Use a form so Enter key submits
+        with st.form(key="chat_form", clear_on_submit=True):
+            fc1, fc2 = st.columns([6, 1])
+            with fc1:
+                msg = st.text_input(
+                    "Ask Joy",
+                    placeholder="Ask me anything — candidates, JDs, hiring advice...",
+                    label_visibility="collapsed"
+                )
+            with fc2:
+                submitted = st.form_submit_button("Send", use_container_width=True)
+
+        if submitted and msg.strip():
+            from joy_ai import route_intent
+            st.session_state.chat_history.append({"role": "user", "content": msg.strip()})
+            ctx = f"Last screening had {len(st.session_state.results_df)} candidates for {st.session_state.role_detected}." if st.session_state.results_df is not None else ""
+            with st.spinner(""):
+                result = route_intent(msg.strip(), st.session_state.user_name, ctx)
+            reply  = result.get("reply", "On it.")
+            intent = result.get("intent", "chat")
+            ad     = result.get("action_data", {})
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            if intent == "write_jd" and ad.get("role"):
+                st.session_state.jd_role = ad["role"]
+            persist_chat(st.session_state.chat_history)
+            st.rerun()
 
     # ── QUICK PROMPTS ──
-    section_label("Suggested")
-    q1, q2, q3 = st.columns(3)
-    prompts = [
-        ("Who was the top candidate from last screening?", "Top candidate"),
-        ("Write a JD for Regional Sales Manager in Agrochemicals", "Write a JD"),
-        ("What should I look for when hiring a QC Manager in pharma?", "Hiring tips"),
-    ]
-    for col, (prompt, label) in zip([q1, q2, q3], prompts):
-        with col:
-            if st.button(label, use_container_width=True, key=f"prompt_{label}"):
+    _, pc, _ = st.columns([1, 4, 1])
+    with pc:
+        section_label("Try asking")
+        p1, p2 = st.columns(2)
+        with p1:
+            if st.button("Who was the top candidate from last screening?", use_container_width=True, key="prompt_top"):
                 from joy_ai import route_intent
-                st.session_state.chat_history.append({"role": "user", "content": prompt})
+                q = "Who was the top candidate from last screening?"
+                st.session_state.chat_history.append({"role": "user", "content": q})
                 with st.spinner(""):
-                    result = route_intent(prompt, st.session_state.user_name)
+                    result = route_intent(q, st.session_state.user_name)
                 st.session_state.chat_history.append({"role": "assistant", "content": result.get("reply", "On it.")})
+                persist_chat(st.session_state.chat_history)
+                st.rerun()
+        with p2:
+            if st.button("What should I look for when hiring in agrochemicals?", use_container_width=True, key="prompt_tips"):
+                from joy_ai import route_intent
+                q = "What should I look for when hiring in agrochemicals?"
+                st.session_state.chat_history.append({"role": "user", "content": q})
+                with st.spinner(""):
+                    result = route_intent(q, st.session_state.user_name)
+                st.session_state.chat_history.append({"role": "assistant", "content": result.get("reply", "On it.")})
+                persist_chat(st.session_state.chat_history)
                 st.rerun()
 
 
@@ -858,3 +896,7 @@ elif page == "settings":
     st.markdown("---")
     section_label("Account")
     st.markdown(f"Logged in as **{st.session_state.user_name}**")
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Logout", use_container_width=False):
+        for k in list(st.session_state.keys()): del st.session_state[k]
+        st.rerun()
