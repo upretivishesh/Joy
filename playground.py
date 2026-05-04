@@ -46,7 +46,7 @@ section[data-testid="stSidebar"] { display: none !important; }
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Josefin+Slab:wght@300;400;600;700&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
@@ -82,23 +82,40 @@ section[data-testid="stSidebar"] {
 section[data-testid="stSidebar"] * { color: #ABABAB !important; font-size: 0.88rem; }
 section[data-testid="stSidebar"] h3 { color: #ECECEC !important; font-size: 1rem !important; }
 
-/* Buttons — primary */
+/* Nav buttons — plain text style */
+[data-testid="stButton"][class*="nav"] > button,
 .stButton > button {
-    background: #1A1A1A;
-    color: #ECECEC;
-    border: 1px solid #2E2E2E;
-    border-radius: 8px;
-    padding: 0.5rem 1.2rem;
-    font-size: 0.88rem;
-    font-weight: 500;
-    font-family: 'Inter', sans-serif;
-    transition: all 0.15s ease;
-    width: 100%;
+    background: transparent !important;
+    color: #666 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0.3rem 0.5rem !important;
+    font-family: 'Josefin Slab', serif !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
+    transition: color 0.15s ease !important;
+    box-shadow: none !important;
+    width: auto !important;
 }
 .stButton > button:hover {
-    background: #252525;
-    border-color: #444;
-    color: #fff;
+    background: transparent !important;
+    color: #ECECEC !important;
+    border: none !important;
+}
+
+/* Non-nav action buttons — keep styled */
+.action-button > div > button {
+    background: #1A1A1A !important;
+    color: #ECECEC !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.88rem !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    padding: 0.5rem 1.2rem !important;
 }
 
 /* Action cards — full button styled as card */
@@ -250,11 +267,13 @@ hr { border-color: #2A2A2A !important; margin: 1.5rem 0 !important; }
 
 /* Greeting headline */
 .greeting-title {
-    font-size: 2rem;
-    font-weight: 300;
+    font-size: 2.6rem;
+    font-weight: 600;
     color: #ECECEC;
-    line-height: 1.3;
+    line-height: 1.2;
     margin-bottom: 4px;
+    font-family: 'Josefin Slab', serif;
+    letter-spacing: 0.01em;
 }
 .greeting-sub {
     font-size: 0.9rem;
@@ -371,20 +390,31 @@ if not st.session_state.logged_in:
 # TOP NAV — rendered after login, no sidebar needed
 # ─────────────────────────────────────────────────────────────────
 def render_nav():
-    n1, n2, n3, n4, n5, n6 = st.columns([2, 1, 1, 1, 1, 1])
+    active = st.session_state.page
+    def nav_item(label, target):
+        color = "#ECECEC" if active == target else "#555"
+        underline = "border-bottom: 1.5px solid #ECECEC; padding-bottom:2px;" if active == target else ""
+        return f'<span onclick="" style="font-family:\'Josefin Slab\',serif; font-size:0.95rem; font-weight:600; color:{color}; {underline} cursor:pointer; letter-spacing:0.04em;">{label}</span>'
+
+    st.markdown(f"""
+    <div style="display:flex; align-items:center; justify-content:space-between; padding: 0.4rem 0 0.6rem 0;">
+        <span style="font-family:'Josefin Slab',serif; font-size:1.1rem; font-weight:700; color:#ECECEC; letter-spacing:0.06em;">✦ JOY</span>
+        <span style="color:#333; font-size:0.85rem; font-family:'Inter',sans-serif;">{st.session_state.user_name}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    n1, n2, n3, n4, n5, gap = st.columns([1, 1, 1, 1, 1, 3])
     with n1:
-        st.markdown(f'<span style="font-size:1rem;font-weight:600;color:#ECECEC">✦ Joy</span> &nbsp;<span style="font-size:0.8rem;color:#555">{st.session_state.user_name}</span>', unsafe_allow_html=True)
+        if st.button("Home",     key="nav_home",     use_container_width=True): go("home")
     with n2:
-        if st.button("Home",     use_container_width=True, key="nav_home"):     go("home")
+        if st.button("Screen",   key="nav_screen",   use_container_width=True): go("screen")
     with n3:
-        if st.button("Screen",   use_container_width=True, key="nav_screen"):   go("screen")
+        if st.button("Outreach", key="nav_outreach", use_container_width=True): go("outreach")
     with n4:
-        if st.button("Outreach", use_container_width=True, key="nav_outreach"): go("outreach")
+        if st.button("History",  key="nav_history",  use_container_width=True): go("history")
     with n5:
-        if st.button("History",  use_container_width=True, key="nav_history"):  go("history")
-    with n6:
-        if st.button("Settings", use_container_width=True, key="nav_settings"): go("settings")
-    st.markdown('<hr style="margin:0.5rem 0 1.5rem 0;border-color:#2A2A2A">', unsafe_allow_html=True)
+        if st.button("Settings", key="nav_settings", use_container_width=True): go("settings")
+    st.markdown('<hr style="margin:0.4rem 0 1.5rem 0;border-color:#2A2A2A">', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
@@ -401,45 +431,43 @@ if page == "home":
     hour  = now.hour
     first = st.session_state.user_name.split()[0]
 
-    # Fun greeting lines paired with time of day
+    # Fun greeting lines — time-aware + rotating
     if hour < 12:
-        greet     = f"Good morning, {first}."
-        subtitles = [
-            "Let's find someone brilliant before lunch.",
-            "Coffee's brewing. Let's hire someone great.",
-            "Early bird gets the best candidate.",
-            "Morning. Your next great hire is waiting.",
+        lines = [
+            f"Good morning, {first}. The right hire changes everything.",
+            f"Good morning, {first}. Let's find someone brilliant.",
+            f"Good morning, {first}. Great talent doesn't wait.",
+            f"Good morning, {first}. Your next star hire is out there.",
+            f"Good morning, {first}. Early bird gets the best candidate.",
         ]
     elif hour < 18:
-        greet     = f"Good afternoon, {first}."
-        subtitles = [
-            "Afternoon slump? Let Joy do the heavy lifting.",
-            "Inbox zero can wait. Let's find talent.",
-            "The best candidates are still out there. Let's go.",
-            "Ready when you are. What are we hiring for?",
+        lines = [
+            f"Good afternoon, {first}. The right hire changes everything.",
+            f"Good afternoon, {first}. Let's build a stronger team.",
+            f"Good afternoon, {first}. Your pipeline won't fill itself.",
+            f"Good afternoon, {first}. Let Joy do the heavy lifting.",
+            f"Good afternoon, {first}. Great people deserve great recruiters.",
         ]
     else:
-        greet     = f"Good evening, {first}."
-        subtitles = [
-            "Late night hiring session? Joy never sleeps.",
-            "The best recruiters work when others don't.",
-            "Evening. Let's make tomorrow's pipeline stronger.",
-            "Still at it? Let's make it count.",
+        lines = [
+            f"Good evening, {first}. The right hire changes everything.",
+            f"Good evening, {first}. Joy never sleeps.",
+            f"Good evening, {first}. Tomorrow's hire starts tonight.",
+            f"Good evening, {first}. Late nights build great teams.",
+            f"Good evening, {first}. Still at it — let's make it count.",
         ]
 
     import hashlib
-    # Pick a subtitle deterministically by date so it changes daily but isn't random on rerun
     day_seed = int(hashlib.md5(str(now.date()).encode()).hexdigest(), 16)
-    subtitle = subtitles[day_seed % len(subtitles)]
+    greeting_line = lines[day_seed % len(lines)]
 
     # ── CENTERED GREETING ──
     st.markdown(f"""
-    <div style="text-align:center; padding: 3rem 0 1rem 0;">
-        <p style="font-size:2.4rem; font-weight:300; color:#ECECEC; letter-spacing:-0.02em; margin-bottom:0.5rem; font-family:'Georgia',serif;">
-            {greet}
-        </p>
-        <p style="font-size:1.05rem; color:#555; font-style:italic; margin-bottom:2.5rem;">
-            {subtitle}
+    <div style="text-align:center; padding: 4rem 0 2.5rem 0;">
+        <p style="font-size:2.5rem; font-weight:600; color:#ECECEC;
+                  font-family:'Josefin Slab',serif; letter-spacing:0.02em;
+                  line-height:1.2; margin:0;">
+            {greeting_line}
         </p>
     </div>
     """, unsafe_allow_html=True)
