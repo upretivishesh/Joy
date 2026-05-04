@@ -427,35 +427,21 @@ render_nav()
 # ═════════════════════════════════════════════════════════════════
 if page == "home":
 
-    now   = datetime.now(ZoneInfo("Asia/Kolkata"))
-    hour  = now.hour
+    now  = datetime.now(ZoneInfo("Asia/Kolkata"))
     first = st.session_state.user_name.split()[0]
 
-    # Fun greeting lines — time-aware + rotating
-    if hour < 12:
-        lines = [
-            f"Good morning, {first}. The right hire changes everything.",
-            f"Good morning, {first}. Let's find someone brilliant.",
-            f"Good morning, {first}. Great talent doesn't wait.",
-            f"Good morning, {first}. Your next star hire is out there.",
-            f"Good morning, {first}. Early bird gets the best candidate.",
-        ]
-    elif hour < 18:
-        lines = [
-            f"Good afternoon, {first}. The right hire changes everything.",
-            f"Good afternoon, {first}. Let's build a stronger team.",
-            f"Good afternoon, {first}. Your pipeline won't fill itself.",
-            f"Good afternoon, {first}. Let Joy do the heavy lifting.",
-            f"Good afternoon, {first}. Great people deserve great recruiters.",
-        ]
-    else:
-        lines = [
-            f"Good evening, {first}. The right hire changes everything.",
-            f"Good evening, {first}. Joy never sleeps.",
-            f"Good evening, {first}. Tomorrow's hire starts tonight.",
-            f"Good evening, {first}. Late nights build great teams.",
-            f"Good evening, {first}. Still at it — let's make it count.",
-        ]
+    lines = [
+        "The right hire changes everything.",
+        "Great talent doesn't find itself.",
+        "Your next star hire is one screen away.",
+        "Pipelines don't fill themselves.",
+        "Let's find someone brilliant today.",
+        "Good people are out there. Let's go find them.",
+        "Every great team started with one great hire.",
+        "Joy's ready when you are.",
+        "The best recruiters don't just hire — they build legacies.",
+        "Somewhere out there is your perfect candidate.",
+    ]
 
     import hashlib
     day_seed = int(hashlib.md5(str(now.date()).encode()).hexdigest(), 16)
