@@ -493,32 +493,6 @@ if page == "home":
             persist_chat(st.session_state.chat_history)
             st.rerun()
 
-    # ── QUICK PROMPTS ──
-    _, pc, _ = st.columns([1, 4, 1])
-    with pc:
-        section_label("Try asking")
-        p1, p2 = st.columns(2)
-        with p1:
-            if st.button("Who was the top candidate from last screening?", use_container_width=True, key="prompt_top"):
-                from joy_ai import route_intent
-                q = "Who was the top candidate from last screening?"
-                st.session_state.chat_history.append({"role": "user", "content": q})
-                with st.spinner(""):
-                    result = route_intent(q, st.session_state.user_name)
-                st.session_state.chat_history.append({"role": "assistant", "content": result.get("reply", "On it.")})
-                persist_chat(st.session_state.chat_history)
-                st.rerun()
-        with p2:
-            if st.button("What should I look for when hiring in agrochemicals?", use_container_width=True, key="prompt_tips"):
-                from joy_ai import route_intent
-                q = "What should I look for when hiring in agrochemicals?"
-                st.session_state.chat_history.append({"role": "user", "content": q})
-                with st.spinner(""):
-                    result = route_intent(q, st.session_state.user_name)
-                st.session_state.chat_history.append({"role": "assistant", "content": result.get("reply", "On it.")})
-                persist_chat(st.session_state.chat_history)
-                st.rerun()
-
 
 # ═════════════════════════════════════════════════════════════════
 # SCREEN RESUMES
