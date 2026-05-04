@@ -5,3 +5,4 @@ pandas
 openai
 twilio
 python-dotenv
+streamlit-authenticator
