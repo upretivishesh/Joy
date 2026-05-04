@@ -30,7 +30,7 @@ st.set_page_config(
     page_title="Joy | AI Recruiter",
     page_icon="✦",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="hidden"
 )
 
 # ─────────────────────────────────────────────────────────────────
@@ -46,14 +46,20 @@ html, body, [class*="css"] {
     color: #ECECEC;
 }
 
-/* Hide streamlit chrome */
-#MainMenu, footer, header { visibility: hidden; }
+/* Hide streamlit chrome completely */
+#MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 .block-container { padding: 2rem 2rem 4rem 2rem; max-width: 900px; margin: 0 auto; }
 
-/* Hide sidebar collapse toggle (shows as ghost box on login) */
+/* Hide sidebar collapse toggle — every selector Streamlit has ever used */
 [data-testid="collapsedControl"],
-[data-testid="collapsedControl"] button,
-button[kind="header"] { display: none !important; visibility: hidden !important; }
+[data-testid="collapsedControl"] *,
+[data-testid="baseButton-headerNoPadding"],
+section[data-testid="stSidebarCollapsedControl"],
+.st-emotion-cache-1dp5vir,
+button[aria-label="Open sidebar"],
+button[aria-label="Close sidebar"],
+button[aria-expanded="false"][data-testid],
+header button { display: none !important; width: 0 !important; height: 0 !important; overflow: hidden !important; }
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
