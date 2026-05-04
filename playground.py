@@ -33,6 +33,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Kill the sidebar toggle button before anything renders
+st.markdown("""
+<style>
+[data-testid="collapsedControl"] { display: none !important; }
+section[data-testid="stSidebar"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # ─────────────────────────────────────────────────────────────────
 # CSS
 # ─────────────────────────────────────────────────────────────────
@@ -353,33 +361,31 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ─────────────────────────────────────────────────────────────────
-# SIDEBAR — credentials only, no nav
+# TOP NAV — rendered after login, no sidebar needed
 # ─────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### ✦ Joy")
-    st.markdown(f"**{st.session_state.user_name}**")
-    st.markdown("---")
-    st.markdown("**Email (Gmail)**")
-    st.session_state.smtp_email    = st.text_input("Gmail",        value=st.session_state.smtp_email,    placeholder="you@gmail.com",  label_visibility="collapsed")
-    st.session_state.smtp_password = st.text_input("App Password", value=st.session_state.smtp_password, type="password",              label_visibility="collapsed", placeholder="Gmail App Password")
-    st.caption("Use a Gmail App Password, not your main password.")
-    st.markdown("**Calls (Twilio)**")
-    st.session_state.twilio_sid   = st.text_input("Account SID",   value=st.session_state.twilio_sid,   type="password", label_visibility="collapsed", placeholder="Twilio Account SID")
-    st.session_state.twilio_token = st.text_input("Auth Token",    value=st.session_state.twilio_token, type="password", label_visibility="collapsed", placeholder="Twilio Auth Token")
-    st.session_state.twilio_from  = st.text_input("Twilio Number", value=st.session_state.twilio_from,                  label_visibility="collapsed", placeholder="+1XXXXXXXXXX")
-    st.markdown("---")
-    st.session_state.sender_name = st.text_input("Your name (emails/calls)", value=st.session_state.sender_name)
-    st.markdown("---")
-    if st.button("← Back to Home"):
-        go("home")
-    if st.button("Logout"):
-        for k in list(st.session_state.keys()): del st.session_state[k]
-        st.rerun()
+def render_nav():
+    n1, n2, n3, n4, n5, n6 = st.columns([2, 1, 1, 1, 1, 1])
+    with n1:
+        st.markdown(f'<span style="font-size:1rem;font-weight:600;color:#ECECEC">✦ Joy</span> &nbsp;<span style="font-size:0.8rem;color:#555">{st.session_state.user_name}</span>', unsafe_allow_html=True)
+    with n2:
+        if st.button("Home",     use_container_width=True, key="nav_home"):     go("home")
+    with n3:
+        if st.button("Screen",   use_container_width=True, key="nav_screen"):   go("screen")
+    with n4:
+        if st.button("Write JD", use_container_width=True, key="nav_jd"):       go("jd")
+    with n5:
+        if st.button("Settings", use_container_width=True, key="nav_settings"): go("settings")
+    with n6:
+        if st.button("Logout",   use_container_width=True, key="nav_logout"):
+            for k in list(st.session_state.keys()): del st.session_state[k]
+            st.rerun()
+    st.markdown('<hr style="margin:0.5rem 0 1.5rem 0;border-color:#2A2A2A">', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
 # ─────────────────────────────────────────────────────────────────
 page = st.session_state.page
+render_nav()
 
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
@@ -481,8 +487,6 @@ if page == "home":
 # ═════════════════════════════════════════════════════════════════
 elif page == "screen":
 
-    if st.button("← Home"):
-        go("home")
 
     st.markdown("## Screen Resumes")
     st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Upload a JD and resumes. Joy ranks and scores every candidate.</p>', unsafe_allow_html=True)
@@ -588,8 +592,6 @@ elif page == "screen":
 # ═════════════════════════════════════════════════════════════════
 elif page == "jd":
 
-    if st.button("← Home"):
-        go("home")
 
     st.markdown("## Write a Job Description")
     st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Tell Joy what you need. She\'ll write a clean, specific JD — no buzzword soup.</p>', unsafe_allow_html=True)
@@ -653,8 +655,6 @@ elif page == "jd":
 # ═════════════════════════════════════════════════════════════════
 elif page == "outreach":
 
-    if st.button("← Home"):
-        go("home")
 
     st.markdown("## Outreach")
     st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Email and call shortlisted candidates directly from Joy.</p>', unsafe_allow_html=True)
@@ -794,8 +794,6 @@ elif page == "outreach":
 # ═════════════════════════════════════════════════════════════════
 elif page == "history":
 
-    if st.button("← Home"):
-        go("home")
 
     st.markdown("## Screening History")
     st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">All past screenings saved to your account.</p>', unsafe_allow_html=True)
@@ -829,3 +827,34 @@ elif page == "history":
                 clear_history(st.session_state.username_key)
                 st.success("History cleared.")
                 st.rerun()
+
+
+# ═════════════════════════════════════════════════════════════════
+# SETTINGS
+# ═════════════════════════════════════════════════════════════════
+elif page == "settings":
+
+    st.markdown("## Settings")
+    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Configure your email and calling credentials.</p>', unsafe_allow_html=True)
+
+    s1, s2 = st.columns(2)
+
+    with s1:
+        section_label("Email — Gmail SMTP")
+        st.session_state.smtp_email    = st.text_input("Gmail address", value=st.session_state.smtp_email, placeholder="you@gmail.com")
+        st.session_state.smtp_password = st.text_input("Gmail App Password", value=st.session_state.smtp_password, type="password", placeholder="16-character app password")
+        st.caption("Go to Google Account → Security → App Passwords to generate one.")
+
+        section_label("Your Name")
+        st.session_state.sender_name = st.text_input("Name shown in emails and calls", value=st.session_state.sender_name)
+
+    with s2:
+        section_label("Calling & SMS — Twilio")
+        st.session_state.twilio_sid   = st.text_input("Account SID",   value=st.session_state.twilio_sid,   type="password", placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+        st.session_state.twilio_token = st.text_input("Auth Token",    value=st.session_state.twilio_token, type="password", placeholder="Your Twilio auth token")
+        st.session_state.twilio_from  = st.text_input("Twilio Number", value=st.session_state.twilio_from,                  placeholder="+1XXXXXXXXXX")
+        st.caption("Find your SID and Auth Token at console.twilio.com")
+
+    st.markdown("---")
+    section_label("Account")
+    st.markdown(f"Logged in as **{st.session_state.user_name}**")
