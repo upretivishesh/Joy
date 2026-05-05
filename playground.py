@@ -542,12 +542,14 @@ if page == "home":
                 joy_bubble(last["content"])
 
     # ── CHAT HISTORY ──
-    for turn in st.session_state.chat_history[-6:]:
+    for turn in st.session_state.chat_history[-12:]:
+        if turn["role"] == "jd":
+            continue  # rendered separately below
         _, mc, _ = st.columns([1, 4, 1])
         with mc:
             if turn["role"] == "assistant":
                 joy_bubble(turn["content"])
-            else:
+            elif turn["role"] == "user":
                 user_bubble(turn["content"])
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -558,25 +560,168 @@ if page == "home":
         with st.form(key="chat_form", clear_on_submit=True):
             msg = st.text_input(
                 "Ask Joy",
-                placeholder="Ask me anything — who's the best candidate, what to look for, how to write a JD...",
+                placeholder="Ask me anything — form a JD, who's the best candidate, screen resumes...",
                 label_visibility="collapsed"
             )
             submitted = st.form_submit_button("↵", use_container_width=False)
 
         if submitted and msg.strip():
-            from joy_ai import route_intent
-            st.session_state.chat_history.append({"role": "user", "content": msg.strip()})
-            ctx = f"Last screening had {len(st.session_state.results_df)} candidates for {st.session_state.role_detected}." if st.session_state.results_df is not None else ""
-            with st.spinner("Joy is thinking..."):
-                result = route_intent(msg.strip(), st.session_state.name, ctx)
-            reply  = result.get("reply", "On it.")
-            intent = result.get("intent", "chat")
-            ad     = result.get("action_data", {})
-            st.session_state.chat_history.append({"role": "assistant", "content": reply})
-            if intent == "write_jd" and ad.get("role"):
-                st.session_state.jd_role = ad["role"]
+            user_msg = msg.strip()
+            st.session_state.chat_history.append({"role": "user", "content": user_msg})
+            persist_chat(st.session_state.chat_history)
+
+            msg_lower = user_msg.lower()
+
+            # ── INTENT DETECTION — keyword-based, instant, reliable ──
+
+            # JD Generation — most common use case
+            jd_triggers = ["jd", "job description", "form a jd", "write a jd", "create a jd",
+                           "draft a jd", "make a jd", "generate a jd", "jd for", "role for"]
+            is_jd = any(t in msg_lower for t in jd_triggers)
+
+            # Candidate questions — answer from real screening data
+            cand_triggers = ["top candidate", "best candidate", "who should", "shortlist",
+                             "strongest", "who scored", "highest score", "recommend",
+                             "who to hire", "best fit", "top pick"]
+            is_cand = any(t in msg_lower for t in cand_triggers)
+
+            # Navigate to screen
+            screen_triggers = ["screen", "screening", "upload resume", "rank candidates",
+                               "score resume", "evaluate resume"]
+            is_screen = any(t in msg_lower for t in screen_triggers)
+
+            # Navigate to outreach
+            outreach_triggers = ["email", "call", "outreach", "contact candidate", "reach out", "sms"]
+            is_outreach = any(t in msg_lower for t in outreach_triggers)
+
+            # ── EXECUTE ACTIONS ──
+
+            if is_jd:
+                # Actually generate the JD right here in chat
+                with st.spinner("Joy is writing the JD..."):
+                    # Extract role from message using GPT
+                    from openai import OpenAI
+                    client = OpenAI()
+                    extract = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": f"Extract: role title, industry, location, experience from this request. Return JSON only: {{\"role\":\"\",\"industry\":\"\",\"location\":\"\",\"experience\":\"\"}}\n\nRequest: {user_msg}"
+                        }],
+                        max_tokens=150
+                    )
+                    import json, re
+                    raw = re.sub(r"```json|```", "", extract.choices[0].message.content).strip()
+                    try:
+                        params = json.loads(raw)
+                    except:
+                        params = {"role": user_msg, "industry": "", "location": "", "experience": ""}
+
+                    jd = generate_jd(
+                        role=params.get("role", user_msg),
+                        industry=params.get("industry", ""),
+                        location=params.get("location", ""),
+                        experience_range=params.get("experience", ""),
+                        company_name="Our client"
+                    )
+                    st.session_state.generated_jd = jd
+                    st.session_state.jd_role = params.get("role", "")
+
+                reply = f"Done. Here's the JD for **{params.get('role', 'the role')}**:"
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                st.session_state.chat_history.append({"role": "jd", "content": jd})
+
+            elif is_cand and st.session_state.results_df is not None:
+                # Answer from real screening data
+                df = st.session_state.results_df
+                top = df.iloc[0]
+                strong = df[df["Verdict"] == "Strong Fit"]
+                good   = df[df["Verdict"] == "Good Fit"]
+
+                from joy_ai import joy_analyze_candidate
+                analysis = joy_analyze_candidate(top.to_dict(), st.session_state.name)
+
+                reply = (
+                    f"**Top pick: {top['Name']}** — Score {top['Final Score']}, {top['Verdict']}\n\n"
+                    f"{analysis}\n\n"
+                    f"**{len(strong)} Strong Fit** · **{len(good)} Good Fit** out of {len(df)} screened. "
+                    f"Head to Outreach to contact them."
+                )
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+            elif is_cand and st.session_state.results_df is None:
+                reply = "No screening data yet. Run a screening first — go to **Screen** in the nav."
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+            elif is_screen:
+                reply = "Going to Screen Resumes now."
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                persist_chat(st.session_state.chat_history)
+                go("screen")
+
+            elif is_outreach:
+                if st.session_state.results_df is None:
+                    reply = "Run a screening first, then I can help you reach out to candidates."
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                else:
+                    reply = "Going to Outreach now."
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    persist_chat(st.session_state.chat_history)
+                    go("outreach")
+
+            else:
+                # General hiring Q&A — use GPT with full context
+                from openai import OpenAI
+                client = OpenAI()
+
+                ctx_parts = []
+                if st.session_state.results_df is not None:
+                    df = st.session_state.results_df
+                    top3 = df.head(3)[["Name","Final Score","Verdict","Experience","Reason"]].to_dict("records")
+                    ctx_parts.append(f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}")
+
+                system = """You are Joy — a sharp, witty AI recruitment assistant for Seven Hiring.
+You answer hiring questions with expertise and a bit of personality.
+Be specific, actionable, and concise. Max 3 sentences unless a list is genuinely useful.
+Never say you can't do something. If you don't have data, say what data you'd need."""
+
+                messages = [{"role": "system", "content": system}]
+                if ctx_parts:
+                    messages.append({"role": "system", "content": "\n".join(ctx_parts)})
+                for turn in st.session_state.chat_history[-6:]:
+                    if turn["role"] in ("user", "assistant"):
+                        messages.append({"role": turn["role"], "content": turn["content"]})
+
+                with st.spinner("Joy is thinking..."):
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                        max_tokens=300,
+                        temperature=0.8
+                    )
+                reply = res.choices[0].message.content.strip()
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
             persist_chat(st.session_state.chat_history)
             st.rerun()
+
+    # ── RENDER JD IF GENERATED IN CHAT ──
+    for i, turn in enumerate(st.session_state.chat_history):
+        if turn["role"] == "jd":
+            _, mc, _ = st.columns([1, 4, 1])
+            with mc:
+                with st.expander("Generated JD — click to expand / edit"):
+                    edited = st.text_area("JD", value=turn["content"], height=400,
+                                         key=f"jd_chat_{i}", label_visibility="collapsed")
+                    d1, d2 = st.columns(2)
+                    with d1:
+                        st.download_button("Download JD", edited.encode(),
+                                           f"JD_{st.session_state.jd_role.replace(' ','_')}.txt",
+                                           "text/plain", key=f"dl_{i}", use_container_width=True)
+                    with d2:
+                        if st.button("Use for Screening", key=f"use_{i}", use_container_width=True):
+                            st.session_state["prefilled_jd"] = edited
+                            go("screen")
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -590,7 +735,11 @@ elif page == "screen":
 
     # ── JD INPUT ──
     section_label("Job Description")
-    jd_text = st.text_area("Paste JD", height=160, placeholder="Paste the full job description here...", label_visibility="collapsed")
+    prefilled = st.session_state.pop("prefilled_jd", "") if "prefilled_jd" in st.session_state else ""
+    jd_text = st.text_area("Paste JD", height=160,
+                            value=prefilled,
+                            placeholder="Paste the full job description here...",
+                            label_visibility="collapsed")
     jd_file = st.file_uploader("Or upload JD (PDF / DOCX / TXT)", type=["pdf","docx","txt"])
     if jd_file:
         jd_text = read_file(jd_file)
