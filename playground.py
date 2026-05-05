@@ -13,7 +13,7 @@ from resume_parser import (
 )
 from gpt_utils import gpt_score_resume, gpt_generate_email, gpt_generate_call_script
 from email_utils import send_email
-from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history, log_login, load_login_log
+from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history, log_login, load_login_log, save_chat_session, load_chat_sessions
 from joy_ai import get_greeting, joy_analyze_candidate
 from jd_generator import generate_jd, refine_jd
 
@@ -92,6 +92,7 @@ st.set_page_config(
     page_title="Joy | AI Recruiter",
     page_icon="✦",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # Inject into <head> synchronously — this fires before Streamlit renders anything
@@ -447,7 +448,7 @@ def do_login(ukey):
     st.session_state.username      = ukey
     st.session_state.name          = uname
     st.session_state.sender_name   = uname
-    st.session_state.chat_history  = load_chat_history(ukey)
+    st.session_state.chat_history  = []   # always fresh chat on login
     st.session_state._history_loaded = True
     log_login(ukey)
     if COOKIES_OK:
@@ -507,280 +508,157 @@ if not st.session_state.authenticated:
 
 # ── Load chat history if not yet loaded (cookie restore path) ──
 if not st.session_state._history_loaded and st.session_state.username:
-    st.session_state.chat_history    = load_chat_history(st.session_state.username)
+    st.session_state.chat_history    = []   # fresh chat, don't restore
     st.session_state._history_loaded = True
 
 # ─────────────────────────────────────────────────────────────────
-# TOP NAV — rendered after login, no sidebar needed
-# ─────────────────────────────────────────────────────────────────
-# SLIDING SIDEBAR NAV — pure HTML, fixed left, expands on hover
+# SIDEBAR — Streamlit native (reliable buttons) + custom CSS overlay
 # ─────────────────────────────────────────────────────────────────
 def render_nav():
     uname    = st.session_state.name
     initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
     page     = st.session_state.page
 
-    # Map current page to highlight
-    pages = {
-        "home":     ("⌂", "Home"),
-        "screen":   ("⊞", "Screen"),
-        "outreach": ("✉", "Outreach"),
-        "history":  ("◷", "History"),
+    # Style the Streamlit sidebar to look like the custom one
+    st.markdown("""
+    <style>
+    /* Sidebar base */
+    section[data-testid="stSidebar"] {
+        background: #111111 !important;
+        border-right: 1px solid #1E1E1E !important;
+        width: 220px !important;
+        min-width: 220px !important;
+    }
+    /* Hide sidebar toggle arrow */
+    [data-testid="collapsedControl"] { display: none !important; }
+    button[data-testid="stBaseButton-headerNoPadding"] { display: none !important; }
+
+    /* Sidebar inner padding */
+    section[data-testid="stSidebar"] > div:first-child {
+        padding: 0 !important;
+        overflow: hidden !important;
     }
 
-    def item(pg, icon, label):
-        active = "nav-active" if page == pg else ""
-        return f"""
-        <a class="nav-item {active}" onclick="navTo('{pg}')">
-            <span class="nav-icon">{icon}</span>
-            <span class="nav-label">{label}</span>
-        </a>"""
-
-    nav_items = "".join(item(pg, icon, label) for pg, (icon, label) in pages.items())
-
-    st.html(f"""
-    <style>
-    /* Push main content right to make room for sidebar */
-    section.main > div.block-container {{
-        padding-left: calc(64px + 3rem) !important;
-    }}
-
-    #joy-sidebar {{
-        position: fixed;
-        top: 0; left: 0;
-        height: 100vh;
-        width: 56px;
-        background: #111111;
-        border-right: 1px solid #1E1E1E;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 0;
-        z-index: 99999;
-        overflow: hidden;
-        transition: width 0.22s cubic-bezier(.4,0,.2,1);
-    }}
-    #joy-sidebar:hover {{
-        width: 200px;
-    }}
-    #joy-sidebar:hover ~ * .stMainBlockContainer,
-    #joy-sidebar:hover ~ * .block-container {{
-        margin-left: 200px;
-    }}
-
-    /* Logo */
-    .nav-logo {{
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 22px 16px 18px;
-        width: 200px;
-        flex-shrink: 0;
-        border-bottom: 1px solid #1E1E1E;
-        margin-bottom: 8px;
-    }}
-    .nav-logo-icon {{
-        font-size: 1.1rem;
-        color: #ECECEC;
-        flex-shrink: 0;
-        width: 24px;
-        text-align: center;
-    }}
-    .nav-logo-text {{
-        font-family: 'Josefin Slab', serif;
-        font-size: 1rem;
-        font-weight: 700;
-        color: #ECECEC;
-        letter-spacing: 0.1em;
-        white-space: nowrap;
-        opacity: 0;
-        transition: opacity 0.15s ease 0.05s;
-    }}
-    #joy-sidebar:hover .nav-logo-text {{ opacity: 1; }}
-
-    /* Nav items */
-    .nav-item {{
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 11px 16px;
-        width: 200px;
-        cursor: pointer;
-        text-decoration: none;
-        border-radius: 0;
-        transition: background 0.15s;
-        flex-shrink: 0;
-    }}
-    .nav-item:hover {{ background: #1A1A1A; }}
-    .nav-item.nav-active {{ background: #1E1E1E; }}
-    .nav-icon {{
-        font-size: 1rem;
-        color: #666;
-        width: 24px;
-        text-align: center;
-        flex-shrink: 0;
-        transition: color 0.15s;
-    }}
-    .nav-item:hover .nav-icon,
-    .nav-item.nav-active .nav-icon {{ color: #ECECEC; }}
-    .nav-label {{
-        font-family: 'Josefin Slab', serif;
-        font-size: 0.82rem;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #666;
-        white-space: nowrap;
-        opacity: 0;
-        transition: opacity 0.12s ease 0.05s, color 0.15s;
-    }}
-    #joy-sidebar:hover .nav-label {{ opacity: 1; }}
-    .nav-item:hover .nav-label,
-    .nav-item.nav-active .nav-label {{ color: #ECECEC; }}
-
-    /* Spacer */
-    .nav-spacer {{ flex: 1; }}
-
-    /* New chat button */
-    .nav-new {{
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 11px 16px;
-        width: 200px;
-        cursor: pointer;
-        border-top: 1px solid #1E1E1E;
-        flex-shrink: 0;
-    }}
-    .nav-new:hover {{ background: #1A1A1A; }}
-    .nav-new .nav-icon {{ color: #555; }}
-    .nav-new:hover .nav-icon {{ color: #ECECEC; }}
-    .nav-new .nav-label {{ color: #555; }}
-    .nav-new:hover .nav-label {{ color: #ECECEC; }}
-
-    /* User avatar at bottom */
-    .nav-user {{
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 14px 16px;
-        width: 200px;
-        cursor: pointer;
-        flex-shrink: 0;
-        position: relative;
-    }}
-    .nav-user:hover {{ background: #1A1A1A; }}
-    .nav-avatar {{
-        width: 28px; height: 28px;
-        background: #2A2A2A;
-        border: 1px solid #333;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 0.68rem; font-weight: 600; color: #ECECEC;
-        flex-shrink: 0;
-    }}
-    .nav-user-info {{ opacity: 0; transition: opacity 0.12s ease 0.05s; white-space: nowrap; }}
-    #joy-sidebar:hover .nav-user-info {{ opacity: 1; }}
-    .nav-user-name {{
-        font-size: 0.78rem; font-weight: 500; color: #ECECEC;
-        font-family: 'Inter', sans-serif;
-    }}
-    .nav-user-sub {{
-        font-size: 0.65rem; color: #444;
-        font-family: 'Inter', sans-serif;
-    }}
-
-    /* User dropdown */
-    .nav-user-dropdown {{
-        display: none;
-        position: absolute;
-        bottom: 54px; left: 8px;
-        background: #161616;
-        border: 1px solid #2A2A2A;
-        border-radius: 10px;
-        padding: 6px 0;
-        min-width: 176px;
-        box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
-        z-index: 999999;
-    }}
-    .nav-user-dropdown.open {{ display: block; }}
-    .nav-dd-item {{
-        display: flex; align-items: center; gap: 10px;
-        padding: 8px 14px;
-        font-size: 0.8rem; color: #888;
-        cursor: pointer;
-        font-family: 'Inter', sans-serif;
-    }}
-    .nav-dd-item:hover {{ color: #ECECEC; background: #1E1E1E; }}
-    .nav-dd-item.danger {{ color: #774040; }}
-    .nav-dd-item.danger:hover {{ color: #E57373; background: #1E1515; }}
+    /* Nav buttons */
+    section[data-testid="stSidebar"] .stButton > button {
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        color: #555 !important;
+        font-family: 'Josefin Slab', serif !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        text-align: left !important;
+        padding: 11px 16px !important;
+        width: 200px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        justify-content: flex-start !important;
+        box-shadow: none !important;
+        transition: color 0.15s, background 0.15s !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #1A1A1A !important;
+        color: #ECECEC !important;
+    }
+    /* Chat history items */
+    section[data-testid="stSidebar"] .chat-history-item button {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.75rem !important;
+        text-transform: none !important;
+        letter-spacing: normal !important;
+        color: #444 !important;
+        padding: 6px 16px !important;
+        width: 200px !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    section[data-testid="stSidebar"] .chat-history-item button:hover {
+        color: #ABABAB !important;
+        background: #161616 !important;
+    }
+    /* Hide labels */
+    section[data-testid="stSidebar"] label { display: none !important; }
+    section[data-testid="stSidebar"] .stMarkdown p {
+        color: #333 !important;
+        font-size: 0.65rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.1em !important;
+        padding: 8px 16px 4px !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+    }
+    /* Dividers */
+    section[data-testid="stSidebar"] hr {
+        border-color: #1E1E1E !important;
+        margin: 4px 0 !important;
+    }
     </style>
+    """, unsafe_allow_html=True)
 
-    <div id="joy-sidebar">
-        <div class="nav-logo">
-            <span class="nav-logo-icon">✦</span>
-            <span class="nav-logo-text">JOY</span>
-        </div>
+    with st.sidebar:
+        # Logo
+        st.markdown(f"""
+        <div style="padding:18px 16px 14px;border-bottom:1px solid #1E1E1E;
+                    font-family:'Josefin Slab',serif;font-size:1rem;font-weight:700;
+                    color:#ECECEC;letter-spacing:0.1em;white-space:nowrap;">
+            ✦ JOY
+        </div>""", unsafe_allow_html=True)
 
-        {nav_items}
+        st.markdown("<br>", unsafe_allow_html=True)
 
-        <div class="nav-spacer"></div>
+        # Nav buttons
+        if st.button("⌂  Home",     key="nav_home",     use_container_width=True): go("home")
+        if st.button("⊞  Screen",   key="nav_screen",   use_container_width=True): go("screen")
+        if st.button("✉  Outreach", key="nav_outreach", use_container_width=True): go("outreach")
+        if st.button("◷  History",  key="nav_history",  use_container_width=True): go("history")
 
-        <div class="nav-new" onclick="navTo('new')">
-            <span class="nav-icon">＋</span>
-            <span class="nav-label">New Chat</span>
-        </div>
+        st.markdown("---")
 
-        <div class="nav-user" onclick="toggleUserMenu()" id="navUser">
-            <div class="nav-avatar">{initials}</div>
-            <div class="nav-user-info">
-                <div class="nav-user-name">{uname}</div>
-                <div class="nav-user-sub">Seven Hiring</div>
-            </div>
-            <div class="nav-user-dropdown" id="navUserDrop">
-                <div class="nav-dd-item" onclick="navTo('settings')">⚙ &nbsp;Settings</div>
-                <div class="nav-dd-item danger" onclick="navTo('logout')">⏻ &nbsp;Logout</div>
-            </div>
-        </div>
-    </div>
+        # Past chat sessions
+        past = load_chat_sessions(st.session_state.username)
+        if past:
+            st.markdown("Recent")
+            for i, session in enumerate(past[:8]):
+                label = session.get("preview", "Chat")[:28]
+                st.markdown('<div class="chat-history-item">', unsafe_allow_html=True)
+                if st.button(f"  {label}", key=f"past_{i}", use_container_width=True):
+                    st.session_state.chat_history = session.get("messages", [])
+                    go("home")
+                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("---")
 
-    <script>
-    function navTo(action) {{
-        var url = new URL(window.parent.location.href);
-        url.searchParams.set('joy_nav', action);
-        window.parent.history.pushState({{}}, '', url);
-        window.parent.location.assign(url.toString());
-    }}
-    function toggleUserMenu(e) {{
-        if(e) e.stopPropagation();
-        var d = document.getElementById('navUserDrop');
-        if(d) d.classList.toggle('open');
-    }}
-    document.addEventListener('click', function(e) {{
-        var u = document.getElementById('navUser');
-        var d = document.getElementById('navUserDrop');
-        if(u && d && !u.contains(e.target)) d.classList.remove('open');
-    }});
-    </script>
-    """)
-
-    # Handle URL-param nav (fallback)
-    params = st.query_params
-    nav_action = params.get("joy_nav", "")
-    if nav_action:
-        st.query_params.clear()
-        import random
-        if nav_action == "settings":
-            go("settings")
-        elif nav_action == "logout":
-            do_logout()
-        elif nav_action == "new":
+        # Bottom — new chat + user
+        if st.button("＋  New Chat", key="nav_new", use_container_width=True):
+            import random
+            # Save current chat before clearing
+            if st.session_state.chat_history:
+                save_chat_session(st.session_state.username, st.session_state.chat_history)
             st.session_state.chat_history = []
-            st.session_state.greeting_line = random.choice(lines_pool)
-            persist_chat([])
+            if "greeting_line" in st.session_state:
+                del st.session_state["greeting_line"]
             go("home")
-        elif nav_action in ("home","screen","outreach","history"):
-            go(nav_action)
+
+        # User avatar + settings/logout
+        st.markdown(f"""
+        <div style="padding:12px 16px;border-top:1px solid #1E1E1E;margin-top:8px;
+                    display:flex;align-items:center;gap:10px;white-space:nowrap;overflow:hidden;">
+            <div style="width:28px;height:28px;background:#2A2A2A;border:1px solid #333;
+                        border-radius:50%;display:flex;align-items:center;justify-content:center;
+                        font-size:0.68rem;font-weight:600;color:#ECECEC;flex-shrink:0;">{initials}</div>
+            <div>
+                <div style="font-size:0.78rem;color:#ECECEC;font-family:'Inter',sans-serif;">{uname}</div>
+                <div style="font-size:0.65rem;color:#444;font-family:'Inter',sans-serif;">Seven Hiring</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+        if st.button("⚙  Settings", key="nav_settings", use_container_width=True): go("settings")
+        if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True): do_logout()
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
