@@ -474,11 +474,6 @@ if not st.session_state._history_loaded and st.session_state.username:
     st.session_state.chat_history    = load_chat_history(st.session_state.username)
     st.session_state._history_loaded = True
 
-# ─────────────────────────────────────────────────────────────────
-# TOP NAV — rendered after login, no sidebar needed
-# ─────────────────────────────────────────────────────────────────
-# SLIDING SIDEBAR NAV — pure HTML, fixed left, expands on hover
-# ─────────────────────────────────────────────────────────────────
 def render_nav():
     uname    = st.session_state.name
     initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
