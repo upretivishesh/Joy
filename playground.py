@@ -132,12 +132,11 @@ html, body, [class*="css"] {
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 
-/* Main content area — centered with sidebar offset */
+/* Main content area — centered properly */
 .block-container {
-    padding: 2rem 3rem 4rem 3rem !important;
-    max-width: 820px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    padding: 3rem 2rem 4rem 2rem !important;
+    max-width: 780px !important;
+    margin: 0 auto !important;
 }
 
 /* Hide the chat form submit button visually — Enter still works */
@@ -356,24 +355,16 @@ hr { border-color: #2A2A2A !important; margin: 1.5rem 0 !important; }
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# USERS — bcrypt hashed passwords
+# USERS — plain password check (bcrypt hashing on load was slow)
 # ─────────────────────────────────────────────────────────────────
-import bcrypt
-
 USERS = {
-    "vishesh": {
-        "name":     "Vishesh Upreti",
-        "password": bcrypt.hashpw("Qwerty@0987".encode(), bcrypt.gensalt())
-    },
-    "ruhani": {
-        "name":     "Ruhani Sukhija",
-        "password": bcrypt.hashpw("Ruhani@$67".encode(), bcrypt.gensalt())
-    }
+    "vishesh": {"name": "Vishesh Upreti",  "password": "Qwerty@0987"},
+    "ruhani":  {"name": "Ruhani Sukhija",  "password": "Ruhani@$67"},
 }
 
 def verify_password(username, password):
     if username in USERS:
-        return bcrypt.checkpw(password.encode(), USERS[username]["password"])
+        return USERS[username]["password"] == password
     return False
 
 # ─────────────────────────────────────────────────────────────────
@@ -533,10 +524,9 @@ def render_nav():
     [data-testid="collapsedControl"] { display: none !important; }
     button[data-testid="stBaseButton-headerNoPadding"] { display: none !important; }
 
-    /* Sidebar inner padding */
+    /* Sidebar inner */
     section[data-testid="stSidebar"] > div:first-child {
         padding: 0 !important;
-        overflow: hidden !important;
     }
 
     /* Nav buttons */
