@@ -50,6 +50,35 @@ def cached_generate_jd(role, industry, location, experience, company) -> str:
     return generate_jd(role=role, industry=industry, location=location,
                        experience_range=experience, company_name=company)
 
+# Greeting lines pool — used on home page and new chat
+lines_pool = [
+    "The right hire changes everything.",
+    "Great talent doesn't find itself.",
+    "Your next star hire is one screen away.",
+    "Pipelines don't fill themselves.",
+    "Let's find someone brilliant today.",
+    "Good people are out there. Let's go find them.",
+    "Every great team started with one great hire.",
+    "Joy's ready when you are.",
+    "The best recruiters don't just hire — they build legacies.",
+    "Somewhere out there is your perfect candidate.",
+    "Hiring is just matchmaking with better vocabulary.",
+    "A bad hire costs more than a missed one. Choose wisely.",
+    "Behind every great company is a recruiter who didn't settle.",
+    "Talent is everywhere. The trick is knowing where to look.",
+    "Great hiring is 10% instinct and 90% Joy.",
+    "You're not just filling roles. You're building futures.",
+    "The best interview question? Let Joy rank them first.",
+    "Résumés don't hire people. Recruiters do.",
+    "Find the right person once. Stop hiring forever.",
+    "Culture fit is real. So is Joy's scoring algorithm.",
+    "Speed matters. The best candidates have three offers by Friday.",
+    "Not all CVs are created equal. Joy knows the difference.",
+    "Your competitors are also hiring today. Move faster.",
+    "The best hire you ever made started with a great JD.",
+    "Stop guessing. Start screening.",
+]
+
 try:
     from twilio_utils import make_call, format_phone_for_twilio, send_sms
     TWILIO_OK = True
@@ -101,7 +130,14 @@ html, body, [class*="css"] {
 
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
-.block-container { padding: 2rem 2rem 4rem 2rem; max-width: 960px; margin: 0 auto; }
+
+/* Center content accounting for 64px fixed sidebar */
+.block-container {
+    padding: 2rem 2rem 4rem 2rem;
+    max-width: 860px;
+    margin: 0 auto;
+    margin-left: calc(64px + ((100vw - 64px - 860px) / 2)) !important;
+}
 
 /* Hide the chat form submit button visually — Enter still works */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
@@ -711,11 +747,11 @@ def render_nav():
 
     <script>
     function navTo(action) {{
-        var url = new URL(window.parent.location.href);
-        url.searchParams.set('joy_nav', action);
-        window.parent.location.href = url.toString();
+        // Post to parent window — Streamlit listens via the injected handler below
+        window.parent.postMessage({{type: 'joy_nav', action: action}}, '*');
     }}
-    function toggleUserMenu() {{
+    function toggleUserMenu(e) {{
+        if(e) e.stopPropagation();
         var d = document.getElementById('navUserDrop');
         if(d) d.classList.toggle('open');
     }}
@@ -727,52 +763,46 @@ def render_nav():
     </script>
     """)
 
-    # Handle URL-param nav
+    # Handle URL-param nav (fallback)
     params = st.query_params
     nav_action = params.get("joy_nav", "")
-    if nav_action == "settings":
-        st.query_params.clear()
-        go("settings")
-    elif nav_action == "logout":
-        st.query_params.clear()
-        do_logout()
-    elif nav_action == "new":
+    if nav_action:
         st.query_params.clear()
         import random
-        st.session_state.chat_history = []
-        st.session_state.greeting_line = random.choice([
-            "The right hire changes everything.",
-            "Great talent doesn't find itself.",
-            "Your next star hire is one screen away.",
-            "Pipelines don't fill themselves.",
-            "Let's find someone brilliant today.",
-            "Good people are out there. Let's go find them.",
-            "Every great team started with one great hire.",
-            "Joy's ready when you are.",
-            "The best recruiters don't just hire — they build legacies.",
-            "Somewhere out there is your perfect candidate.",
-            "Hiring is just matchmaking with better vocabulary.",
-            "A bad hire costs more than a missed one. Choose wisely.",
-            "Behind every great company is a recruiter who didn't settle.",
-            "Talent is everywhere. The trick is knowing where to look.",
-            "Great hiring is 10% instinct and 90% Joy.",
-            "You're not just filling roles. You're building futures.",
-            "Résumés don't hire people. Recruiters do.",
-            "Find the right person once. Stop hiring forever.",
-            "Speed matters. The best candidates have three offers by Friday.",
-            "Stop guessing. Start screening.",
-        ])
-        persist_chat([])
-        go("home")
-    elif nav_action and nav_action in ("home","screen","outreach","history"):
-        st.query_params.clear()
-        go(nav_action)
+        if nav_action == "settings":
+            go("settings")
+        elif nav_action == "logout":
+            do_logout()
+        elif nav_action == "new":
+            st.session_state.chat_history = []
+            st.session_state.greeting_line = random.choice(lines_pool)
+            persist_chat([])
+            go("home")
+        elif nav_action in ("home","screen","outreach","history"):
+            go(nav_action)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
 # ─────────────────────────────────────────────────────────────────
 page = st.session_state.page
 render_nav()
+
+# Top-level postMessage listener — catches nav clicks from the sidebar iframe
+st.markdown("""
+<script>
+(function() {
+    if (window._joyNavListening) return;
+    window._joyNavListening = true;
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'joy_nav') {
+            var url = new URL(window.location.href);
+            url.searchParams.set('joy_nav', e.data.action);
+            window.location.href = url.toString();
+        }
+    });
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
@@ -782,37 +812,9 @@ if page == "home":
     now  = datetime.now(ZoneInfo("Asia/Kolkata"))
     first = st.session_state.name.split()[0]
 
-    lines = [
-        "The right hire changes everything.",
-        "Great talent doesn't find itself.",
-        "Your next star hire is one screen away.",
-        "Pipelines don't fill themselves.",
-        "Let's find someone brilliant today.",
-        "Good people are out there. Let's go find them.",
-        "Every great team started with one great hire.",
-        "Joy's ready when you are.",
-        "The best recruiters don't just hire — they build legacies.",
-        "Somewhere out there is your perfect candidate.",
-        "Hiring is just matchmaking with better vocabulary.",
-        "A bad hire costs more than a missed one. Choose wisely.",
-        "Behind every great company is a recruiter who didn't settle.",
-        "Talent is everywhere. The trick is knowing where to look.",
-        "Great hiring is 10% instinct and 90% Joy.",
-        "You're not just filling roles. You're building futures.",
-        "The best interview question? Let Joy rank them first.",
-        "Résumés don't hire people. Recruiters do.",
-        "Find the right person once. Stop hiring forever.",
-        "Culture fit is real. So is Joy's scoring algorithm.",
-        "Speed matters. The best candidates have three offers by Friday.",
-        "Not all CVs are created equal. Joy knows the difference.",
-        "Your competitors are also hiring today. Move faster.",
-        "The best hire you ever made started with a great JD.",
-        "Stop guessing. Start screening.",
-    ]
-
     import random
     if "greeting_line" not in st.session_state:
-        st.session_state.greeting_line = random.choice(lines)
+        st.session_state.greeting_line = random.choice(lines_pool)
     greeting_line = st.session_state.greeting_line
 
     # ── CENTERED GREETING ──
