@@ -17,6 +17,39 @@ from database import save_to_db, load_history, clear_history, get_history_stats,
 from joy_ai import get_greeting, joy_analyze_candidate
 from jd_generator import generate_jd, refine_jd
 
+# ── CACHED HELPERS for speed ──
+@st.cache_data(show_spinner=False, ttl=3600)
+def cached_gpt_answer(system: str, user: str, ctx: str) -> str:
+    from openai import OpenAI
+    client = OpenAI()
+    msgs = [{"role": "system", "content": system}]
+    if ctx:
+        msgs.append({"role": "system", "content": ctx})
+    msgs.append({"role": "user", "content": user})
+    res = client.chat.completions.create(model="gpt-4o-mini", messages=msgs, max_tokens=300, temperature=0.8)
+    return res.choices[0].message.content.strip()
+
+@st.cache_data(show_spinner=False, ttl=600)
+def cached_extract_params(user_msg: str) -> dict:
+    from openai import OpenAI
+    import json, re
+    client = OpenAI()
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": f"Extract: role title, industry, location, experience from this. Return JSON only: {{\"role\":\"\",\"industry\":\"\",\"location\":\"\",\"experience\":\"\"}}\n\nRequest: {user_msg}"}],
+        max_tokens=150
+    )
+    raw = re.sub(r"```json|```", "", res.choices[0].message.content).strip()
+    try:
+        return json.loads(raw)
+    except:
+        return {"role": user_msg, "industry": "", "location": "", "experience": ""}
+
+@st.cache_data(show_spinner=False, ttl=1800)
+def cached_generate_jd(role, industry, location, experience, company) -> str:
+    return generate_jd(role=role, industry=industry, location=location,
+                       experience_range=experience, company_name=company)
+
 try:
     from twilio_utils import make_call, format_phone_for_twilio, send_sms
     TWILIO_OK = True
@@ -453,27 +486,175 @@ if not st.session_state._history_loaded and st.session_state.username:
 # ─────────────────────────────────────────────────────────────────
 # TOP NAV — rendered after login, no sidebar needed
 # ─────────────────────────────────────────────────────────────────
+# SLIDING SIDEBAR NAV
+# ─────────────────────────────────────────────────────────────────
 def render_nav():
-    uname = st.session_state.name
+    uname     = st.session_state.name
+    first     = uname.split()[0] if uname else ""
+    initials  = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
+    page      = st.session_state.page
+
+    # Map pages to nav items
+    nav_items = [
+        ("home",     "⌂",  "Home"),
+        ("screen",   "⊞",  "Screen"),
+        ("outreach", "✉",  "Outreach"),
+        ("history",  "◷",  "History"),
+    ]
+
+    # Build nav item buttons — one row, icon + label
+    cols = st.columns([0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 3])
+    with cols[0]:
+        st.markdown(
+            f'<span style="font-family:\'Josefin Slab\',serif;font-size:1rem;font-weight:700;'
+            f'color:#ECECEC;letter-spacing:0.08em;line-height:2.2;">✦</span>',
+            unsafe_allow_html=True
+        )
+    for i, (pg, icon, label) in enumerate(nav_items):
+        active_style = "color:#ECECEC;border-bottom:1.5px solid #ECECEC;" if page == pg else "color:#555;"
+        with cols[i + 1]:
+            if st.button(f"{icon} {label}", key=f"nav_{pg}", use_container_width=True):
+                go(pg)
+
+    # User avatar + new chat in last slots
+    with cols[5]:
+        if st.button("＋ New", key="nav_new", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.greeting_line = __import__("random").choice([
+                "The right hire changes everything.",
+                "Great talent doesn't find itself.",
+                "Your next star hire is one screen away.",
+                "Pipelines don't fill themselves.",
+                "Let's find someone brilliant today.",
+                "Good people are out there. Let's go find them.",
+                "Every great team started with one great hire.",
+                "Joy's ready when you are.",
+                "The best recruiters don't just hire — they build legacies.",
+                "Somewhere out there is your perfect candidate.",
+                "Hiring is just matchmaking with better vocabulary.",
+                "A bad hire costs more than a missed one. Choose wisely.",
+                "Behind every great company is a recruiter who didn't settle.",
+                "Talent is everywhere. The trick is knowing where to look.",
+                "Great hiring is 10% instinct and 90% Joy.",
+                "You're not just filling roles. You're building futures.",
+                "Résumés don't hire people. Recruiters do.",
+                "Find the right person once. Stop hiring forever.",
+                "Speed matters. The best candidates have three offers by Friday.",
+                "Stop guessing. Start screening.",
+            ])
+            persist_chat([])
+            go("home")
+
+    # Inject the sliding user menu via HTML
     st.markdown(f"""
-    <div style="display:flex; align-items:center; justify-content:space-between; padding: 0.4rem 0 0.6rem 0;">
-        <span style="font-family:'Josefin Slab',serif; font-size:1.1rem; font-weight:700; color:#ECECEC; letter-spacing:0.06em;">✦ JOY</span>
-        <span style="color:#444; font-size:0.85rem; font-family:'Inter',sans-serif;">{uname}</span>
+    <style>
+    .joy-user-menu {{
+        position: fixed;
+        top: 14px;
+        right: 20px;
+        z-index: 9999;
+        font-family: 'Inter', sans-serif;
+    }}
+    .joy-avatar {{
+        width: 32px; height: 32px;
+        background: #2A2A2A;
+        border: 1px solid #3A3A3A;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.72rem; font-weight: 600; color: #ECECEC;
+        cursor: pointer;
+        transition: border-color 0.2s;
+        user-select: none;
+    }}
+    .joy-avatar:hover {{ border-color: #666; }}
+    .joy-dropdown {{
+        display: none;
+        position: absolute;
+        top: 40px; right: 0;
+        background: #161616;
+        border: 1px solid #2A2A2A;
+        border-radius: 10px;
+        padding: 6px 0;
+        min-width: 180px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }}
+    .joy-dropdown.open {{ display: block; }}
+    .joy-dropdown-header {{
+        padding: 10px 16px 8px;
+        border-bottom: 1px solid #2A2A2A;
+        margin-bottom: 4px;
+    }}
+    .joy-dropdown-header .dname {{
+        font-size: 0.85rem; font-weight: 500; color: #ECECEC;
+    }}
+    .joy-dropdown-header .drole {{
+        font-size: 0.72rem; color: #555; margin-top: 1px;
+    }}
+    .joy-menu-item {{
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 16px;
+        font-size: 0.83rem; color: #888;
+        cursor: pointer;
+        transition: color 0.15s, background 0.15s;
+        text-decoration: none;
+    }}
+    .joy-menu-item:hover {{ color: #ECECEC; background: #1E1E1E; }}
+    .joy-menu-item .micon {{ font-size: 0.9rem; width: 16px; text-align:center; }}
+    .joy-menu-divider {{ height: 1px; background: #2A2A2A; margin: 4px 0; }}
+    .joy-menu-item.danger {{ color: #774040; }}
+    .joy-menu-item.danger:hover {{ color: #E57373; background: #1E1515; }}
+    </style>
+
+    <div class="joy-user-menu">
+        <div class="joy-avatar" id="joyAvatar" onclick="toggleMenu()">{initials}</div>
+        <div class="joy-dropdown" id="joyDropdown">
+            <div class="joy-dropdown-header">
+                <div class="dname">{uname}</div>
+                <div class="drole">Seven Hiring</div>
+            </div>
+            <div class="joy-menu-item" onclick="sendNav('settings')">
+                <span class="micon">⚙</span> Settings
+            </div>
+            <div class="joy-menu-divider"></div>
+            <div class="joy-menu-item danger" onclick="sendNav('logout')">
+                <span class="micon">⏻</span> Logout
+            </div>
+        </div>
     </div>
+
+    <script>
+    function toggleMenu() {{
+        var d = document.getElementById('joyDropdown');
+        d.classList.toggle('open');
+    }}
+    document.addEventListener('click', function(e) {{
+        var menu = document.getElementById('joyAvatar');
+        var drop = document.getElementById('joyDropdown');
+        if (menu && drop && !menu.contains(e.target) && !drop.contains(e.target)) {{
+            drop.classList.remove('open');
+        }}
+    }});
+    function sendNav(action) {{
+        // Find the hidden nav input and trigger Streamlit
+        var inputs = window.parent.document.querySelectorAll('[data-testid="stTextInput"] input');
+        // Use query param approach — set a URL param and reload
+        var url = new URL(window.parent.location.href);
+        url.searchParams.set('joy_nav', action);
+        window.parent.location.href = url.toString();
+    }}
+    </script>
     """, unsafe_allow_html=True)
 
-    n1, n2, n3, n4, n5, gap = st.columns([1, 1, 1, 1, 1, 3])
-    with n1:
-        if st.button("Home",     key="nav_home",     use_container_width=True): go("home")
-    with n2:
-        if st.button("Screen",   key="nav_screen",   use_container_width=True): go("screen")
-    with n3:
-        if st.button("Outreach", key="nav_outreach", use_container_width=True): go("outreach")
-    with n4:
-        if st.button("History",  key="nav_history",  use_container_width=True): go("history")
-    with n5:
-        if st.button("Settings", key="nav_settings", use_container_width=True): go("settings")
-    st.markdown('<hr style="margin:0.4rem 0 1.5rem 0;border-color:#2A2A2A">', unsafe_allow_html=True)
+    # Handle URL-param nav from dropdown (settings / logout)
+    params = st.query_params
+    if params.get("joy_nav") == "settings":
+        st.query_params.clear()
+        go("settings")
+    elif params.get("joy_nav") == "logout":
+        st.query_params.clear()
+        do_logout()
+
+    st.markdown('<hr style="margin:0.3rem 0 1.2rem 0;border-color:#1E1E1E">', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
@@ -597,32 +778,14 @@ if page == "home":
             # ── EXECUTE ACTIONS ──
 
             if is_jd:
-                # Actually generate the JD right here in chat
-                with st.spinner("Joy is writing the JD..."):
-                    # Extract role from message using GPT
-                    from openai import OpenAI
-                    client = OpenAI()
-                    extract = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{
-                            "role": "user",
-                            "content": f"Extract: role title, industry, location, experience from this request. Return JSON only: {{\"role\":\"\",\"industry\":\"\",\"location\":\"\",\"experience\":\"\"}}\n\nRequest: {user_msg}"
-                        }],
-                        max_tokens=150
-                    )
-                    import json, re
-                    raw = re.sub(r"```json|```", "", extract.choices[0].message.content).strip()
-                    try:
-                        params = json.loads(raw)
-                    except:
-                        params = {"role": user_msg, "industry": "", "location": "", "experience": ""}
-
-                    jd = generate_jd(
-                        role=params.get("role", user_msg),
-                        industry=params.get("industry", ""),
-                        location=params.get("location", ""),
-                        experience_range=params.get("experience", ""),
-                        company_name="Our client"
+                with st.spinner("Writing JD..."):
+                    params = cached_extract_params(user_msg)
+                    jd = cached_generate_jd(
+                        params.get("role", user_msg),
+                        params.get("industry", ""),
+                        params.get("location", ""),
+                        params.get("experience", ""),
+                        "Our client"
                     )
                     st.session_state.generated_jd = jd
                     st.session_state.jd_role = params.get("role", "")
@@ -670,10 +833,6 @@ if page == "home":
                     go("outreach")
 
             else:
-                # General hiring Q&A — use GPT with full context
-                from openai import OpenAI
-                client = OpenAI()
-
                 ctx_parts = []
                 if st.session_state.results_df is not None:
                     df = st.session_state.results_df
@@ -681,25 +840,11 @@ if page == "home":
                     ctx_parts.append(f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}")
 
                 system = """You are Joy — a sharp, witty AI recruitment assistant for Seven Hiring.
-You answer hiring questions with expertise and a bit of personality.
-Be specific, actionable, and concise. Max 3 sentences unless a list is genuinely useful.
-Never say you can't do something. If you don't have data, say what data you'd need."""
-
-                messages = [{"role": "system", "content": system}]
-                if ctx_parts:
-                    messages.append({"role": "system", "content": "\n".join(ctx_parts)})
-                for turn in st.session_state.chat_history[-6:]:
-                    if turn["role"] in ("user", "assistant"):
-                        messages.append({"role": turn["role"], "content": turn["content"]})
+Answer hiring questions with expertise and personality. Be specific, actionable, concise.
+Max 3 sentences unless a list is genuinely useful. Never say you can't do something."""
 
                 with st.spinner("Joy is thinking..."):
-                    res = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages,
-                        max_tokens=300,
-                        temperature=0.8
-                    )
-                reply = res.choices[0].message.content.strip()
+                    reply = cached_gpt_answer(system, user_msg, "\n".join(ctx_parts))
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
             persist_chat(st.session_state.chat_history)
