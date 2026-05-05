@@ -484,7 +484,6 @@ def render_nav():
     initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
     page     = st.session_state.page
 
-    # Map current page to highlight
     pages = {
         "home":     ("⌂", "Home"),
         "screen":   ("⊞", "Screen"),
@@ -504,10 +503,16 @@ def render_nav():
 
     st.html(f"""
     <style>
-    /* Push main content right to make room for sidebar */
     .stMainBlockContainer, .block-container {{
-        margin-left: 64px !important;
+        margin-left: 56px !important;
+        margin-right: auto !important;
+        max-width: 960px !important;
         transition: margin-left 0.25s ease;
+    }}
+
+    body:has(#joy-sidebar:hover) .stMainBlockContainer,
+    body:has(#joy-sidebar:hover) .block-container {{
+        margin-left: 200px !important;
     }}
 
     #joy-sidebar {{
@@ -519,51 +524,15 @@ def render_nav():
         border-right: 1px solid #1E1E1E;
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
-        padding: 0;
         z-index: 99999;
         overflow: hidden;
-        transition: width 0.22s cubic-bezier(.4,0,.2,1);
+        transition: width 0.22s ease;
     }}
+
     #joy-sidebar:hover {{
         width: 200px;
     }}
-    #joy-sidebar:hover ~ * .stMainBlockContainer,
-    #joy-sidebar:hover ~ * .block-container {{
-        margin-left: 200px;
-    }}
 
-    /* Logo */
-    .nav-logo {{
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 22px 16px 18px;
-        width: 200px;
-        flex-shrink: 0;
-        border-bottom: 1px solid #1E1E1E;
-        margin-bottom: 8px;
-    }}
-    .nav-logo-icon {{
-        font-size: 1.1rem;
-        color: #ECECEC;
-        flex-shrink: 0;
-        width: 24px;
-        text-align: center;
-    }}
-    .nav-logo-text {{
-        font-family: 'Josefin Slab', serif;
-        font-size: 1rem;
-        font-weight: 700;
-        color: #ECECEC;
-        letter-spacing: 0.1em;
-        white-space: nowrap;
-        opacity: 0;
-        transition: opacity 0.15s ease 0.05s;
-    }}
-    #joy-sidebar:hover .nav-logo-text {{ opacity: 1; }}
-
-    /* Nav items */
     .nav-item {{
         display: flex;
         align-items: center;
@@ -571,209 +540,81 @@ def render_nav():
         padding: 11px 16px;
         width: 200px;
         cursor: pointer;
-        text-decoration: none;
-        border-radius: 0;
-        transition: background 0.15s;
-        flex-shrink: 0;
     }}
+
     .nav-item:hover {{ background: #1A1A1A; }}
     .nav-item.nav-active {{ background: #1E1E1E; }}
+
     .nav-icon {{
-        font-size: 1rem;
-        color: #666;
         width: 24px;
         text-align: center;
-        flex-shrink: 0;
-        transition: color 0.15s;
-    }}
-    .nav-item:hover .nav-icon,
-    .nav-item.nav-active .nav-icon {{ color: #ECECEC; }}
-    .nav-label {{
-        font-family: 'Josefin Slab', serif;
-        font-size: 0.82rem;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
         color: #666;
-        white-space: nowrap;
+    }}
+
+    .nav-label {{
         opacity: 0;
-        transition: opacity 0.12s ease 0.05s, color 0.15s;
-    }}
-    #joy-sidebar:hover .nav-label {{ opacity: 1; }}
-    .nav-item:hover .nav-label,
-    .nav-item.nav-active .nav-label {{ color: #ECECEC; }}
-
-    /* Spacer */
-    .nav-spacer {{ flex: 1; }}
-
-    /* New chat button */
-    .nav-new {{
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 11px 16px;
-        width: 200px;
-        cursor: pointer;
-        border-top: 1px solid #1E1E1E;
-        flex-shrink: 0;
-    }}
-    .nav-new:hover {{ background: #1A1A1A; }}
-    .nav-new .nav-icon {{ color: #555; }}
-    .nav-new:hover .nav-icon {{ color: #ECECEC; }}
-    .nav-new .nav-label {{ color: #555; }}
-    .nav-new:hover .nav-label {{ color: #ECECEC; }}
-
-    /* User avatar at bottom */
-    .nav-user {{
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 14px 16px;
-        width: 200px;
-        cursor: pointer;
-        flex-shrink: 0;
-        position: relative;
-    }}
-    .nav-user:hover {{ background: #1A1A1A; }}
-    .nav-avatar {{
-        width: 28px; height: 28px;
-        background: #2A2A2A;
-        border: 1px solid #333;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 0.68rem; font-weight: 600; color: #ECECEC;
-        flex-shrink: 0;
-    }}
-    .nav-user-info {{ opacity: 0; transition: opacity 0.12s ease 0.05s; white-space: nowrap; }}
-    #joy-sidebar:hover .nav-user-info {{ opacity: 1; }}
-    .nav-user-name {{
-        font-size: 0.78rem; font-weight: 500; color: #ECECEC;
-        font-family: 'Inter', sans-serif;
-    }}
-    .nav-user-sub {{
-        font-size: 0.65rem; color: #444;
-        font-family: 'Inter', sans-serif;
+        transition: opacity 0.12s ease;
     }}
 
-    /* User dropdown */
-    .nav-user-dropdown {{
-        display: none;
-        position: absolute;
-        bottom: 54px; left: 8px;
-        background: #161616;
-        border: 1px solid #2A2A2A;
-        border-radius: 10px;
-        padding: 6px 0;
-        min-width: 176px;
-        box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
-        z-index: 999999;
+    #joy-sidebar:hover .nav-label {{
+        opacity: 1;
     }}
-    .nav-user-dropdown.open {{ display: block; }}
-    .nav-dd-item {{
-        display: flex; align-items: center; gap: 10px;
-        padding: 8px 14px;
-        font-size: 0.8rem; color: #888;
-        cursor: pointer;
-        font-family: 'Inter', sans-serif;
+
+    * {{
+        transition: background 0.15s ease, border 0.15s ease, color 0.15s ease;
     }}
-    .nav-dd-item:hover {{ color: #ECECEC; background: #1E1E1E; }}
-    .nav-dd-item.danger {{ color: #774040; }}
-    .nav-dd-item.danger:hover {{ color: #E57373; background: #1E1515; }}
+
+    .stApp {{
+        animation: fadeIn 0.25s ease;
+    }}
+
+    @keyframes fadeIn {{
+        from {{ opacity: 0.6; transform: translateY(4px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
     </style>
 
     <div id="joy-sidebar">
-        <div class="nav-logo">
-            <span class="nav-logo-icon">✦</span>
-            <span class="nav-logo-text">JOY</span>
-        </div>
-
         {nav_items}
-
-        <div class="nav-spacer"></div>
-
-        <div class="nav-new" onclick="navTo('new')">
-            <span class="nav-icon">＋</span>
-            <span class="nav-label">New Chat</span>
-        </div>
-
-        <div class="nav-user" onclick="toggleUserMenu()" id="navUser">
-            <div class="nav-avatar">{initials}</div>
-            <div class="nav-user-info">
-                <div class="nav-user-name">{uname}</div>
-                <div class="nav-user-sub">Seven Hiring</div>
-            </div>
-            <div class="nav-user-dropdown" id="navUserDrop">
-                <div class="nav-dd-item" onclick="navTo('settings')">⚙ &nbsp;Settings</div>
-                <div class="nav-dd-item danger" onclick="navTo('logout')">⏻ &nbsp;Logout</div>
-            </div>
-        </div>
     </div>
 
     <script>
     function navTo(action) {{
-        var url = new URL(window.parent.location.href);
+        const url = new URL(window.location.href);
         url.searchParams.set('joy_nav', action);
-        window.parent.location.href = url.toString();
+
+        window.history.pushState({{}}, '', url);
+        window.dispatchEvent(new Event("popstate"));
     }}
-    function toggleUserMenu() {{
-        var d = document.getElementById('navUserDrop');
-        if(d) d.classList.toggle('open');
-    }}
-    document.addEventListener('click', function(e) {{
-        var u = document.getElementById('navUser');
-        var d = document.getElementById('navUserDrop');
-        if(u && d && !u.contains(e.target)) d.classList.remove('open');
-    }});
     </script>
     """)
 
-    # Handle URL-param nav
+    # NAV HANDLER
     params = st.query_params
     nav_action = params.get("joy_nav", "")
-    if nav_action == "settings":
-        st.query_params.clear()
-        go("settings")
-    elif nav_action == "logout":
-        st.query_params.clear()
-        do_logout()
-    elif nav_action == "new":
-        st.query_params.clear()
-        import random
-        st.session_state.chat_history = []
-        st.session_state.greeting_line = random.choice([
-            "The right hire changes everything.",
-            "Great talent doesn't find itself.",
-            "Your next star hire is one screen away.",
-            "Pipelines don't fill themselves.",
-            "Let's find someone brilliant today.",
-            "Good people are out there. Let's go find them.",
-            "Every great team started with one great hire.",
-            "Joy's ready when you are.",
-            "The best recruiters don't just hire — they build legacies.",
-            "Somewhere out there is your perfect candidate.",
-            "Hiring is just matchmaking with better vocabulary.",
-            "A bad hire costs more than a missed one. Choose wisely.",
-            "Behind every great company is a recruiter who didn't settle.",
-            "Talent is everywhere. The trick is knowing where to look.",
-            "Great hiring is 10% instinct and 90% Joy.",
-            "You're not just filling roles. You're building futures.",
-            "Résumés don't hire people. Recruiters do.",
-            "Find the right person once. Stop hiring forever.",
-            "Speed matters. The best candidates have three offers by Friday.",
-            "Stop guessing. Start screening.",
-        ])
-        persist_chat([])
-        go("home")
-    elif nav_action and nav_action in ("home","screen","outreach","history"):
-        st.query_params.clear()
-        go(nav_action)
 
-# ─────────────────────────────────────────────────────────────────
-# PAGE ROUTER
-# ─────────────────────────────────────────────────────────────────
-page = st.session_state.page
-render_nav()
+    if "last_nav" not in st.session_state:
+        st.session_state.last_nav = None
 
+    if nav_action and nav_action != st.session_state.last_nav:
+        st.session_state.last_nav = nav_action
+
+        if nav_action == "settings":
+            st.query_params.clear()
+            go("settings")
+
+        elif nav_action == "logout":
+            st.query_params.clear()
+            do_logout()
+
+        elif nav_action == "new":
+            st.query_params.clear()
+            st.session_state.chat_history = []
+            go("home")
+
+        elif nav_action in ("home","screen","outreach","history"):
+            st.query_params.clear()
+            go(nav_action)
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
 # ═════════════════════════════════════════════════════════════════
