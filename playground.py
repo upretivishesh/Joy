@@ -541,11 +541,11 @@ def render_nav():
     st.html(f"""
     <style>
     /* Push main content right to make room for sidebar */
-    section.main > div.block-container {
+    section.main > div.block-container {{
         padding-left: calc(64px + 3rem) !important;
-    }
+    }}
 
-    #joy-sidebar {
+    #joy-sidebar {{
         position: fixed;
         top: 0; left: 0;
         height: 100vh;
