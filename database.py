@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import json
 from datetime import datetime
 
 
@@ -59,3 +60,62 @@ def get_history_stats(user: str) -> dict:
         "strong": len(df[df["Verdict"] == "Strong Fit"]) if "Verdict" in df.columns else 0,
         "roles": df["Role"].unique().tolist() if "Role" in df.columns else []
     }
+
+
+def save_chat_history(user: str, history: list):
+    """
+    Save Joy chat history to a per-user JSON file.
+    """
+    path = f"chat_{user}.json"
+    try:
+        with open(path, "w") as f:
+            json.dump(history, f)
+    except Exception:
+        pass
+
+
+def load_chat_history(user: str) -> list:
+    """
+    Load Joy chat history for a user.
+    Returns empty list if no history exists.
+    """
+    path = f"chat_{user}.json"
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def log_login(user: str):
+    """
+    Record every login with timestamp to a per-user login log.
+    """
+    path = f"logins_{user}.json"
+    entry = {"logged_in_at": datetime.now().strftime("%d %b %Y, %I:%M %p IST")}
+    try:
+        logs = []
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                logs = json.load(f)
+        logs.append(entry)
+        with open(path, "w") as f:
+            json.dump(logs, f)
+    except Exception:
+        pass
+
+
+def load_login_log(user: str) -> list:
+    """
+    Return all login timestamps for a user.
+    """
+    path = f"logins_{user}.json"
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
