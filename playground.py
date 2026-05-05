@@ -13,7 +13,7 @@ from resume_parser import (
 )
 from gpt_utils import gpt_score_resume, gpt_generate_email, gpt_generate_call_script
 from email_utils import send_email
-from database import save_to_db, load_history, clear_history, get_history_stats
+from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history, log_login, load_login_log
 from joy_ai import get_greeting, joy_analyze_candidate
 from jd_generator import generate_jd, refine_jd
 
@@ -295,23 +295,43 @@ hr { border-color: #2A2A2A !important; margin: 1.5rem 0 !important; }
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# USERS
+# USERS — bcrypt hashed passwords
 # ─────────────────────────────────────────────────────────────────
+import bcrypt
+
 USERS = {
-    "vishesh": {"password": "Qwerty@0987", "name": "Vishesh Upreti"},
-    "ruhani":  {"password": "Ruhani@$67",  "name": "Ruhani Sukhija"}
+    "vishesh": {
+        "name":     "Vishesh Upreti",
+        "password": bcrypt.hashpw("Qwerty@0987".encode(), bcrypt.gensalt())
+    },
+    "ruhani": {
+        "name":     "Ruhani Sukhija",
+        "password": bcrypt.hashpw("Ruhani@$67".encode(), bcrypt.gensalt())
+    }
 }
 
-def check_login(u, p):
-    if u in USERS and USERS[u]["password"] == p:
-        return True, USERS[u]["name"]
-    return False, None
+def verify_password(username, password):
+    if username in USERS:
+        return bcrypt.checkpw(password.encode(), USERS[username]["password"])
+    return False
+
+# ─────────────────────────────────────────────────────────────────
+# COOKIE MANAGER — persistent login
+# ─────────────────────────────────────────────────────────────────
+try:
+    from streamlit_cookies_controller import CookieController
+    cookie_ctrl = CookieController()
+    COOKIES_OK = True
+except Exception:
+    cookie_ctrl = None
+    COOKIES_OK = False
 
 # ─────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────
 defaults = {
-    "logged_in": False, "user_name": "", "username_key": "",
+    "authenticated": False,
+    "username": "", "name": "",
     "page": "home",
     "results_df": None, "role_detected": "", "industry_detected": "",
     "smtp_email": "", "smtp_password": "",
@@ -319,7 +339,9 @@ defaults = {
     "chat_history": [], "call_log": [],
     "generated_jd": "", "jd_role": "",
     "email_draft": "", "call_script": "",
-    "sender_name": ""
+    "sender_name": "",
+    "_history_loaded": False,
+    "_cookie_checked": False
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -353,26 +375,55 @@ def go(page):
     st.rerun()
 
 def persist_chat(history):
-    """Save chat history to disk."""
     try:
-        from database import save_chat_history
-        save_chat_history(st.session_state.username_key, history)
+        save_chat_history(st.session_state.username, history)
     except Exception:
         pass
 
-# ─────────────────────────────────────────────────────────────────
-# LOGIN
-# ─────────────────────────────────────────────────────────────────
-if not st.session_state.logged_in:
-    # Inject directly into DOM — fires before page renders, kills ghost box
-    st.markdown("""
-    <style>
-    [data-testid="collapsedControl"] { display: none !important; }
-    section[data-testid="stSidebar"] { display: none !important; }
-    .stAppDeployButton { display: none !important; }
-    </style>
-    """, unsafe_allow_html=True)
+def do_login(ukey):
+    """Set session state after successful login."""
+    uname = USERS[ukey]["name"]
+    st.session_state.authenticated = True
+    st.session_state.username      = ukey
+    st.session_state.name          = uname
+    st.session_state.sender_name   = uname
+    st.session_state.chat_history  = load_chat_history(ukey)
+    st.session_state._history_loaded = True
+    log_login(ukey)
+    if COOKIES_OK:
+        try:
+            cookie_ctrl.set("joy_user", ukey, max_age=60*60*24*365)
+        except Exception:
+            pass
 
+def do_logout():
+    if COOKIES_OK:
+        try:
+            cookie_ctrl.remove("joy_user")
+        except Exception:
+            pass
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    st.rerun()
+
+# ─────────────────────────────────────────────────────────────────
+# COOKIE RESTORE — check once per browser session
+# ─────────────────────────────────────────────────────────────────
+if not st.session_state._cookie_checked:
+    st.session_state._cookie_checked = True
+    if COOKIES_OK and not st.session_state.authenticated:
+        try:
+            saved = cookie_ctrl.get("joy_user")
+            if saved and saved in USERS:
+                do_login(saved)
+                st.rerun()
+        except Exception:
+            pass
+
+# ─────────────────────────────────────────────────────────────────
+# LOGIN PAGE
+# ─────────────────────────────────────────────────────────────────
+if not st.session_state.authenticated:
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, mid, _ = st.columns([1, 1.1, 1])
     with mid:
@@ -385,32 +436,29 @@ if not st.session_state.logged_in:
             st.markdown("<br>", unsafe_allow_html=True)
             submitted = st.form_submit_button("Sign in", use_container_width=True)
         if submitted:
-            ok, name = check_login(u.strip().lower(), p)
-            if ok:
-                st.session_state.logged_in    = True
-                st.session_state.user_name    = name
-                st.session_state.username_key = u.strip().lower()
-                st.session_state.sender_name  = name
+            ukey = u.strip().lower()
+            if ukey in USERS and verify_password(ukey, p):
+                do_login(ukey)
                 st.rerun()
             else:
                 st.error("Invalid credentials.")
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
+# ── Load chat history if not yet loaded (cookie restore path) ──
+if not st.session_state._history_loaded and st.session_state.username:
+    st.session_state.chat_history    = load_chat_history(st.session_state.username)
+    st.session_state._history_loaded = True
+
 # ─────────────────────────────────────────────────────────────────
 # TOP NAV — rendered after login, no sidebar needed
 # ─────────────────────────────────────────────────────────────────
 def render_nav():
-    active = st.session_state.page
-    def nav_item(label, target):
-        color = "#ECECEC" if active == target else "#555"
-        underline = "border-bottom: 1.5px solid #ECECEC; padding-bottom:2px;" if active == target else ""
-        return f'<span onclick="" style="font-family:\'Josefin Slab\',serif; font-size:0.95rem; font-weight:600; color:{color}; {underline} cursor:pointer; letter-spacing:0.04em;">{label}</span>'
-
+    uname = st.session_state.name
     st.markdown(f"""
     <div style="display:flex; align-items:center; justify-content:space-between; padding: 0.4rem 0 0.6rem 0;">
         <span style="font-family:'Josefin Slab',serif; font-size:1.1rem; font-weight:700; color:#ECECEC; letter-spacing:0.06em;">✦ JOY</span>
-        <span style="color:#333; font-size:0.85rem; font-family:'Inter',sans-serif;">{st.session_state.user_name}</span>
+        <span style="color:#444; font-size:0.85rem; font-family:'Inter',sans-serif;">{uname}</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -439,7 +487,7 @@ render_nav()
 if page == "home":
 
     now  = datetime.now(ZoneInfo("Asia/Kolkata"))
-    first = st.session_state.user_name.split()[0]
+    first = st.session_state.name.split()[0]
 
     lines = [
         "The right hire changes everything.",
@@ -519,7 +567,7 @@ if page == "home":
             st.session_state.chat_history.append({"role": "user", "content": msg.strip()})
             ctx = f"Last screening had {len(st.session_state.results_df)} candidates for {st.session_state.role_detected}." if st.session_state.results_df is not None else ""
             with st.spinner("Joy is thinking..."):
-                result = route_intent(msg.strip(), st.session_state.user_name, ctx)
+                result = route_intent(msg.strip(), st.session_state.name, ctx)
             reply  = result.get("reply", "On it.")
             intent = result.get("intent", "chat")
             ad     = result.get("action_data", {})
@@ -595,7 +643,7 @@ elif page == "screen":
         stat.empty(); prog.empty()
         df = pd.DataFrame(rows).sort_values("Final Score", ascending=False).reset_index(drop=True)
         df.insert(0, "Sr.No", range(1, len(df) + 1))
-        save_to_db(df.copy(), role, industry, st.session_state.username_key)
+        save_to_db(df.copy(), role, industry, st.session_state.username)
         st.session_state.results_df        = df
         st.session_state.role_detected     = role
         st.session_state.industry_detected = industry
@@ -631,7 +679,7 @@ elif page == "screen":
             st.markdown("<br>", unsafe_allow_html=True)
             section_label(f"Joy's take on {top['Name']}")
             with st.spinner(""):
-                analysis = joy_analyze_candidate(top, st.session_state.user_name)
+                analysis = joy_analyze_candidate(top, st.session_state.name)
             joy_bubble(analysis)
 
 
@@ -736,7 +784,7 @@ elif page == "outreach":
         section_label("Generate & Send Email")
 
         if st.button("Generate Email with AI", use_container_width=False):
-            sender = st.session_state.sender_name or st.session_state.user_name
+            sender = st.session_state.sender_name or st.session_state.name
             with st.spinner("Writing..."):
                 st.session_state.email_draft = gpt_generate_email(selected, role, sender)
 
@@ -780,7 +828,7 @@ elif page == "outreach":
                     st.warning("Enter a phone number.")
                 else:
                     fmt = format_phone_for_twilio(to_num.strip())
-                    sender = st.session_state.sender_name or st.session_state.user_name
+                    sender = st.session_state.sender_name or st.session_state.name
                     with st.spinner(f"Calling {fmt}..."):
                         ok, res = make_call(
                             st.session_state.twilio_sid,
@@ -805,7 +853,7 @@ elif page == "outreach":
                     st.warning("Enter a phone number.")
                 else:
                     fmt    = format_phone_for_twilio(to_num.strip())
-                    sender = st.session_state.sender_name or st.session_state.user_name
+                    sender = st.session_state.sender_name or st.session_state.name
                     sms    = f"Hi {selected}, this is {sender} from Seven Hiring. We have an exciting {role} opportunity for you. Please check your email or call us back!"
                     ok, msg = send_sms(
                         st.session_state.twilio_sid,
@@ -817,7 +865,7 @@ elif page == "outreach":
 
         with cc3:
             if st.button("Preview Call Script", use_container_width=True):
-                sender = st.session_state.sender_name or st.session_state.user_name
+                sender = st.session_state.sender_name or st.session_state.name
                 with st.spinner("Writing script..."):
                     st.session_state.call_script = gpt_generate_call_script(selected, role, sender)
 
@@ -846,14 +894,14 @@ elif page == "history":
     st.markdown("## Screening History")
     st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">All past screenings saved to your account.</p>', unsafe_allow_html=True)
 
-    hist = load_history(st.session_state.username_key)
+    hist = load_history(st.session_state.username)
 
     if hist.empty:
         st.info("No history yet. Run your first screening to see results here.")
         if st.button("Screen Resumes →"):
             go("screen")
     else:
-        s = get_history_stats(st.session_state.username_key)
+        s = get_history_stats(st.session_state.username)
         m1, m2, m3 = st.columns(3)
         m1.metric("Total Candidates", s["total"])
         m2.metric("Strong Fits",      s["strong"])
@@ -872,7 +920,7 @@ elif page == "history":
             st.download_button("Download", show.to_csv(index=False).encode(), "joy_history.csv", "text/csv", use_container_width=True)
         with h2:
             if st.button("Clear All History", use_container_width=False):
-                clear_history(st.session_state.username_key)
+                clear_history(st.session_state.username)
                 st.success("History cleared.")
                 st.rerun()
 
@@ -905,8 +953,7 @@ elif page == "settings":
 
     st.markdown("---")
     section_label("Account")
-    st.markdown(f"Logged in as **{st.session_state.user_name}**")
+    st.markdown(f"Logged in as **{st.session_state.name}**")
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Logout", use_container_width=False):
-        for k in list(st.session_state.keys()): del st.session_state[k]
-        st.rerun()
+        do_logout()
