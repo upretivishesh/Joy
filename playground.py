@@ -517,9 +517,10 @@ if page == "home":
         "Stop guessing. Start screening.",
     ]
 
-    import hashlib
-    day_seed = int(hashlib.md5(str(now.date()).encode()).hexdigest(), 16)
-    greeting_line = lines[day_seed % len(lines)]
+    import random
+    if "greeting_line" not in st.session_state:
+        st.session_state.greeting_line = random.choice(lines)
+    greeting_line = st.session_state.greeting_line
 
     # ── CENTERED GREETING ──
     st.markdown(f"""
