@@ -4,5 +4,5 @@ python-docx
 pandas
 openai
 twilio
-python-dotenv
-streamlit-authenticator
+bcrypt
+streamlit-cookies-controller
