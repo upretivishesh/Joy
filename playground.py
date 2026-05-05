@@ -63,16 +63,28 @@ st.set_page_config(
     page_title="Joy | AI Recruiter",
     page_icon="✦",
     layout="wide",
-    initial_sidebar_state="collapsed"
 )
 
-# Kill the sidebar toggle button before anything renders
-st.markdown("""
+# Inject into <head> synchronously — this fires before Streamlit renders anything
+# This is the only reliable way to kill the deploy button / sidebar toggle ghost box
+st.html("""
 <style>
-[data-testid="collapsedControl"] { display: none !important; }
-section[data-testid="stSidebar"] { display: none !important; }
+  [data-testid="collapsedControl"],
+  [data-testid="stToolbar"],
+  [data-testid="stDecoration"],
+  [data-testid="stStatusWidget"],
+  .stDeployButton,
+  #MainMenu,
+  footer,
+  header {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+  }
 </style>
-""", unsafe_allow_html=True)
+""")
 
 # ─────────────────────────────────────────────────────────────────
 # CSS
@@ -91,32 +103,11 @@ html, body, [class*="css"] {
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 .block-container { padding: 2rem 2rem 4rem 2rem; max-width: 960px; margin: 0 auto; }
 
-/* Hide "Press Enter to apply" tooltip on all inputs */
-.stTextInput div[data-baseweb="input"] + div,
-small.st-emotion-cache-1gulkj5,
-[data-testid="InputInstructions"] { display: none !important; }
-
 /* Hide the chat form submit button visually — Enter still works */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
 
-/* Hide sidebar collapse toggle — every selector Streamlit has ever used */
-[data-testid="collapsedControl"],
-[data-testid="collapsedControl"] *,
-[data-testid="baseButton-headerNoPadding"],
-section[data-testid="stSidebarCollapsedControl"],
-.st-emotion-cache-1dp5vir,
-button[aria-label="Open sidebar"],
-button[aria-label="Close sidebar"],
-button[aria-expanded="false"][data-testid],
-header button { display: none !important; width: 0 !important; height: 0 !important; overflow: hidden !important; }
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #161616;
-    border-right: 1px solid #2A2A2A;
-}
-section[data-testid="stSidebar"] * { color: #ABABAB !important; font-size: 0.88rem; }
-section[data-testid="stSidebar"] h3 { color: #ECECEC !important; font-size: 1rem !important; }
+/* Hide "Press Enter to apply" tooltip on all inputs */
+[data-testid="InputInstructions"] { display: none !important; }
 
 /* Nav buttons — plain text style */
 [data-testid="stButton"][class*="nav"] > button,
@@ -486,175 +477,296 @@ if not st.session_state._history_loaded and st.session_state.username:
 # ─────────────────────────────────────────────────────────────────
 # TOP NAV — rendered after login, no sidebar needed
 # ─────────────────────────────────────────────────────────────────
-# SLIDING SIDEBAR NAV
+# SLIDING SIDEBAR NAV — pure HTML, fixed left, expands on hover
 # ─────────────────────────────────────────────────────────────────
 def render_nav():
-    uname     = st.session_state.name
-    first     = uname.split()[0] if uname else ""
-    initials  = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
-    page      = st.session_state.page
+    uname    = st.session_state.name
+    initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
+    page     = st.session_state.page
 
-    # Map pages to nav items
-    nav_items = [
-        ("home",     "⌂",  "Home"),
-        ("screen",   "⊞",  "Screen"),
-        ("outreach", "✉",  "Outreach"),
-        ("history",  "◷",  "History"),
-    ]
+    # Map current page to highlight
+    pages = {
+        "home":     ("⌂", "Home"),
+        "screen":   ("⊞", "Screen"),
+        "outreach": ("✉", "Outreach"),
+        "history":  ("◷", "History"),
+    }
 
-    # Build nav item buttons — one row, icon + label
-    cols = st.columns([0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 3])
-    with cols[0]:
-        st.markdown(
-            f'<span style="font-family:\'Josefin Slab\',serif;font-size:1rem;font-weight:700;'
-            f'color:#ECECEC;letter-spacing:0.08em;line-height:2.2;">✦</span>',
-            unsafe_allow_html=True
-        )
-    for i, (pg, icon, label) in enumerate(nav_items):
-        active_style = "color:#ECECEC;border-bottom:1.5px solid #ECECEC;" if page == pg else "color:#555;"
-        with cols[i + 1]:
-            if st.button(f"{icon} {label}", key=f"nav_{pg}", use_container_width=True):
-                go(pg)
+    def item(pg, icon, label):
+        active = "nav-active" if page == pg else ""
+        return f"""
+        <a class="nav-item {active}" onclick="navTo('{pg}')">
+            <span class="nav-icon">{icon}</span>
+            <span class="nav-label">{label}</span>
+        </a>"""
 
-    # User avatar + new chat in last slots
-    with cols[5]:
-        if st.button("＋ New", key="nav_new", use_container_width=True):
-            st.session_state.chat_history = []
-            st.session_state.greeting_line = __import__("random").choice([
-                "The right hire changes everything.",
-                "Great talent doesn't find itself.",
-                "Your next star hire is one screen away.",
-                "Pipelines don't fill themselves.",
-                "Let's find someone brilliant today.",
-                "Good people are out there. Let's go find them.",
-                "Every great team started with one great hire.",
-                "Joy's ready when you are.",
-                "The best recruiters don't just hire — they build legacies.",
-                "Somewhere out there is your perfect candidate.",
-                "Hiring is just matchmaking with better vocabulary.",
-                "A bad hire costs more than a missed one. Choose wisely.",
-                "Behind every great company is a recruiter who didn't settle.",
-                "Talent is everywhere. The trick is knowing where to look.",
-                "Great hiring is 10% instinct and 90% Joy.",
-                "You're not just filling roles. You're building futures.",
-                "Résumés don't hire people. Recruiters do.",
-                "Find the right person once. Stop hiring forever.",
-                "Speed matters. The best candidates have three offers by Friday.",
-                "Stop guessing. Start screening.",
-            ])
-            persist_chat([])
-            go("home")
+    nav_items = "".join(item(pg, icon, label) for pg, (icon, label) in pages.items())
 
-    # Inject the sliding user menu via HTML
-    st.markdown(f"""
+    st.html(f"""
     <style>
-    .joy-user-menu {{
-        position: fixed;
-        top: 14px;
-        right: 20px;
-        z-index: 9999;
-        font-family: 'Inter', sans-serif;
+    /* Push main content right to make room for sidebar */
+    .stMainBlockContainer, .block-container {{
+        margin-left: 64px !important;
+        transition: margin-left 0.25s ease;
     }}
-    .joy-avatar {{
-        width: 32px; height: 32px;
+
+    #joy-sidebar {{
+        position: fixed;
+        top: 0; left: 0;
+        height: 100vh;
+        width: 56px;
+        background: #111111;
+        border-right: 1px solid #1E1E1E;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0;
+        z-index: 99999;
+        overflow: hidden;
+        transition: width 0.22s cubic-bezier(.4,0,.2,1);
+    }}
+    #joy-sidebar:hover {{
+        width: 200px;
+    }}
+    #joy-sidebar:hover ~ * .stMainBlockContainer,
+    #joy-sidebar:hover ~ * .block-container {{
+        margin-left: 200px;
+    }}
+
+    /* Logo */
+    .nav-logo {{
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 22px 16px 18px;
+        width: 200px;
+        flex-shrink: 0;
+        border-bottom: 1px solid #1E1E1E;
+        margin-bottom: 8px;
+    }}
+    .nav-logo-icon {{
+        font-size: 1.1rem;
+        color: #ECECEC;
+        flex-shrink: 0;
+        width: 24px;
+        text-align: center;
+    }}
+    .nav-logo-text {{
+        font-family: 'Josefin Slab', serif;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #ECECEC;
+        letter-spacing: 0.1em;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.15s ease 0.05s;
+    }}
+    #joy-sidebar:hover .nav-logo-text {{ opacity: 1; }}
+
+    /* Nav items */
+    .nav-item {{
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 16px;
+        width: 200px;
+        cursor: pointer;
+        text-decoration: none;
+        border-radius: 0;
+        transition: background 0.15s;
+        flex-shrink: 0;
+    }}
+    .nav-item:hover {{ background: #1A1A1A; }}
+    .nav-item.nav-active {{ background: #1E1E1E; }}
+    .nav-icon {{
+        font-size: 1rem;
+        color: #666;
+        width: 24px;
+        text-align: center;
+        flex-shrink: 0;
+        transition: color 0.15s;
+    }}
+    .nav-item:hover .nav-icon,
+    .nav-item.nav-active .nav-icon {{ color: #ECECEC; }}
+    .nav-label {{
+        font-family: 'Josefin Slab', serif;
+        font-size: 0.82rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #666;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.12s ease 0.05s, color 0.15s;
+    }}
+    #joy-sidebar:hover .nav-label {{ opacity: 1; }}
+    .nav-item:hover .nav-label,
+    .nav-item.nav-active .nav-label {{ color: #ECECEC; }}
+
+    /* Spacer */
+    .nav-spacer {{ flex: 1; }}
+
+    /* New chat button */
+    .nav-new {{
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 16px;
+        width: 200px;
+        cursor: pointer;
+        border-top: 1px solid #1E1E1E;
+        flex-shrink: 0;
+    }}
+    .nav-new:hover {{ background: #1A1A1A; }}
+    .nav-new .nav-icon {{ color: #555; }}
+    .nav-new:hover .nav-icon {{ color: #ECECEC; }}
+    .nav-new .nav-label {{ color: #555; }}
+    .nav-new:hover .nav-label {{ color: #ECECEC; }}
+
+    /* User avatar at bottom */
+    .nav-user {{
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 16px;
+        width: 200px;
+        cursor: pointer;
+        flex-shrink: 0;
+        position: relative;
+    }}
+    .nav-user:hover {{ background: #1A1A1A; }}
+    .nav-avatar {{
+        width: 28px; height: 28px;
         background: #2A2A2A;
-        border: 1px solid #3A3A3A;
+        border: 1px solid #333;
         border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-size: 0.72rem; font-weight: 600; color: #ECECEC;
-        cursor: pointer;
-        transition: border-color 0.2s;
-        user-select: none;
+        font-size: 0.68rem; font-weight: 600; color: #ECECEC;
+        flex-shrink: 0;
     }}
-    .joy-avatar:hover {{ border-color: #666; }}
-    .joy-dropdown {{
+    .nav-user-info {{ opacity: 0; transition: opacity 0.12s ease 0.05s; white-space: nowrap; }}
+    #joy-sidebar:hover .nav-user-info {{ opacity: 1; }}
+    .nav-user-name {{
+        font-size: 0.78rem; font-weight: 500; color: #ECECEC;
+        font-family: 'Inter', sans-serif;
+    }}
+    .nav-user-sub {{
+        font-size: 0.65rem; color: #444;
+        font-family: 'Inter', sans-serif;
+    }}
+
+    /* User dropdown */
+    .nav-user-dropdown {{
         display: none;
         position: absolute;
-        top: 40px; right: 0;
+        bottom: 54px; left: 8px;
         background: #161616;
         border: 1px solid #2A2A2A;
         border-radius: 10px;
         padding: 6px 0;
-        min-width: 180px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        min-width: 176px;
+        box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
+        z-index: 999999;
     }}
-    .joy-dropdown.open {{ display: block; }}
-    .joy-dropdown-header {{
-        padding: 10px 16px 8px;
-        border-bottom: 1px solid #2A2A2A;
-        margin-bottom: 4px;
-    }}
-    .joy-dropdown-header .dname {{
-        font-size: 0.85rem; font-weight: 500; color: #ECECEC;
-    }}
-    .joy-dropdown-header .drole {{
-        font-size: 0.72rem; color: #555; margin-top: 1px;
-    }}
-    .joy-menu-item {{
+    .nav-user-dropdown.open {{ display: block; }}
+    .nav-dd-item {{
         display: flex; align-items: center; gap: 10px;
-        padding: 8px 16px;
-        font-size: 0.83rem; color: #888;
+        padding: 8px 14px;
+        font-size: 0.8rem; color: #888;
         cursor: pointer;
-        transition: color 0.15s, background 0.15s;
-        text-decoration: none;
+        font-family: 'Inter', sans-serif;
     }}
-    .joy-menu-item:hover {{ color: #ECECEC; background: #1E1E1E; }}
-    .joy-menu-item .micon {{ font-size: 0.9rem; width: 16px; text-align:center; }}
-    .joy-menu-divider {{ height: 1px; background: #2A2A2A; margin: 4px 0; }}
-    .joy-menu-item.danger {{ color: #774040; }}
-    .joy-menu-item.danger:hover {{ color: #E57373; background: #1E1515; }}
+    .nav-dd-item:hover {{ color: #ECECEC; background: #1E1E1E; }}
+    .nav-dd-item.danger {{ color: #774040; }}
+    .nav-dd-item.danger:hover {{ color: #E57373; background: #1E1515; }}
     </style>
 
-    <div class="joy-user-menu">
-        <div class="joy-avatar" id="joyAvatar" onclick="toggleMenu()">{initials}</div>
-        <div class="joy-dropdown" id="joyDropdown">
-            <div class="joy-dropdown-header">
-                <div class="dname">{uname}</div>
-                <div class="drole">Seven Hiring</div>
+    <div id="joy-sidebar">
+        <div class="nav-logo">
+            <span class="nav-logo-icon">✦</span>
+            <span class="nav-logo-text">JOY</span>
+        </div>
+
+        {nav_items}
+
+        <div class="nav-spacer"></div>
+
+        <div class="nav-new" onclick="navTo('new')">
+            <span class="nav-icon">＋</span>
+            <span class="nav-label">New Chat</span>
+        </div>
+
+        <div class="nav-user" onclick="toggleUserMenu()" id="navUser">
+            <div class="nav-avatar">{initials}</div>
+            <div class="nav-user-info">
+                <div class="nav-user-name">{uname}</div>
+                <div class="nav-user-sub">Seven Hiring</div>
             </div>
-            <div class="joy-menu-item" onclick="sendNav('settings')">
-                <span class="micon">⚙</span> Settings
-            </div>
-            <div class="joy-menu-divider"></div>
-            <div class="joy-menu-item danger" onclick="sendNav('logout')">
-                <span class="micon">⏻</span> Logout
+            <div class="nav-user-dropdown" id="navUserDrop">
+                <div class="nav-dd-item" onclick="navTo('settings')">⚙ &nbsp;Settings</div>
+                <div class="nav-dd-item danger" onclick="navTo('logout')">⏻ &nbsp;Logout</div>
             </div>
         </div>
     </div>
 
     <script>
-    function toggleMenu() {{
-        var d = document.getElementById('joyDropdown');
-        d.classList.toggle('open');
-    }}
-    document.addEventListener('click', function(e) {{
-        var menu = document.getElementById('joyAvatar');
-        var drop = document.getElementById('joyDropdown');
-        if (menu && drop && !menu.contains(e.target) && !drop.contains(e.target)) {{
-            drop.classList.remove('open');
-        }}
-    }});
-    function sendNav(action) {{
-        // Find the hidden nav input and trigger Streamlit
-        var inputs = window.parent.document.querySelectorAll('[data-testid="stTextInput"] input');
-        // Use query param approach — set a URL param and reload
+    function navTo(action) {{
         var url = new URL(window.parent.location.href);
         url.searchParams.set('joy_nav', action);
         window.parent.location.href = url.toString();
     }}
+    function toggleUserMenu() {{
+        var d = document.getElementById('navUserDrop');
+        if(d) d.classList.toggle('open');
+    }}
+    document.addEventListener('click', function(e) {{
+        var u = document.getElementById('navUser');
+        var d = document.getElementById('navUserDrop');
+        if(u && d && !u.contains(e.target)) d.classList.remove('open');
+    }});
     </script>
-    """, unsafe_allow_html=True)
+    """)
 
-    # Handle URL-param nav from dropdown (settings / logout)
+    # Handle URL-param nav
     params = st.query_params
-    if params.get("joy_nav") == "settings":
+    nav_action = params.get("joy_nav", "")
+    if nav_action == "settings":
         st.query_params.clear()
         go("settings")
-    elif params.get("joy_nav") == "logout":
+    elif nav_action == "logout":
         st.query_params.clear()
         do_logout()
-
-    st.markdown('<hr style="margin:0.3rem 0 1.2rem 0;border-color:#1E1E1E">', unsafe_allow_html=True)
+    elif nav_action == "new":
+        st.query_params.clear()
+        import random
+        st.session_state.chat_history = []
+        st.session_state.greeting_line = random.choice([
+            "The right hire changes everything.",
+            "Great talent doesn't find itself.",
+            "Your next star hire is one screen away.",
+            "Pipelines don't fill themselves.",
+            "Let's find someone brilliant today.",
+            "Good people are out there. Let's go find them.",
+            "Every great team started with one great hire.",
+            "Joy's ready when you are.",
+            "The best recruiters don't just hire — they build legacies.",
+            "Somewhere out there is your perfect candidate.",
+            "Hiring is just matchmaking with better vocabulary.",
+            "A bad hire costs more than a missed one. Choose wisely.",
+            "Behind every great company is a recruiter who didn't settle.",
+            "Talent is everywhere. The trick is knowing where to look.",
+            "Great hiring is 10% instinct and 90% Joy.",
+            "You're not just filling roles. You're building futures.",
+            "Résumés don't hire people. Recruiters do.",
+            "Find the right person once. Stop hiring forever.",
+            "Speed matters. The best candidates have three offers by Friday.",
+            "Stop guessing. Start screening.",
+        ])
+        persist_chat([])
+        go("home")
+    elif nav_action and nav_action in ("home","screen","outreach","history"):
+        st.query_params.clear()
+        go(nav_action)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
