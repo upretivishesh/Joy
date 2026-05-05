@@ -131,12 +131,12 @@ html, body, [class*="css"] {
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 
-/* Center content accounting for 64px fixed sidebar */
+/* Main content area — centered with sidebar offset */
 .block-container {
-    padding: 2rem 2rem 4rem 2rem;
-    max-width: 860px;
-    margin: 0 auto;
-    margin-left: calc(64px + ((100vw - 64px - 860px) / 2)) !important;
+    padding: 2rem 3rem 4rem 3rem !important;
+    max-width: 820px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
 }
 
 /* Hide the chat form submit button visually — Enter still works */
@@ -206,29 +206,29 @@ html, body, [class*="css"] {
     background: #1C1C1C !important;
 }
 
-/* Joy bubble */
+/* Joy response — plain text, no box, no border */
 .joy-bubble {
-    background: #161616;
-    border: 1px solid #2A2A2A;
-    border-left: 3px solid #4A9EFF;
-    border-radius: 0 10px 10px 10px;
-    padding: 14px 18px;
-    font-size: 0.9rem;
-    line-height: 1.65;
+    background: transparent;
+    border: none;
+    border-left: none;
+    border-radius: 0;
+    padding: 4px 0 16px 0;
+    font-size: 0.95rem;
+    line-height: 1.7;
     color: #DCDCDC;
-    margin: 6px 0 18px 0;
+    margin: 0 0 8px 0;
 }
 
-/* User bubble */
+/* User bubble — keep subtle */
 .user-bubble {
-    background: #1E1E1E;
-    border: 1px solid #2E2E2E;
-    border-radius: 10px 10px 0 10px;
-    padding: 12px 16px;
+    background: #1A1A1A;
+    border: 1px solid #252525;
+    border-radius: 12px 12px 2px 12px;
+    padding: 10px 16px;
     font-size: 0.9rem;
-    color: #ECECEC;
-    margin: 6px 0 6px auto;
-    max-width: 80%;
+    color: #ABABAB;
+    margin: 6px 0 16px auto;
+    max-width: 75%;
     text-align: right;
 }
 
@@ -541,12 +541,11 @@ def render_nav():
     st.html(f"""
     <style>
     /* Push main content right to make room for sidebar */
-    .stMainBlockContainer, .block-container {{
-        margin-left: 64px !important;
-        transition: margin-left 0.25s ease;
-    }}
+    section.main > div.block-container {
+        padding-left: calc(64px + 3rem) !important;
+    }
 
-    #joy-sidebar {{
+    #joy-sidebar {
         position: fixed;
         top: 0; left: 0;
         height: 100vh;
@@ -747,8 +746,10 @@ def render_nav():
 
     <script>
     function navTo(action) {{
-        // Post to parent window — Streamlit listens via the injected handler below
-        window.parent.postMessage({{type: 'joy_nav', action: action}}, '*');
+        var url = new URL(window.parent.location.href);
+        url.searchParams.set('joy_nav', action);
+        window.parent.history.pushState({{}}, '', url);
+        window.parent.location.assign(url.toString());
     }}
     function toggleUserMenu(e) {{
         if(e) e.stopPropagation();
@@ -786,23 +787,6 @@ def render_nav():
 # ─────────────────────────────────────────────────────────────────
 page = st.session_state.page
 render_nav()
-
-# Top-level postMessage listener — catches nav clicks from the sidebar iframe
-st.markdown("""
-<script>
-(function() {
-    if (window._joyNavListening) return;
-    window._joyNavListening = true;
-    window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'joy_nav') {
-            var url = new URL(window.location.href);
-            url.searchParams.set('joy_nav', e.data.action);
-            window.location.href = url.toString();
-        }
-    });
-})();
-</script>
-""", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
