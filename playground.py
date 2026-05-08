@@ -539,164 +539,152 @@ def render_nav():
     initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
     page     = st.session_state.page
 
-    # Style the Streamlit sidebar to look like the custom one
     st.markdown("""
     <style>
     /* Sidebar base */
     section[data-testid="stSidebar"] {
-        background: #111111 !important;
-        border-right: 1px solid #1E1E1E !important;
-        width: 220px !important;
-        min-width: 220px !important;
+        background: #0E0E0E !important;
+        border-right: 1px solid #1A1A1A !important;
+        width: 216px !important;
+        min-width: 216px !important;
     }
-    /* Keep the toggle button visible so users can collapse sidebar */
+    /* Collapse toggle — styled, always visible */
     [data-testid="collapsedControl"] {
-        background: #111111 !important;
-        border-right: 1px solid #1E1E1E !important;
+        background: #0E0E0E !important;
+        border-right: 1px solid #1A1A1A !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
-    [data-testid="collapsedControl"] button {
-        color: #333 !important;
-    }
-    [data-testid="collapsedControl"] button:hover {
-        color: #666 !important;
-        background: transparent !important;
-    }
-    button[data-testid="stBaseButton-headerNoPadding"] { display: none !important; }
+    [data-testid="collapsedControl"] svg { color: #2A2A2A !important; }
+    [data-testid="collapsedControl"]:hover svg { color: #555 !important; }
 
-    /* Sidebar inner */
-    section[data-testid="stSidebar"] > div:first-child {
-        padding: 0 !important;
-    }
+    /* Sidebar inner padding reset */
+    section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 
-    /* Nav buttons */
+    /* ALL sidebar buttons — uniform base style */
     section[data-testid="stSidebar"] .stButton > button {
         background: transparent !important;
         border: none !important;
-        border-radius: 0 !important;
-        color: #555 !important;
+        border-radius: 6px !important;
+        color: #4A4A4A !important;
         font-family: 'Josefin Slab', serif !important;
-        font-size: 0.82rem !important;
+        font-size: 0.78rem !important;
         font-weight: 600 !important;
-        letter-spacing: 0.08em !important;
+        letter-spacing: 0.07em !important;
         text-transform: uppercase !important;
         text-align: left !important;
-        padding: 10px 16px !important;
-        width: 200px !important;
+        padding: 8px 16px !important;
+        width: 100% !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         justify-content: flex-start !important;
         box-shadow: none !important;
-        transition: color 0.15s, background 0.15s !important;
+        transition: color 0.12s, background 0.12s !important;
+        margin: 0 !important;
+        min-height: unset !important;
+        height: 34px !important;
+        line-height: 1 !important;
     }
     section[data-testid="stSidebar"] .stButton > button:hover {
-        background: #1A1A1A !important;
-        color: #ECECEC !important;
-    }
-    /* Chat history items — tight spacing */
-    section[data-testid="stSidebar"] .chat-history-item button {
-        font-family: 'Inter', sans-serif !important;
-        font-size: 0.73rem !important;
-        text-transform: none !important;
-        letter-spacing: normal !important;
-        color: #3A3A3A !important;
-        padding: 4px 16px !important;
-        width: 200px !important;
-        text-align: left !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        line-height: 1.3 !important;
-    }
-    section[data-testid="stSidebar"] .chat-history-item button:hover {
-        color: #ABABAB !important;
         background: #161616 !important;
+        color: #DEDEDE !important;
     }
-    /* Reduce gap between stButton elements in sidebar */
-    section[data-testid="stSidebar"] .stButton {
-        margin-bottom: 0 !important;
-        margin-top: 0 !important;
+
+    /* Chat history buttons — smaller, tighter */
+    section[data-testid="stSidebar"] .chat-history-item .stButton > button {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.71rem !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+        color: #2E2E2E !important;
+        padding: 3px 16px !important;
+        height: 24px !important;
+        font-weight: 400 !important;
     }
-    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
-        gap: 0 !important;
+    section[data-testid="stSidebar"] .chat-history-item .stButton > button:hover {
+        color: #888 !important;
+        background: #141414 !important;
     }
-    /* Hide labels */
+
+    /* Zero gap between all sidebar elements */
+    section[data-testid="stSidebar"] .stButton { margin: 0 !important; padding: 0 !important; }
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > * { gap: 0 !important; }
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+
+    /* Hide labels and markdowns except our custom ones */
     section[data-testid="stSidebar"] label { display: none !important; }
-    section[data-testid="stSidebar"] .stMarkdown p {
-        color: #333 !important;
-        font-size: 0.62rem !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.1em !important;
-        padding: 6px 16px 2px !important;
-        margin: 0 !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-    }
+    section[data-testid="stSidebar"] .stMarkdown { padding: 0 !important; margin: 0 !important; }
+
     /* Dividers */
-    section[data-testid="stSidebar"] hr {
-        border-color: #1E1E1E !important;
-        margin: 3px 0 !important;
-    }
+    section[data-testid="stSidebar"] hr { border-color: #1A1A1A !important; margin: 2px 0 !important; }
     </style>
     """, unsafe_allow_html=True)
 
     with st.sidebar:
         # Logo
         st.markdown(f"""
-        <div style="padding:18px 16px 14px;border-bottom:1px solid #1E1E1E;
-                    font-family:'Josefin Slab',serif;font-size:1rem;font-weight:700;
-                    color:#ECECEC;letter-spacing:0.1em;white-space:nowrap;">
-            ✦ JOY
-        </div>""", unsafe_allow_html=True)
+        <div style="padding:16px 16px 12px;border-bottom:1px solid #1A1A1A;
+                    font-family:'Josefin Slab',serif;font-size:0.95rem;font-weight:700;
+                    color:#ECECEC;letter-spacing:0.12em;">✦ JOY</div>
+        """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Nav buttons
-        if st.button("⌂  Home",     key="nav_home",     use_container_width=True): go("home")
-        if st.button("⊞  Screen",   key="nav_screen",   use_container_width=True): go("screen")
-        if st.button("✉  Outreach", key="nav_outreach", use_container_width=True): go("outreach")
-        if st.button("◷  History",  key="nav_history",  use_container_width=True): go("history")
-
-        st.markdown("---")
-
-        # Past chat sessions
-        past = load_chat_sessions(st.session_state.username)
-        if past:
-            st.markdown("Recent")
-            for i, session in enumerate(past[:8]):
-                label = session.get("preview", "Chat")[:28]
-                st.markdown('<div class="chat-history-item">', unsafe_allow_html=True)
-                if st.button(f"  {label}", key=f"past_{i}", use_container_width=True):
-                    st.session_state.chat_history = session.get("messages", [])
-                    go("home")
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("---")
-
-        # Bottom — new chat + user
+        # ── New Chat FIRST ──
         if st.button("＋  New Chat", key="nav_new", use_container_width=True):
             import random
-            # Save current chat before clearing
             if st.session_state.chat_history:
                 save_chat_session(st.session_state.username, st.session_state.chat_history)
             st.session_state.chat_history = []
             if "greeting_line" in st.session_state:
                 del st.session_state["greeting_line"]
-            go("home")
+            st.session_state.page = "home"
+            st.rerun()
 
-        # User avatar + settings/logout
+        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+
+        # ── Nav buttons ──
+        if st.button("⌂  Home",     key="nav_home",     use_container_width=True):
+            st.session_state.page = "home"; st.rerun()
+        if st.button("⊞  Screen",   key="nav_screen",   use_container_width=True):
+            st.session_state.page = "screen"; st.rerun()
+        if st.button("✉  Outreach", key="nav_outreach", use_container_width=True):
+            st.session_state.page = "outreach"; st.rerun()
+        if st.button("◷  History",  key="nav_history",  use_container_width=True):
+            st.session_state.page = "history"; st.rerun()
+
+        # ── Past chat sessions — tight, no gaps ──
+        past = load_chat_sessions(st.session_state.username)
+        if past:
+            st.markdown('<div style="height:6px;border-top:1px solid #1A1A1A;margin-top:6px"></div>', unsafe_allow_html=True)
+            st.markdown('<p style="font-size:0.6rem;color:#2E2E2E;text-transform:uppercase;letter-spacing:0.12em;padding:4px 16px 2px;margin:0;font-family:Inter,sans-serif;">Recent</p>', unsafe_allow_html=True)
+            for i, session in enumerate(past[:10]):
+                label = session.get("preview", "Chat")[:30]
+                st.markdown(f'<div class="chat-history-item" style="line-height:1">', unsafe_allow_html=True)
+                if st.button(label, key=f"past_{i}", use_container_width=True):
+                    st.session_state.chat_history = session.get("messages", [])
+                    st.session_state.page = "home"; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── Spacer then user at bottom ──
+        st.markdown('<div style="flex:1"></div>', unsafe_allow_html=True)
+        st.markdown("---")
+
         st.markdown(f"""
-        <div style="padding:12px 16px;border-top:1px solid #1E1E1E;margin-top:8px;
-                    display:flex;align-items:center;gap:10px;white-space:nowrap;overflow:hidden;">
-            <div style="width:28px;height:28px;background:#2A2A2A;border:1px solid #333;
+        <div style="padding:10px 16px 6px;display:flex;align-items:center;gap:10px;overflow:hidden;">
+            <div style="width:26px;height:26px;background:#1E1E1E;border:1px solid #2A2A2A;
                         border-radius:50%;display:flex;align-items:center;justify-content:center;
-                        font-size:0.68rem;font-weight:600;color:#ECECEC;flex-shrink:0;">{initials}</div>
-            <div>
-                <div style="font-size:0.78rem;color:#ECECEC;font-family:'Inter',sans-serif;">{uname}</div>
-                <div style="font-size:0.65rem;color:#444;font-family:'Inter',sans-serif;">Seven Hiring</div>
+                        font-size:0.62rem;font-weight:600;color:#888;flex-shrink:0;">{initials}</div>
+            <div style="overflow:hidden;">
+                <div style="font-size:0.75rem;color:#888;font-family:'Inter',sans-serif;
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{uname}</div>
+                <div style="font-size:0.62rem;color:#333;font-family:'Inter',sans-serif;">Seven Hiring</div>
             </div>
         </div>""", unsafe_allow_html=True)
 
-        if st.button("⚙  Settings", key="nav_settings", use_container_width=True): go("settings")
-        if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True): do_logout()
+        if st.button("⚙  Settings", key="nav_settings", use_container_width=True):
+            st.session_state.page = "settings"; st.rerun()
+        if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True):
+            do_logout()
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
@@ -767,34 +755,54 @@ if page == "home":
             jd_content = turn["content"]
             role_name  = st.session_state.get("jd_role", "Role")
             st.markdown(f"""
-            <div style="background:#141414;border:1px solid #222;border-radius:10px;
-                        padding:14px 16px;margin:8px 0 12px 0;">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                    <span style="font-size:0.7rem;color:#444;font-family:'Inter',sans-serif;
-                                 text-transform:uppercase;letter-spacing:0.08em;">
-                        Generated JD — {role_name}
-                    </span>
+            <div style="background:#111;border:1px solid #1E1E1E;border-radius:10px;
+                        padding:14px 16px;margin:6px 0 4px 0;">
+                <div style="font-size:0.65rem;color:#3A3A3A;font-family:'Inter',sans-serif;
+                             text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">
+                    JD — {role_name}
                 </div>
-                <pre style="font-size:0.78rem;color:#888;white-space:pre-wrap;
-                             line-height:1.6;font-family:'Inter',sans-serif;margin:0;
-                             max-height:200px;overflow-y:auto;">{jd_content[:1200]}{"..." if len(jd_content)>1200 else ""}</pre>
+                <pre style="font-size:0.77rem;color:#777;white-space:pre-wrap;line-height:1.65;
+                             font-family:'Inter',sans-serif;margin:0;max-height:220px;overflow-y:auto;">{jd_content[:1400]}{"…" if len(jd_content)>1400 else ""}</pre>
             </div>
             """, unsafe_allow_html=True)
-            # Copy + Download + Use buttons
-            jd_cols = st.columns([1, 1, 1, 3])
-            with jd_cols[0]:
-                if st.button("📋 Copy", key=f"copy_{i}", use_container_width=True):
-                    st.session_state[f"copied_{i}"] = True
-                    st.toast("Copied to clipboard!")
-            with jd_cols[1]:
-                st.download_button("⬇ Download", jd_content.encode(),
+            # Tiny emoji-only action buttons — inline, no borders
+            st.markdown("""
+            <style>
+            .jd-actions > div > button {
+                background: transparent !important;
+                border: none !important;
+                color: #444 !important;
+                font-size: 0.82rem !important;
+                padding: 2px 8px !important;
+                min-height: unset !important;
+                height: 28px !important;
+                line-height: 1 !important;
+                box-shadow: none !important;
+                border-radius: 6px !important;
+                transition: color 0.15s, background 0.15s !important;
+            }
+            .jd-actions > div > button:hover {
+                background: #1A1A1A !important;
+                color: #ECECEC !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            st.markdown('<div class="jd-actions">', unsafe_allow_html=True)
+            act1, act2, act3, spacer = st.columns([1, 1, 2, 6])
+            with act1:
+                if st.button("📋", key=f"copy_{i}", help="Copy", use_container_width=False):
+                    st.toast("JD copied — paste it anywhere!")
+            with act2:
+                st.download_button("⬇", jd_content.encode(),
                                    f"JD_{role_name.replace(' ','_')}.txt",
-                                   "text/plain", key=f"dl_{i}", use_container_width=True)
-            with jd_cols[2]:
-                if st.button("Use for Screening", key=f"use_{i}", use_container_width=True):
+                                   "text/plain", key=f"dl_{i}",
+                                   help="Download as .txt")
+            with act3:
+                if st.button("Use for Screening →", key=f"use_{i}"):
                     st.session_state["prefilled_jd"] = jd_content
                     st.session_state.page = "screen"
                     st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
