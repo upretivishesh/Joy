@@ -207,30 +207,30 @@ html, body, [class*="css"] {
     background: #1C1C1C !important;
 }
 
-/* Joy response — plain text, no box, no border */
+/* Joy response — plain text, no box */
 .joy-bubble {
     background: transparent;
     border: none;
-    border-left: none;
-    border-radius: 0;
-    padding: 4px 0 16px 0;
-    font-size: 0.95rem;
+    padding: 2px 0 10px 0;
+    font-size: 0.92rem;
     line-height: 1.7;
-    color: #DCDCDC;
-    margin: 0 0 8px 0;
+    color: #D0D0D0;
+    margin: 0 0 4px 0;
 }
 
-/* User bubble — keep subtle */
+/* User bubble */
 .user-bubble {
-    background: #1A1A1A;
-    border: 1px solid #252525;
-    border-radius: 12px 12px 2px 12px;
-    padding: 10px 16px;
-    font-size: 0.9rem;
-    color: #ABABAB;
-    margin: 6px 0 16px auto;
+    background: #181818;
+    border: 1px solid #222;
+    border-radius: 14px 14px 2px 14px;
+    padding: 9px 14px;
+    font-size: 0.88rem;
+    color: #999;
+    margin: 4px 0 10px auto;
     max-width: 75%;
     text-align: right;
+    display: table;
+    margin-left: auto;
 }
 
 /* Inputs */
@@ -549,8 +549,18 @@ def render_nav():
         width: 220px !important;
         min-width: 220px !important;
     }
-    /* Hide sidebar toggle arrow */
-    [data-testid="collapsedControl"] { display: none !important; }
+    /* Keep the toggle button visible so users can collapse sidebar */
+    [data-testid="collapsedControl"] {
+        background: #111111 !important;
+        border-right: 1px solid #1E1E1E !important;
+    }
+    [data-testid="collapsedControl"] button {
+        color: #333 !important;
+    }
+    [data-testid="collapsedControl"] button:hover {
+        color: #666 !important;
+        background: transparent !important;
+    }
     button[data-testid="stBaseButton-headerNoPadding"] { display: none !important; }
 
     /* Sidebar inner */
@@ -570,7 +580,7 @@ def render_nav():
         letter-spacing: 0.08em !important;
         text-transform: uppercase !important;
         text-align: left !important;
-        padding: 11px 16px !important;
+        padding: 10px 16px !important;
         width: 200px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -582,32 +592,41 @@ def render_nav():
         background: #1A1A1A !important;
         color: #ECECEC !important;
     }
-    /* Chat history items */
+    /* Chat history items — tight spacing */
     section[data-testid="stSidebar"] .chat-history-item button {
         font-family: 'Inter', sans-serif !important;
-        font-size: 0.75rem !important;
+        font-size: 0.73rem !important;
         text-transform: none !important;
         letter-spacing: normal !important;
-        color: #444 !important;
-        padding: 6px 16px !important;
+        color: #3A3A3A !important;
+        padding: 4px 16px !important;
         width: 200px !important;
         text-align: left !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
+        line-height: 1.3 !important;
     }
     section[data-testid="stSidebar"] .chat-history-item button:hover {
         color: #ABABAB !important;
         background: #161616 !important;
     }
+    /* Reduce gap between stButton elements in sidebar */
+    section[data-testid="stSidebar"] .stButton {
+        margin-bottom: 0 !important;
+        margin-top: 0 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
+        gap: 0 !important;
+    }
     /* Hide labels */
     section[data-testid="stSidebar"] label { display: none !important; }
     section[data-testid="stSidebar"] .stMarkdown p {
         color: #333 !important;
-        font-size: 0.65rem !important;
+        font-size: 0.62rem !important;
         text-transform: uppercase !important;
         letter-spacing: 0.1em !important;
-        padding: 8px 16px 4px !important;
+        padding: 6px 16px 2px !important;
         margin: 0 !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -615,7 +634,7 @@ def render_nav():
     /* Dividers */
     section[data-testid="stSidebar"] hr {
         border-color: #1E1E1E !important;
-        margin: 4px 0 !important;
+        margin: 3px 0 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -733,14 +752,8 @@ if page == "home":
         </div>
         """, unsafe_allow_html=True)
 
-    # Show last Joy message if any
-    if st.session_state.chat_history:
-        last = next((t for t in reversed(st.session_state.chat_history) if t["role"] == "assistant"), None)
-        if last:
-            joy_bubble(last["content"])
-
-    # ── CHAT HISTORY ──
-    for turn in st.session_state.chat_history[-12:]:
+    # ── CHAT HISTORY — no duplicates, tight spacing ──
+    for turn in st.session_state.chat_history[-14:]:
         if turn["role"] == "jd":
             continue
         if turn["role"] == "assistant":
@@ -748,7 +761,42 @@ if page == "home":
         elif turn["role"] == "user":
             user_bubble(turn["content"])
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    # ── RENDER JD ABOVE SEARCH BAR ──
+    for i, turn in enumerate(st.session_state.chat_history):
+        if turn["role"] == "jd":
+            jd_content = turn["content"]
+            role_name  = st.session_state.get("jd_role", "Role")
+            st.markdown(f"""
+            <div style="background:#141414;border:1px solid #222;border-radius:10px;
+                        padding:14px 16px;margin:8px 0 12px 0;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <span style="font-size:0.7rem;color:#444;font-family:'Inter',sans-serif;
+                                 text-transform:uppercase;letter-spacing:0.08em;">
+                        Generated JD — {role_name}
+                    </span>
+                </div>
+                <pre style="font-size:0.78rem;color:#888;white-space:pre-wrap;
+                             line-height:1.6;font-family:'Inter',sans-serif;margin:0;
+                             max-height:200px;overflow-y:auto;">{jd_content[:1200]}{"..." if len(jd_content)>1200 else ""}</pre>
+            </div>
+            """, unsafe_allow_html=True)
+            # Copy + Download + Use buttons
+            jd_cols = st.columns([1, 1, 1, 3])
+            with jd_cols[0]:
+                if st.button("📋 Copy", key=f"copy_{i}", use_container_width=True):
+                    st.session_state[f"copied_{i}"] = True
+                    st.toast("Copied to clipboard!")
+            with jd_cols[1]:
+                st.download_button("⬇ Download", jd_content.encode(),
+                                   f"JD_{role_name.replace(' ','_')}.txt",
+                                   "text/plain", key=f"dl_{i}", use_container_width=True)
+            with jd_cols[2]:
+                if st.button("Use for Screening", key=f"use_{i}", use_container_width=True):
+                    st.session_state["prefilled_jd"] = jd_content
+                    st.session_state.page = "screen"
+                    st.rerun()
+
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
     # ── ASK JOY INPUT — full width, Enter submits ──
     with st.form(key="chat_form", clear_on_submit=True):
@@ -863,23 +911,6 @@ Max 3 sentences unless a list is genuinely useful. Never say you can't do someth
             persist_chat(st.session_state.chat_history)
             st.rerun()
 
-    # ── RENDER JD IF GENERATED IN CHAT ──
-    for i, turn in enumerate(st.session_state.chat_history):
-        if turn["role"] == "jd":
-            _, mc, _ = st.columns([1, 4, 1])
-            with mc:
-                with st.expander("Generated JD — click to expand / edit"):
-                    edited = st.text_area("JD", value=turn["content"], height=400,
-                                         key=f"jd_chat_{i}", label_visibility="collapsed")
-                    d1, d2 = st.columns(2)
-                    with d1:
-                        st.download_button("Download JD", edited.encode(),
-                                           f"JD_{st.session_state.jd_role.replace(' ','_')}.txt",
-                                           "text/plain", key=f"dl_{i}", use_container_width=True)
-                    with d2:
-                        if st.button("Use for Screening", key=f"use_{i}", use_container_width=True):
-                            st.session_state["prefilled_jd"] = edited
-                            go("screen")
 
 
 # ═════════════════════════════════════════════════════════════════
