@@ -157,6 +157,27 @@ section.main > div.block-container {
 /* Hide the chat form submit button visually — Enter still works */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
 
+/* Plus button in input bar */
+[data-testid="stForm"] [data-testid="stFormSubmitButton"]:first-of-type {
+    display: flex !important;
+    background: transparent !important;
+    border: 1px solid #222 !important;
+    border-radius: 8px !important;
+    color: #444 !important;
+    font-size: 1.1rem !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: color 0.15s, border-color 0.15s !important;
+}
+[data-testid="stForm"] [data-testid="stFormSubmitButton"]:first-of-type:hover {
+    color: #ECECEC !important;
+    border-color: #444 !important;
+}
+
 /* Hide "Press Enter to apply" tooltip on all inputs */
 [data-testid="InputInstructions"] { display: none !important; }
 
@@ -408,7 +429,9 @@ defaults = {
     "email_draft": "", "call_script": "",
     "sender_name": "",
     "_history_loaded": False,
-    "_cookie_checked": False
+    "_cookie_checked": False,
+    "show_uploader": False,
+    "home_uploaded_files": [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -814,118 +837,241 @@ if page == "home":
 
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
-    # ── ASK JOY INPUT — full width, Enter submits ──
-    with st.form(key="chat_form", clear_on_submit=True):
-        msg = st.text_input(
-            "Ask Joy",
-            placeholder="Ask me anything — form a JD, who's the best candidate, screen resumes...",
+    # ── UPLOADED FILES STATE ──
+    if "home_uploaded_files" not in st.session_state:
+        st.session_state.home_uploaded_files = []
+
+    # ── FILE UPLOAD AREA (shown when + clicked) ──
+    if st.session_state.get("show_uploader"):
+        uploaded = st.file_uploader(
+            "Attach files",
+            type=["pdf", "docx", "txt"],
+            accept_multiple_files=True,
+            key="home_files",
             label_visibility="collapsed"
         )
+        if uploaded:
+            st.session_state.home_uploaded_files = uploaded
+            # Show attached file chips
+            chips = " &nbsp;".join([
+                f'<span style="background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;'
+                f'padding:3px 10px;font-size:0.72rem;color:#888;">'
+                f'📄 {f.name}</span>' for f in uploaded
+            ])
+            st.markdown(f'<div style="margin:4px 0 6px 0;">{chips}</div>', unsafe_allow_html=True)
+
+    # ── INPUT BAR — + button + text ──
+    with st.form(key="chat_form", clear_on_submit=True):
+        col_plus, col_input = st.columns([1, 16])
+
+        with col_plus:
+            toggle = st.form_submit_button(
+                "＋",
+                help="Attach resumes or JD (PDF, DOCX, TXT)"
+            )
+
+        with col_input:
+            msg = st.text_input(
+                "Ask Joy",
+                placeholder="Attach resumes + type role/keywords, or ask anything...",
+                label_visibility="collapsed"
+            )
+
         submitted = st.form_submit_button("↵", use_container_width=False)
 
-        if submitted and msg.strip():
-            user_msg = msg.strip()
-            st.session_state.chat_history.append({"role": "user", "content": user_msg})
-            persist_chat(st.session_state.chat_history)
+        # Toggle uploader
+        if toggle:
+            st.session_state.show_uploader = not st.session_state.get("show_uploader", False)
+            st.rerun()
 
+        if submitted and (msg.strip() or st.session_state.home_uploaded_files):
+            user_msg  = msg.strip()
+            files     = st.session_state.home_uploaded_files
             msg_lower = user_msg.lower()
 
-            # ── INTENT DETECTION — keyword-based, instant, reliable ──
+            # ── RESUME SCREENING from home bar ──
+            if files:
+                # Detect if any are resumes (non-JD)
+                resumes = [f for f in files if f.name.lower().endswith((".pdf",".docx",".txt"))]
 
-            # JD Generation — most common use case
-            jd_triggers = ["jd", "job description", "form a jd", "write a jd", "create a jd",
-                           "draft a jd", "make a jd", "generate a jd", "jd for", "role for"]
-            is_jd = any(t in msg_lower for t in jd_triggers)
+                # Check if JD is in message or a file
+                jd_text = ""
 
-            # Candidate questions — answer from real screening data
-            cand_triggers = ["top candidate", "best candidate", "who should", "shortlist",
-                             "strongest", "who scored", "highest score", "recommend",
-                             "who to hire", "best fit", "top pick"]
-            is_cand = any(t in msg_lower for t in cand_triggers)
+                # Try to get JD from session (prefilled) or detect from message
+                if st.session_state.get("prefilled_jd"):
+                    jd_text = st.session_state.pop("prefilled_jd")
+                elif len(resumes) == 1 and not user_msg:
+                    jd_text = read_file(resumes[0])
+                    resumes = []
 
-            # Navigate to screen
-            screen_triggers = ["screen", "screening", "upload resume", "rank candidates",
-                               "score resume", "evaluate resume"]
-            is_screen = any(t in msg_lower for t in screen_triggers)
+                # If message has JD keywords + files, treat message as JD context
+                jd_keywords = ["jd", "job description", "hiring for", "looking for",
+                               "role", "years", "experience", "skills", "location"]
+                if user_msg and any(k in msg_lower for k in jd_keywords) and not jd_text:
+                    jd_text = user_msg
 
-            # Navigate to outreach
-            outreach_triggers = ["email", "call", "outreach", "contact candidate", "reach out", "sms"]
-            is_outreach = any(t in msg_lower for t in outreach_triggers)
+                if resumes and jd_text:
+                    # Run screening inline
+                    display_names = ", ".join(f.name for f in resumes[:3])
+                    extra = f"... +{len(resumes)-3} more" if len(resumes) > 3 else ""
+                    st.session_state.chat_history.append({
+                        "role": "user",
+                        "content": f"Screen these resumes: {display_names}{extra}" +
+                                   (f"\n\nContext: {user_msg}" if user_msg else "")
+                    })
 
-            # ── EXECUTE ACTIONS ──
+                    with st.spinner(f"Screening {len(resumes)} resume(s)..."):
+                        from resume_parser import (
+                            extract_name, extract_email, extract_phone,
+                            extract_experience, score_resume_against_jd,
+                            get_role_from_jd, get_industry_from_jd, suggest_checks
+                        )
+                        from gpt_utils import gpt_score_resume
 
-            if is_jd:
-                with st.spinner("Writing JD..."):
-                    params = cached_extract_params(user_msg)
-                    jd = cached_generate_jd(
-                        params.get("role", user_msg),
-                        params.get("industry", ""),
-                        params.get("location", ""),
-                        params.get("experience", ""),
-                        "Our client"
+                        role     = get_role_from_jd(jd_text) if jd_text else "General Role"
+                        industry = get_industry_from_jd(jd_text) if jd_text else "General"
+                        rows     = []
+
+                        for f in resumes:
+                            text  = read_file(f)[:2000]
+                            name  = extract_name(text)
+                            email = extract_email(text)
+                            phone = extract_phone(text)
+                            exp   = extract_experience(text)
+                            kw    = score_resume_against_jd(text, [])
+                            gs, verdict, reason = gpt_score_resume(jd_text or text, text)
+                            fs    = round((gs * 0.65) + (kw * 0.25) + (min(exp,10) * 1.5), 2)
+                            rows.append({
+                                "Name": name, "Email": email, "Phone": phone,
+                                "Experience": exp, "Keyword Score": kw,
+                                "GPT Score": gs, "Final Score": fs,
+                                "Verdict": verdict, "Reason": reason,
+                                "Suggestions": suggest_checks({"Experience":exp,"Keyword Score":kw,"Verdict":verdict})
+                            })
+
+                        import pandas as pd
+                        df = pd.DataFrame(rows).sort_values("Final Score", ascending=False).reset_index(drop=True)
+                        df.insert(0, "Sr.No", range(1, len(df)+1))
+
+                        from database import save_to_db
+                        save_to_db(df.copy(), role, industry, st.session_state.username)
+                        st.session_state.results_df        = df
+                        st.session_state.role_detected     = role
+                        st.session_state.industry_detected = industry
+
+                    top = df.iloc[0]
+                    strong = len(df[df["Verdict"] == "Strong Fit"])
+                    good   = len(df[df["Verdict"] == "Good Fit"])
+                    reply  = (
+                        f"Screened **{len(df)} candidates** for **{role}**.\n\n"
+                        f"**Top pick: {top['Name']}** — Score {top['Final Score']}, {top['Verdict']}\n"
+                        f"{top['Reason']}\n\n"
+                        f"**{strong} Strong** · **{good} Good Fit** · "
+                        f"Go to **Outreach** to contact them."
                     )
-                    st.session_state.generated_jd = jd
-                    st.session_state.jd_role = params.get("role", "")
-
-                reply = f"Done. Here's the JD for **{params.get('role', 'the role')}**:"
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-                st.session_state.chat_history.append({"role": "jd", "content": jd})
-
-            elif is_cand and st.session_state.results_df is not None:
-                # Answer from real screening data
-                df = st.session_state.results_df
-                top = df.iloc[0]
-                strong = df[df["Verdict"] == "Strong Fit"]
-                good   = df[df["Verdict"] == "Good Fit"]
-
-                from joy_ai import joy_analyze_candidate
-                analysis = joy_analyze_candidate(top.to_dict(), st.session_state.name)
-
-                reply = (
-                    f"**Top pick: {top['Name']}** — Score {top['Final Score']}, {top['Verdict']}\n\n"
-                    f"{analysis}\n\n"
-                    f"**{len(strong)} Strong Fit** · **{len(good)} Good Fit** out of {len(df)} screened. "
-                    f"Head to Outreach to contact them."
-                )
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-
-            elif is_cand and st.session_state.results_df is None:
-                reply = "No screening data yet. Run a screening first — go to **Screen** in the nav."
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-
-            elif is_screen:
-                reply = "Going to Screen Resumes now."
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-                persist_chat(st.session_state.chat_history)
-                go("screen")
-
-            elif is_outreach:
-                if st.session_state.results_df is None:
-                    reply = "Run a screening first, then I can help you reach out to candidates."
                     st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    st.session_state.chat_history.append({"role": "results", "content": df.to_json()})
+                    st.session_state.home_uploaded_files = []
+                    st.session_state.show_uploader = False
+
+                elif resumes and not jd_text:
+                    # Files uploaded but no JD context
+                    reply = "Got the resumes! Now tell me the role or paste the JD so Joy can screen them."
+                    st.session_state.chat_history.append({"role": "user", "content": f"Uploaded: {', '.join(f.name for f in resumes)}"})
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    # Keep files for next message
                 else:
-                    reply = "Going to Outreach now."
+                    # Just a JD file — save as prefilled
+                    if files:
+                        jd_content = read_file(files[0])
+                        st.session_state.prefilled_jd = jd_content
+                        reply = f"Got the JD from **{files[0].name}**. Now upload the resumes and I'll screen them."
+                        st.session_state.chat_history.append({"role": "user", "content": f"Uploaded JD: {files[0].name}"})
+                        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                        st.session_state.home_uploaded_files = []
+                        st.session_state.show_uploader = False
+
+            elif user_msg:
+                # ── TEXT-ONLY INTENTS ──
+                st.session_state.chat_history.append({"role": "user", "content": user_msg})
+                persist_chat(st.session_state.chat_history)
+
+                jd_triggers      = ["jd", "job description", "form a jd", "write a jd", "create a jd", "draft a jd", "make a jd", "generate a jd", "jd for"]
+                cand_triggers    = ["top candidate", "best candidate", "who should", "shortlist", "strongest", "who scored", "highest score", "recommend", "who to hire", "best fit", "top pick"]
+                outreach_triggers = ["email", "call", "outreach", "contact candidate", "reach out", "sms"]
+                is_jd       = any(t in msg_lower for t in jd_triggers)
+                is_cand     = any(t in msg_lower for t in cand_triggers)
+                is_outreach = any(t in msg_lower for t in outreach_triggers)
+
+                if is_jd:
+                    with st.spinner("Writing JD..."):
+                        params = cached_extract_params(user_msg)
+                        jd = cached_generate_jd(
+                            params.get("role", user_msg),
+                            params.get("industry", ""),
+                            params.get("location", ""),
+                            params.get("experience", ""),
+                            "Our client"
+                        )
+                        st.session_state.generated_jd = jd
+                        st.session_state.jd_role = params.get("role", "")
+                    reply = f"Done. Here's the JD for **{params.get('role', 'the role')}**:"
                     st.session_state.chat_history.append({"role": "assistant", "content": reply})
-                    persist_chat(st.session_state.chat_history)
-                    go("outreach")
+                    st.session_state.chat_history.append({"role": "jd", "content": jd})
 
-            else:
-                ctx_parts = []
-                if st.session_state.results_df is not None:
-                    df = st.session_state.results_df
-                    top3 = df.head(3)[["Name","Final Score","Verdict","Experience","Reason"]].to_dict("records")
-                    ctx_parts.append(f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}")
+                elif is_cand and st.session_state.results_df is not None:
+                    df   = st.session_state.results_df
+                    top  = df.iloc[0]
+                    strong = df[df["Verdict"] == "Strong Fit"]
+                    good   = df[df["Verdict"] == "Good Fit"]
+                    from joy_ai import joy_analyze_candidate
+                    analysis = joy_analyze_candidate(top.to_dict(), st.session_state.name)
+                    reply = (
+                        f"**Top pick: {top['Name']}** — Score {top['Final Score']}, {top['Verdict']}\n\n"
+                        f"{analysis}\n\n"
+                        f"**{len(strong)} Strong Fit** · **{len(good)} Good Fit** out of {len(df)} screened."
+                    )
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
-                system = """You are Joy — a sharp, witty AI recruitment assistant for Seven Hiring.
+                elif is_cand and st.session_state.results_df is None:
+                    st.session_state.chat_history.append({"role": "assistant", "content": "No screening data yet. Upload resumes right here using the ＋ button."})
+
+                elif is_outreach:
+                    if st.session_state.results_df is None:
+                        st.session_state.chat_history.append({"role": "assistant", "content": "Screen some candidates first, then I'll help you reach out."})
+                    else:
+                        st.session_state.chat_history.append({"role": "assistant", "content": "Going to Outreach."})
+                        persist_chat(st.session_state.chat_history)
+                        st.session_state.page = "outreach"; st.rerun()
+                else:
+                    ctx_parts = []
+                    if st.session_state.results_df is not None:
+                        df   = st.session_state.results_df
+                        top3 = df.head(3)[["Name","Final Score","Verdict","Experience","Reason"]].to_dict("records")
+                        ctx_parts.append(f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}")
+                    system = """You are Joy — a sharp, witty AI recruitment assistant for Seven Hiring.
 Answer hiring questions with expertise and personality. Be specific, actionable, concise.
 Max 3 sentences unless a list is genuinely useful. Never say you can't do something."""
-
-                with st.spinner("Joy is thinking..."):
-                    reply = cached_gpt_answer(system, user_msg, "\n".join(ctx_parts))
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    with st.spinner("Joy is thinking..."):
+                        reply = cached_gpt_answer(system, user_msg, "\n".join(ctx_parts))
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
             persist_chat(st.session_state.chat_history)
             st.rerun()
+
+    # ── SHOW INLINE RESULTS TABLE IF SCREENED FROM HOME ──
+    for i, turn in enumerate(st.session_state.chat_history):
+        if turn["role"] == "results":
+            import pandas as pd
+            try:
+                df = pd.read_json(turn["content"])
+                with st.expander("📊 Full Results — click to expand", expanded=False):
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.download_button(
+                        "⬇ Download CSV", df.to_csv(index=False).encode(),
+                        "joy_results.csv", "text/csv", key=f"res_dl_{i}"
+                    )
+            except: pass
 
 
 
