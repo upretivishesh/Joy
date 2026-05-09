@@ -562,9 +562,6 @@ def render_nav():
         width: 210px !important;
         min-width: 210px !important;
     }
-    /* Hide collapse toggle — sidebar always stays open */
-    [data-testid="collapsedControl"] { display: none !important; }
-
     /* Sidebar inner padding reset */
     section[data-testid="stSidebar"] > div:first-child { padding: 0 0 0 0 !important; }
     section[data-testid="stSidebar"] .block-container { padding: 0 !important; }
