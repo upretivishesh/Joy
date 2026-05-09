@@ -95,17 +95,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inject into <head> synchronously — this fires before Streamlit renders anything
-# This is the only reliable way to kill the deploy button / sidebar toggle ghost box
+# Force sidebar always open — prevent collapse state entirely
 st.html("""
 <style>
+  /* Force sidebar always visible, never collapse */
+  section[data-testid="stSidebar"] {
+    transform: none !important;
+    visibility: visible !important;
+    display: block !important;
+    left: 0 !important;
+    position: relative !important;
+  }
+  /* Hide the collapse toggle button completely */
+  [data-testid="collapsedControl"] { display: none !important; }
+  /* Hide all other Streamlit chrome */
   [data-testid="stToolbar"],
   [data-testid="stDecoration"],
   [data-testid="stStatusWidget"],
   .stDeployButton,
-  #MainMenu,
-  footer,
-  header {
+  #MainMenu, footer, header {
     display: none !important;
     height: 0 !important;
     width: 0 !important;
