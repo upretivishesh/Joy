@@ -157,52 +157,8 @@ section.main > div.block-container {
 /* Hide the chat form submit button visually — Enter still works */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
 
-/* Plus button in input bar */
-[data-testid="stForm"] [data-testid="stFormSubmitButton"]:first-of-type {
-    display: flex !important;
-    background: transparent !important;
-    border: 1px solid #222 !important;
-    border-radius: 8px !important;
-    color: #444 !important;
-    font-size: 1.1rem !important;
-    width: 36px !important;
-    height: 36px !important;
-    min-height: 36px !important;
-    padding: 0 !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: color 0.15s, border-color 0.15s !important;
-}
-[data-testid="stForm"] [data-testid="stFormSubmitButton"]:first-of-type:hover {
-    color: #ECECEC !important;
-    border-color: #444 !important;
-}
-
 /* Hide "Press Enter to apply" tooltip on all inputs */
 [data-testid="InputInstructions"] { display: none !important; }
-
-/* Nav buttons — plain text style */
-[data-testid="stButton"][class*="nav"] > button,
-.stButton > button {
-    background: transparent !important;
-    color: #666 !important;
-    border: none !important;
-    border-radius: 0 !important;
-    padding: 0.3rem 0.5rem !important;
-    font-family: 'Josefin Slab', serif !important;
-    font-size: 0.9rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.05em !important;
-    text-transform: uppercase !important;
-    transition: color 0.15s ease !important;
-    box-shadow: none !important;
-    width: auto !important;
-}
-.stButton > button:hover {
-    background: transparent !important;
-    color: #ECECEC !important;
-    border: none !important;
-}
 
 /* Non-nav action buttons — keep styled */
 .action-button > div > button {
@@ -528,7 +484,7 @@ if not st.session_state.authenticated:
         color: #0F0F0F !important;
         border: none !important;
         border-radius: 8px !important;
-        padding: 0.6rem 1.5rem !important;
+        padding: 12px 20px !important;
         font-family: 'Josefin Slab', serif !important;
         font-weight: 600 !important;
         letter-spacing: 0.08em !important;
@@ -542,6 +498,10 @@ if not st.session_state.authenticated:
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+    }
+    /* Override the global hide rule for login form only */
+    [data-testid="stForm"] [data-testid="stFormSubmitButton"] {
+        display: block !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -559,7 +519,6 @@ if not st.session_state.authenticated:
     with st.form("login_form"):
         u = st.text_input("Username", placeholder="Enter username")
         p = st.text_input("Password", type="password", placeholder="Enter password")
-        st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("Sign in", use_container_width=True)
 
     if submitted:
