@@ -549,7 +549,28 @@ def render_nav():
         min-width: 210px !important;
     }
     /* Hide collapse toggle — no point */
-    [data-testid="collapsedControl"] { display: none !important; }
+    [data-testid="collapsedControl"] {
+        background: #0E0E0E !important;
+        border-right: 1px solid #1A1A1A !important;
+        width: 1.5rem !important;
+    }
+    [data-testid="collapsedControl"] button {
+        background: transparent !important;
+        border: none !important;
+        color: #2A2A2A !important;
+        padding: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        transition: color 0.15s !important;
+    }
+    [data-testid="collapsedControl"] button:hover {
+        color: #666 !important;
+        background: transparent !important;
+    }
+    [data-testid="collapsedControl"] svg {
+        width: 14px !important;
+        height: 14px !important;
+    }
 
     /* Sidebar inner padding reset */
     section[data-testid="stSidebar"] > div:first-child { padding: 0 0 0 0 !important; }
@@ -682,6 +703,31 @@ def render_nav():
             st.session_state.page = "settings"; st.rerun()
         if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True):
             do_logout()
+
+    # Ctrl+. keyboard shortcut to toggle sidebar — same as Claude
+    st.markdown("""
+    <script>
+    (function() {
+        if (window._joySidebarShortcut) return;
+        window._joySidebarShortcut = true;
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === '.') {
+                e.preventDefault();
+                var btn = window.parent.document.querySelector('[data-testid="collapsedControl"] button');
+                if (btn) btn.click();
+            }
+        });
+        // Also listen at parent level
+        window.parent.document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === '.') {
+                e.preventDefault();
+                var btn = document.querySelector('[data-testid="collapsedControl"] button');
+                if (btn) btn.click();
+            }
+        });
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
