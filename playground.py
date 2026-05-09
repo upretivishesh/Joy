@@ -528,15 +528,20 @@ if not st.session_state.authenticated:
         color: #0F0F0F !important;
         border: none !important;
         border-radius: 8px !important;
-        padding: 0.6rem 1rem !important;
+        padding: 0.6rem 1.5rem !important;
         font-family: 'Josefin Slab', serif !important;
         font-weight: 600 !important;
         letter-spacing: 0.08em !important;
         text-transform: uppercase !important;
         font-size: 0.85rem !important;
         width: 100% !important;
+        min-height: 44px !important;
         height: auto !important;
+        line-height: 1.4 !important;
         white-space: nowrap !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
     </style>
     """, unsafe_allow_html=True)
