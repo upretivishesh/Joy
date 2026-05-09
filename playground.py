@@ -131,21 +131,19 @@ html, body, [class*="css"] {
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 
-/* Main content area — always centered */
+/* Hide sidebar collapse toggle — sidebar always stays open */
+[data-testid="collapsedControl"] { display: none !important; }
+
+/* Main content — centered in the space to the right of the 210px sidebar */
 .block-container {
     padding: 3rem 2rem 4rem 2rem !important;
-    max-width: 720px !important;
+    max-width: 680px !important;
     margin-left: auto !important;
     margin-right: auto !important;
 }
-/* When sidebar is collapsed, still center */
-.stAppViewContainer > section.main {
-    display: flex !important;
-    justify-content: center !important;
-}
-.stAppViewContainer > section.main > div {
-    width: 100% !important;
-    max-width: 720px !important;
+section.main > div.block-container {
+    margin-left: auto !important;
+    margin-right: auto !important;
 }
 
 /* Hide the chat form submit button visually — Enter still works */
@@ -556,29 +554,8 @@ def render_nav():
         width: 210px !important;
         min-width: 210px !important;
     }
-    /* Hide collapse toggle — no point */
-    [data-testid="collapsedControl"] {
-        background: #0E0E0E !important;
-        border-right: 1px solid #1A1A1A !important;
-        width: 1.5rem !important;
-    }
-    [data-testid="collapsedControl"] button {
-        background: transparent !important;
-        border: none !important;
-        color: #2A2A2A !important;
-        padding: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        transition: color 0.15s !important;
-    }
-    [data-testid="collapsedControl"] button:hover {
-        color: #666 !important;
-        background: transparent !important;
-    }
-    [data-testid="collapsedControl"] svg {
-        width: 14px !important;
-        height: 14px !important;
-    }
+    /* Hide collapse toggle — sidebar always stays open */
+    [data-testid="collapsedControl"] { display: none !important; }
 
     /* Sidebar inner padding reset */
     section[data-testid="stSidebar"] > div:first-child { padding: 0 0 0 0 !important; }
@@ -717,57 +694,6 @@ def render_nav():
 # ─────────────────────────────────────────────────────────────────
 page = st.session_state.page
 render_nav()
-
-# Fixed sidebar toggle button — always visible top-left
-st.markdown("""
-<style>
-#joy-sidebar-toggle {
-    position: fixed;
-    top: 12px;
-    left: 12px;
-    z-index: 99999;
-    width: 28px;
-    height: 28px;
-    background: #111;
-    border: 1px solid #1E1E1E;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: #333;
-    font-size: 13px;
-    transition: color 0.15s, border-color 0.15s;
-    user-select: none;
-}
-#joy-sidebar-toggle:hover {
-    color: #888;
-    border-color: #333;
-}
-</style>
-<div id="joy-sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar (Ctrl+.)">☰</div>
-<script>
-function toggleSidebar() {
-    var btn = window.parent.document.querySelector('[data-testid="collapsedControl"] button');
-    if (btn) { btn.click(); return; }
-    // fallback — find any sidebar toggle button
-    var btns = window.parent.document.querySelectorAll('button');
-    for (var b of btns) {
-        if (b.getAttribute('aria-expanded') !== null) { b.click(); return; }
-    }
-}
-(function() {
-    if (window._joySidebarKey) return;
-    window._joySidebarKey = true;
-    window.parent.document.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === '.') {
-            e.preventDefault();
-            toggleSidebar();
-        }
-    });
-})();
-</script>
-""", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
