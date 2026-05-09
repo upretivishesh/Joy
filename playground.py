@@ -99,7 +99,6 @@ st.set_page_config(
 # This is the only reliable way to kill the deploy button / sidebar toggle ghost box
 st.html("""
 <style>
-  [data-testid="collapsedControl"],
   [data-testid="stToolbar"],
   [data-testid="stDecoration"],
   [data-testid="stStatusWidget"],
@@ -132,12 +131,21 @@ html, body, [class*="css"] {
 /* Hide streamlit chrome completely */
 #MainMenu, footer, header { display: none !important; visibility: hidden !important; }
 
-/* Main content area — centered in the space right of sidebar */
+/* Main content area — always centered */
 .block-container {
     padding: 3rem 2rem 4rem 2rem !important;
     max-width: 720px !important;
     margin-left: auto !important;
     margin-right: auto !important;
+}
+/* When sidebar is collapsed, still center */
+.stAppViewContainer > section.main {
+    display: flex !important;
+    justify-content: center !important;
+}
+.stAppViewContainer > section.main > div {
+    width: 100% !important;
+    max-width: 720px !important;
 }
 
 /* Hide the chat form submit button visually — Enter still works */
@@ -704,36 +712,62 @@ def render_nav():
         if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True):
             do_logout()
 
-    # Ctrl+. keyboard shortcut to toggle sidebar — same as Claude
-    st.markdown("""
-    <script>
-    (function() {
-        if (window._joySidebarShortcut) return;
-        window._joySidebarShortcut = true;
-        document.addEventListener('keydown', function(e) {
-            if ((e.ctrlKey || e.metaKey) && e.key === '.') {
-                e.preventDefault();
-                var btn = window.parent.document.querySelector('[data-testid="collapsedControl"] button');
-                if (btn) btn.click();
-            }
-        });
-        // Also listen at parent level
-        window.parent.document.addEventListener('keydown', function(e) {
-            if ((e.ctrlKey || e.metaKey) && e.key === '.') {
-                e.preventDefault();
-                var btn = document.querySelector('[data-testid="collapsedControl"] button');
-                if (btn) btn.click();
-            }
-        });
-    })();
-    </script>
-    """, unsafe_allow_html=True)
-
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
 # ─────────────────────────────────────────────────────────────────
 page = st.session_state.page
 render_nav()
+
+# Fixed sidebar toggle button — always visible top-left
+st.markdown("""
+<style>
+#joy-sidebar-toggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 99999;
+    width: 28px;
+    height: 28px;
+    background: #111;
+    border: 1px solid #1E1E1E;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #333;
+    font-size: 13px;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+}
+#joy-sidebar-toggle:hover {
+    color: #888;
+    border-color: #333;
+}
+</style>
+<div id="joy-sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar (Ctrl+.)">☰</div>
+<script>
+function toggleSidebar() {
+    var btn = window.parent.document.querySelector('[data-testid="collapsedControl"] button');
+    if (btn) { btn.click(); return; }
+    // fallback — find any sidebar toggle button
+    var btns = window.parent.document.querySelectorAll('button');
+    for (var b of btns) {
+        if (b.getAttribute('aria-expanded') !== null) { b.click(); return; }
+    }
+}
+(function() {
+    if (window._joySidebarKey) return;
+    window._joySidebarKey = true;
+    window.parent.document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === '.') {
+            e.preventDefault();
+            toggleSidebar();
+        }
+    });
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════
 # HOME — Claude-style landing
