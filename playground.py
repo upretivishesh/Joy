@@ -11,8 +11,8 @@ from resume_parser import (
     score_resume_against_jd, get_role_from_jd, get_industry_from_jd,
     suggest_checks
 )
-from gpt_utils import gpt_score_resume, gpt_generate_email, gpt_generate_call_script
-from email_utils import send_email
+from gpt_utils import gpt_score_resume, gpt_generate_email
+from email_utils import send_email, send_bulk_screening_emails, SCREENING_QUESTIONS
 from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history, log_login, load_login_log, save_chat_session, load_chat_sessions
 from joy_ai import get_greeting, joy_analyze_candidate
 from jd_generator import generate_jd, refine_jd
@@ -80,7 +80,6 @@ lines_pool = [
 ]
 
 try:
-    from twilio_utils import make_call, format_phone_for_twilio, send_sms
     TWILIO_OK = True
 except ImportError:
     TWILIO_OK = False
@@ -1167,142 +1166,128 @@ elif page == "jd":
 
 
 # ═════════════════════════════════════════════════════════════════
-# OUTREACH — Email & Calling
+# OUTREACH — Email only, bulk send with screening questions
 # ═════════════════════════════════════════════════════════════════
 elif page == "outreach":
 
-
     st.markdown("## Outreach")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Email and call shortlisted candidates directly from Joy.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Select candidates and send them a screening email in one shot.</p>', unsafe_allow_html=True)
 
     if st.session_state.results_df is None:
-        st.info("No screening results yet. Run a screening first.")
-        if st.button("Go to Screen Resumes"):
-            go("screen")
+        st.info("No screening results yet. Screen some resumes first.")
+        if st.button("Screen Resumes"):
+            st.session_state.page = "screen"; st.rerun()
         st.stop()
 
     df   = st.session_state.results_df
     role = st.session_state.role_detected
+    sender_name = st.session_state.sender_name or st.session_state.name
 
-    section_label("Select Candidate")
-    selected = st.selectbox("Candidate", df["Name"].tolist(), label_visibility="collapsed")
-    row = df[df["Name"] == selected].iloc[0]
+    # ── Gmail credentials check ──
+    if not st.session_state.smtp_email or not st.session_state.smtp_password:
+        st.warning("Add your Gmail and App Password in Settings first.")
+        if st.button("Go to Settings"):
+            st.session_state.page = "settings"; st.rerun()
+        st.markdown("---")
 
-    # Candidate info strip
-    info_cols = st.columns(4)
-    info_cols[0].metric("Final Score", row["Final Score"])
-    info_cols[1].metric("Verdict",     row["Verdict"])
-    info_cols[2].metric("Experience",  f"{row['Experience']} yrs")
-    info_cols[3].metric("GPT Score",   row["GPT Score"])
+    # ── Stats ──
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total Screened",  len(df))
+    m2.metric("Strong Fit",      len(df[df["Verdict"] == "Strong Fit"]))
+    m3.metric("Good Fit",        len(df[df["Verdict"] == "Good Fit"]))
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
+    section_label("Select candidates to invite")
 
-    tab1, tab2 = st.tabs(["📬 Email", "📞 Call & SMS"])
+    # ── Candidate checkboxes ──
+    selected_candidates = []
+    for _, row in df.iterrows():
+        email_val = str(row.get("Email", "")).strip()
+        has_email = email_val and email_val not in ["-", "nan", "None", ""]
+        verdict   = row.get("Verdict", "")
 
-    # ── EMAIL TAB ──
-    with tab1:
-        section_label("Generate & Send Email")
+        col_check, col_name, col_verdict, col_score, col_email = st.columns([0.5, 2.5, 1.5, 1, 2])
 
-        if st.button("Generate Email with AI", use_container_width=False):
-            sender = st.session_state.sender_name or st.session_state.name
-            with st.spinner("Writing..."):
-                st.session_state.email_draft = gpt_generate_email(selected, role, sender)
+        with col_check:
+            # Auto-check Strong and Good fits by default
+            default = verdict in ["Strong Fit", "Good Fit"]
+            checked = st.checkbox("", key=f"chk_{row['Sr.No']}", value=default, label_visibility="collapsed")
 
-        if st.session_state.email_draft:
-            draft = st.text_area("Email Draft", value=st.session_state.email_draft, height=220, label_visibility="collapsed")
-            e1, e2 = st.columns(2)
-            with e1:
-                to   = st.text_input("To", value=row["Email"] if row["Email"] != "-" else "", placeholder="candidate@email.com")
-            with e2:
-                subj = st.text_input("Subject", value=f"Exciting Opportunity — {role}")
+        with col_name:
+            st.markdown(f"<p style='margin:6px 0;font-size:0.88rem;color:#ECECEC;'>{row['Name']}</p>", unsafe_allow_html=True)
 
-            if st.button("Send Email", use_container_width=False):
-                if not st.session_state.smtp_email or not st.session_state.smtp_password:
-                    st.warning("Add your Gmail and App Password in the sidebar.")
-                elif "@" not in to:
-                    st.warning("Enter a valid email address.")
-                else:
-                    with st.spinner("Sending..."):
-                        ok, msg = send_email(
-                            st.session_state.smtp_email,
-                            st.session_state.smtp_password,
-                            to, subj, draft
-                        )
-                    st.success(msg) if ok else st.error(msg)
+        with col_verdict:
+            color = {"Strong Fit": "#6EBF6E", "Good Fit": "#4A9EFF", "Weak Fit": "#EF9F27"}.get(verdict, "#888")
+            st.markdown(f"<p style='margin:6px 0;font-size:0.78rem;color:{color};'>{verdict}</p>", unsafe_allow_html=True)
 
-    # ── CALL & SMS TAB ──
-    with tab2:
-        section_label("Call or SMS")
+        with col_score:
+            st.markdown(f"<p style='margin:6px 0;font-size:0.82rem;color:#888;'>{row['Final Score']}</p>", unsafe_allow_html=True)
 
-        phone_val = str(row.get("Phone", ""))
-        phone_val = "" if phone_val in ["-", "nan", "None"] else phone_val
-        to_num = st.text_input("Phone Number", value=phone_val, placeholder="+919876543210 or 9876543210")
+        with col_email:
+            if has_email:
+                st.markdown(f"<p style='margin:6px 0;font-size:0.75rem;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{email_val}</p>", unsafe_allow_html=True)
+            else:
+                # Editable email field for candidates without one
+                new_email = st.text_input("Email", placeholder="Enter email", key=f"em_{row['Sr.No']}", label_visibility="collapsed")
+                if new_email.strip():
+                    email_val = new_email.strip()
 
-        cc1, cc2, cc3 = st.columns(3)
+        if checked:
+            selected_candidates.append({"name": row["Name"], "email": email_val})
 
-        with cc1:
-            if st.button("Call Now", use_container_width=True):
-                if not (st.session_state.twilio_sid and st.session_state.twilio_token and st.session_state.twilio_from):
-                    st.warning("Add Twilio credentials in the sidebar.")
-                elif not to_num.strip():
-                    st.warning("Enter a phone number.")
-                else:
-                    fmt = format_phone_for_twilio(to_num.strip())
-                    sender = st.session_state.sender_name or st.session_state.name
-                    with st.spinner(f"Calling {fmt}..."):
-                        ok, res = make_call(
-                            st.session_state.twilio_sid,
-                            st.session_state.twilio_token,
-                            st.session_state.twilio_from,
-                            fmt, selected, role, sender, "Seven Hiring"
-                        )
-                    if ok:
-                        st.success(f"Call initiated!")
-                        st.session_state.call_log.append({
-                            "candidate": selected, "number": fmt,
-                            "sid": res, "time": datetime.now().strftime("%I:%M %p")
-                        })
-                    else:
-                        st.error(res)
+    st.markdown("---")
 
-        with cc2:
-            if st.button("Send SMS", use_container_width=True):
-                if not (st.session_state.twilio_sid and st.session_state.twilio_token and st.session_state.twilio_from):
-                    st.warning("Add Twilio credentials in the sidebar.")
-                elif not to_num.strip():
-                    st.warning("Enter a phone number.")
-                else:
-                    fmt    = format_phone_for_twilio(to_num.strip())
-                    sender = st.session_state.sender_name or st.session_state.name
-                    sms    = f"Hi {selected}, this is {sender} from Seven Hiring. We have an exciting {role} opportunity for you. Please check your email or call us back!"
-                    ok, msg = send_sms(
-                        st.session_state.twilio_sid,
-                        st.session_state.twilio_token,
-                        st.session_state.twilio_from,
-                        fmt, sms
-                    )
-                    st.success("SMS sent!") if ok else st.error(msg)
+    # ── Extra note ──
+    section_label("Optional note to add to the email")
+    extra_note = st.text_area(
+        "Extra note",
+        placeholder="e.g. This is a leadership role with a budget of ₹25-30L. Location is Pune, hybrid.",
+        height=80,
+        label_visibility="collapsed"
+    )
 
-        with cc3:
-            if st.button("Preview Call Script", use_container_width=True):
-                sender = st.session_state.sender_name or st.session_state.name
-                with st.spinner("Writing script..."):
-                    st.session_state.call_script = gpt_generate_call_script(selected, role, sender)
+    # ── Preview ──
+    with st.expander("Preview email template", expanded=False):
+        from email_utils import build_screening_email_html, SCREENING_QUESTIONS
+        st.markdown("**Questions that will be asked:**")
+        for i, q in enumerate(SCREENING_QUESTIONS):
+            st.markdown(f"{i+1}. {q}")
+        st.caption(f"Subject: Opportunity | {role} — Seven Hiring")
 
-        if st.session_state.call_script:
-            st.markdown("<br>", unsafe_allow_html=True)
-            section_label("Call Script")
-            st.text_area("Script", st.session_state.call_script, height=220, label_visibility="collapsed")
+    # ── Send button ──
+    no_email = [c["name"] for c in selected_candidates if not c["email"] or "@" not in str(c["email"])]
+    can_send  = len(selected_candidates) > 0 and len(no_email) == 0
 
-        # Call log
-        if st.session_state.call_log:
-            st.markdown("<br>", unsafe_allow_html=True)
-            section_label("Call Log")
-            for log in reversed(st.session_state.call_log[-6:]):
-                st.markdown(
-                    f'<div class="call-log">Called <strong>{log["candidate"]}</strong> · {log["number"]} · {log["time"]}</div>',
-                    unsafe_allow_html=True
+    if no_email:
+        st.warning(f"Missing email for: {', '.join(no_email)}. Add their email above.")
+
+    send_label = f"Send to {len(selected_candidates)} candidate{'s' if len(selected_candidates) != 1 else ''}"
+
+    if st.button(send_label, disabled=not can_send, use_container_width=False):
+        if not st.session_state.smtp_email or not st.session_state.smtp_password:
+            st.error("Add your Gmail and App Password in Settings.")
+        else:
+            from email_utils import send_bulk_screening_emails
+            with st.spinner(f"Sending {len(selected_candidates)} emails..."):
+                results = send_bulk_screening_emails(
+                    sender_email=st.session_state.smtp_email,
+                    sender_password=st.session_state.smtp_password,
+                    candidates=selected_candidates,
+                    role=role,
+                    sender_name=sender_name,
+                    extra_note=extra_note.strip()
                 )
+
+            sent    = [r for r in results if r["success"]]
+            failed  = [r for r in results if not r["success"]]
+
+            if sent:
+                st.success(f"✓ Sent to {len(sent)} candidate{'s' if len(sent) != 1 else ''}: {', '.join(r['name'] for r in sent)}")
+            if failed:
+                for r in failed:
+                    st.error(f"✗ {r['name']} ({r['email']}): {r['message']}")
+
+
 
 
 # ═════════════════════════════════════════════════════════════════
