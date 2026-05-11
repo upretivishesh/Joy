@@ -3,6 +3,4 @@ pdfplumber
 python-docx
 pandas
 openai
-twilio
 streamlit-cookies-controller
- 
