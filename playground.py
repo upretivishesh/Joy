@@ -153,10 +153,30 @@ section.main > div.block-container {
     margin-right: auto !important;
 }
 
-/* Hide the chat form submit button visually — Enter still works */
+/* Hide sidebar collapse toggle permanently */
+[data-testid="collapsedControl"] { display: none !important; }
+
+/* File uploader — minimal, no drag box */
+[data-testid="stFileUploader"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+[data-testid="stFileUploader"] label {
+    display: block !important;
+    font-size: 0.8rem !important;
+    color: #444 !important;
+    cursor: pointer !important;
+    padding: 4px 0 !important;
+    font-family: 'Inter', sans-serif !important;
+}
+[data-testid="stFileUploader"] label:hover { color: #888 !important; }
+[data-testid="stFileUploaderDropzone"] { display: none !important; }
+
+/* Hide Send button from chat form — Enter key submits */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
 
-/* Hide "Press Enter to apply" tooltip on all inputs */
+/* Hide "Press Enter to apply" tooltip */
 [data-testid="InputInstructions"] { display: none !important; }
 
 /* Non-nav action buttons — keep styled */
@@ -378,14 +398,12 @@ defaults = {
     "page": "home",
     "results_df": None, "role_detected": "", "industry_detected": "",
     "smtp_email": "", "smtp_password": "",
-    "twilio_sid": "", "twilio_token": "", "twilio_from": "",
-    "chat_history": [], "call_log": [],
+    "chat_history": [],
     "generated_jd": "", "jd_role": "",
-    "email_draft": "", "call_script": "",
+    "email_draft": "",
     "sender_name": "",
     "_history_loaded": False,
     "_cookie_checked": False,
-    "show_uploader": False,
     "home_uploaded_files": [],
 }
 for k, v in defaults.items():
@@ -803,13 +821,18 @@ if page == "home":
 
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
-    # ── + BUTTON to toggle uploader — outside form ──
-    col_tog, col_clr, _ = st.columns([1, 1, 10])
-    with col_tog:
-        if st.button("＋", key="toggle_up", help="Attach resumes or JD (PDF, DOCX, TXT)"):
-            st.session_state.show_uploader = not st.session_state.get("show_uploader", False)
-            st.rerun()
-    with col_clr:
+    # ── FILE UPLOADER — always visible, styled minimal ──
+    up_col, clr_col, _ = st.columns([3, 1, 8])
+    with up_col:
+        uploaded = st.file_uploader(
+            "＋  Attach resumes",
+            type=["pdf", "docx", "txt"],
+            accept_multiple_files=True,
+            label_visibility="visible"
+        )
+        if uploaded:
+            st.session_state.home_uploaded_files = list(uploaded)
+    with clr_col:
         if st.session_state.chat_history:
             if st.button("🗑", key="clear_chat", help="Clear chat"):
                 save_chat_session(st.session_state.username, st.session_state.chat_history)
@@ -818,29 +841,12 @@ if page == "home":
                 persist_chat([])
                 st.rerun()
 
-    # ── FILE UPLOADER ──
-    if st.session_state.get("show_uploader", False):
-        uploaded = st.file_uploader(
-            "Attach files",
-            type=["pdf", "docx", "txt"],
-            accept_multiple_files=True,
-            label_visibility="collapsed"
-        )
-        if uploaded:
-            st.session_state.home_uploaded_files = list(uploaded)
-            chips = " ".join([
-                f'<span style="background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;'
-                f'padding:2px 10px;font-size:0.7rem;color:#666;">📄 {f.name}</span>'
-                for f in uploaded
-            ])
-            st.markdown(chips, unsafe_allow_html=True)
-
-    # ── TEXT INPUT FORM ──
+    # ── TEXT INPUT FORM — Enter submits, no visible button ──
     with st.form(key="chat_form", clear_on_submit=True):
         msg       = st.text_input("Ask Joy",
                                   placeholder="Type role/keywords, or attach resumes above and describe the role...",
                                   label_visibility="collapsed")
-        submitted = st.form_submit_button("Send")
+        submitted = st.form_submit_button("Send", use_container_width=False)
 
     if submitted and (msg.strip() or st.session_state.get("home_uploaded_files")):
         user_msg  = msg.strip()
@@ -1336,25 +1342,20 @@ elif page == "history":
 elif page == "settings":
 
     st.markdown("## Settings")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Configure your email and calling credentials.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Configure your email credentials.</p>', unsafe_allow_html=True)
 
-    s1, s2 = st.columns(2)
+    section_label("Gmail — used to send outreach emails")
+    st.session_state.smtp_email    = st.text_input("Gmail address", value=st.session_state.smtp_email, placeholder="you@gmail.com")
+    st.session_state.smtp_password = st.text_input("Gmail App Password", value=st.session_state.smtp_password, type="password", placeholder="16-character app password")
+    st.markdown("""
+    <p style="font-size:0.78rem;color:#444;margin-top:4px;line-height:1.6;">
+    To get an App Password: Google Account → Security → 2-Step Verification → App Passwords → create one for Mail.
+    </p>
+    """, unsafe_allow_html=True)
 
-    with s1:
-        section_label("Email — Gmail SMTP")
-        st.session_state.smtp_email    = st.text_input("Gmail address", value=st.session_state.smtp_email, placeholder="you@gmail.com")
-        st.session_state.smtp_password = st.text_input("Gmail App Password", value=st.session_state.smtp_password, type="password", placeholder="16-character app password")
-        st.caption("Go to Google Account → Security → App Passwords to generate one.")
-
-        section_label("Your Name")
-        st.session_state.sender_name = st.text_input("Name shown in emails and calls", value=st.session_state.sender_name)
-
-    with s2:
-        section_label("Calling & SMS — Twilio")
-        st.session_state.twilio_sid   = st.text_input("Account SID",   value=st.session_state.twilio_sid,   type="password", placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-        st.session_state.twilio_token = st.text_input("Auth Token",    value=st.session_state.twilio_token, type="password", placeholder="Your Twilio auth token")
-        st.session_state.twilio_from  = st.text_input("Twilio Number", value=st.session_state.twilio_from,                  placeholder="+1XXXXXXXXXX")
-        st.caption("Find your SID and Auth Token at console.twilio.com")
+    st.markdown("<br>", unsafe_allow_html=True)
+    section_label("Your Name")
+    st.session_state.sender_name = st.text_input("Name shown in outreach emails", value=st.session_state.sender_name)
 
     st.markdown("---")
     section_label("Account")
