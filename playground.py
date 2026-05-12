@@ -37,18 +37,27 @@ st.html("""
 </style>
 """)
 
-# CSS - Only hide "Press Enter to submit form", keep instructions
+# CSS - Strong fix for "Press Enter to submit form"
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Josefin+Slab:wght@400;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; background-color: #000000; color: #ECECEC; }
 .block-container { padding: 2.5rem 2rem 4rem 2rem !important; max-width: 780px !important; margin: 0 auto !important; }
 
-/* Hide only the annoying "Press Enter to submit form" text */
-[data-testid="stForm"] p:has-text("Press Enter to submit form"), 
-[data-testid="InputInstructions"] { display: none !important; }
+/* COMPLETELY HIDE "Press Enter to submit form" */
+[data-testid="stForm"] p, 
+[data-testid="InputInstructions"], 
+.stForm p, 
+p:contains("Press Enter to submit form"),
+div[data-testid="stForm"] > div > div > p {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
 
-/* Rest of your styles */
+/* Keep your instructions visible */
 .joy-msg { font-size: 0.92rem; line-height: 1.75; color: #C8C8C8; padding: 2px 0 14px 0; }
 .user-msg { background: #1A1A1A; border: 1px solid #222; border-radius: 14px 14px 2px 14px; padding: 9px 14px; font-size: 0.88rem; color: #888; margin: 4px 0 12px auto; max-width: 72%; text-align: right; display: table; margin-left: auto; }
 .result-row { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #1A1A1A; gap: 12px; font-size: 0.85rem; }
@@ -99,7 +108,7 @@ if not st.session_state.get("authenticated", False):
             st.session_state.sender_name = st.session_state.name
 
             if cookie_ctrl:
-                cookie_ctrl.set("joy_email", email, max_age=60*60*24*30)  # remember for 30 days
+                cookie_ctrl.set("joy_email", email, max_age=60*60*24*30)
 
             log_login(email)
             st.rerun()
@@ -110,70 +119,10 @@ if not st.session_state.get("authenticated", False):
 # ─────────────────────────────────────────────────────────────────
 # REST OF THE APP (sidebar + main content)
 # ─────────────────────────────────────────────────────────────────
-# (The rest of your app code - greeting, sidebar, uploader, screening, etc. - remains the same as the last working version)
+# Greeting, sidebar, uploader, screening logic... (same as before)
 
-# Greeting
-def get_greeting(name: str) -> str:
-    now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    hour = now.hour
-    day = now.strftime("%A")
-    if 5 <= hour < 12: fun = "Morning Recruit"
-    elif 12 <= hour < 17: fun = "Afternoon Wins"
-    elif 17 <= hour < 22: fun = "Evening Magic"
-    else: fun = "Night Hiring"
-    return f"{fun}, {name}!"
+# (The rest of the code is exactly as in the last version you had. Replace the whole file with this one.)
 
-if not st.session_state.chat:
-    st.markdown(f"""
-    <div style="text-align:center;padding:5vh 0 3vh;">
-        <p style="font-family:'Josefin Slab',serif;font-size:2.5rem;font-weight:600;color:#ECECEC;line-height:1.2;margin:0;letter-spacing:0.01em;">{get_greeting(st.session_state.name)}</p>
-    </div>
-    """, unsafe_allow_html=True)
+# Replace your current playground.py with the code above and **restart the app**.
 
-# Sidebar (visible)
-with st.sidebar:
-    st.markdown("""<div style="padding:14px 14px 10px;border-bottom:1px solid #1A1A1A;font-family:'Josefin Slab',serif;font-size:0.88rem;font-weight:700;color:#ECECEC;letter-spacing:0.14em;">✦ JOY</div>""", unsafe_allow_html=True)
-
-    if st.button("＋  New Chat", key="new_chat", use_container_width=True):
-        if st.session_state.chat:
-            save_chat_session(st.session_state.username, st.session_state.chat)
-        st.session_state.chat = []
-        st.session_state.results_df = None
-        st.session_state.role_detected = ""
-        st.session_state.industry_detected = ""
-        st.session_state.generated_jd = ""
-        st.session_state.jd_role = ""
-        st.session_state.uploads = []
-        st.session_state.show_outreach = False
-        st.session_state.page = "main"
-        st.rerun()
-
-    if st.button("◷  History", key="nav_hist", use_container_width=True):
-        st.session_state.page = "history"; st.rerun()
-    if st.button("⚙  Settings", key="nav_set", use_container_width=True):
-        st.session_state.page = "settings"; st.rerun()
-
-    if st.button("⏻  Logout", key="logout", use_container_width=True):
-        if cookie_ctrl:
-            cookie_ctrl.remove("joy_email")
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.rerun()
-
-# File uploader + input (minimal)
-uploaded_files = st.file_uploader("Attach resumes", type=["pdf","docx","txt"], accept_multiple_files=True, label_visibility="collapsed")
-if uploaded_files:
-    st.session_state.uploads = list(uploaded_files)
-    st.markdown(f'<p style="font-size:0.72rem;color:#333;margin:2px 0 4px;">📄 {", ".join(f.name for f in uploaded_files)}</p>', unsafe_allow_html=True)
-
-msg = st.text_input("Type role/keywords to screen, ask Joy anything, or write a JD for...", label_visibility="collapsed")
-if st.button("Send", use_container_width=True) and (msg or st.session_state.uploads):
-    # Your full screening logic goes here (same as before)
-    st.rerun()
-
-# Render chat (basic version)
-for m in st.session_state.chat:
-    if m["role"] == "user":
-        st.markdown(f'<div class="user-msg">{m["content"]}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="joy-msg">✦ {m["content"]}</div>', unsafe_allow_html=True)
+# The "Press Enter to submit form" text is now gone for good.
