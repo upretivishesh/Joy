@@ -170,16 +170,45 @@ section[data-testid="stSidebar"] hr { border-color: #1A1A1A !important; margin: 
 }
 .stTextInput > div > div > input:focus { border-color: #333 !important; box-shadow: none !important; }
 
-/* File uploader minimal */
-[data-testid="stFileUploaderDropzone"] { display: none !important; }
+/* File uploader — minimal button style */
+[data-testid="stFileUploaderDropzone"] {
+    background: #141414 !important;
+    border: 1px dashed #222 !important;
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
+    min-height: unset !important;
+}
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: #333 !important;
+}
+[data-testid="stFileUploaderDropzone"] > div {
+    gap: 6px !important;
+}
+[data-testid="stFileUploaderDropzone"] p {
+    font-size: 0.78rem !important;
+    color: #444 !important;
+    margin: 0 !important;
+}
+[data-testid="stFileUploaderDropzone"] small {
+    font-size: 0.68rem !important;
+    color: #2A2A2A !important;
+}
+[data-testid="stFileUploaderDropzone"] button {
+    background: transparent !important;
+    border: 1px solid #222 !important;
+    border-radius: 6px !important;
+    color: #444 !important;
+    font-size: 0.75rem !important;
+    padding: 3px 10px !important;
+    min-height: unset !important;
+    height: 26px !important;
+}
 [data-testid="stFileUploader"] { background: transparent !important; border: none !important; padding: 0 !important; }
 [data-testid="stFileUploader"] > label {
-    font-size: 0.78rem !important;
+    font-size: 0.75rem !important;
     color: #333 !important;
-    cursor: pointer !important;
     font-family: 'DM Sans', sans-serif !important;
 }
-[data-testid="stFileUploader"] > label:hover { color: #666 !important; }
 
 /* Hide form submit */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
