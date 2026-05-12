@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import pdfplumber
@@ -608,7 +607,6 @@ for i, msg in enumerate(st.session_state.chat):
                     st.toast("JD copied!")
 
         elif typ == "outreach":
-            # Outreach results
             results = json.loads(content)
             sent   = [r for r in results if r["success"]]
             failed = [r for r in results if not r["success"]]
