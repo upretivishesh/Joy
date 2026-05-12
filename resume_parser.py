@@ -1,136 +1,99 @@
+# resume_parser.py - Upgraded for smarter screening
 import re
 
+def extract_name(text: str) -> str:
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if lines and re.match(r'^[A-Z][a-zA-Z\s\.-]{3,50}$', lines[0]):
+        return lines[0]
+    match = re.search(r'([A-Z][a-zA-Z\s\.-]{4,40})(?:\n|$)', text)
+    return match.group(1).strip() if match else "Unknown Candidate"
 
-def extract_name_rule(text):
-    lines = text.split("\n")
-    blacklist = [
-        "resume", "cv", "profile", "summary", "objective",
-        "location", "india", "board", "university", "college",
-        "school", "experience", "email", "phone", "contact",
-        "address", "linkedin", "github", "declaration"
-    ]
-    for line in lines[:15]:
-        line = line.strip()
-        if (
-            len(line) < 3 or
-            any(x in line.lower() for x in blacklist) or
-            "@" in line or
-            any(char.isdigit() for char in line) or
-            "," in line or
-            len(line) > 50
-        ):
-            continue
-        words = line.split()
-        if 2 <= len(words) <= 4:
-            if all(w[0].isupper() for w in words if w.isalpha()):
-                return line.title()
-    return None
+def extract_email(text: str) -> str:
+    match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+    return match.group(0) if match else ""
 
+def extract_phone(text: str) -> str:
+    patterns = [r'\+?\d{1,4}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}', r'(\+91)?[-.\s]?[6-9]\d{9}']
+    for pat in patterns:
+        match = re.search(pat, text)
+        if match:
+            return match.group(0)
+    return ""
 
-def extract_name(text):
-    name = extract_name_rule(text)
-    if name:
-        return name
-    try:
-        from gpt_utils import gpt_extract_name
-        gpt_name = gpt_extract_name(text)
-        if gpt_name:
-            gpt_name = gpt_name.strip()
-            bad_words = ["location", "india", "resume", "cv", "profile"]
-            if any(x in gpt_name.lower() for x in bad_words):
-                return "Unknown"
-            if len(gpt_name.split()) <= 4:
-                return gpt_name
-    except Exception:
-        pass
-    return "Unknown"
-
-
-def extract_email(text):
-    matches = re.findall(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
-    return matches[0] if matches else "-"
-
-
-def extract_phone(text):
-    matches = re.findall(r"(\+91[\s\-]?)?[6-9]\d{9}", text)
-    return matches[0] if matches else "-"
-
-
-def extract_experience(text):
-    text_lower = text.lower()
+def extract_experience(text: str) -> int:
     patterns = [
-        r"(\d+\.?\d*)\+?\s*years?\s*of\s*(work|professional|total)?\s*experience",
-        r"(\d+\.?\d*)\+?\s*yrs",
-        r"experience\s*[:\-]?\s*(\d+\.?\d*)\s*years?",
-        r"(\d+\.?\d*)\+?\s*years?",
+        r'(\d{1,2})\+?\s*(?:years?|yrs?)\s*(?:of)?\s*experience',
+        r'experience\s*[:\-]?\s*(\d{1,2})',
+        r'(\d{1,2})\s*years?',
     ]
-    values = []
-    for pattern in patterns:
-        for m in re.findall(pattern, text_lower):
+    for pat in patterns:
+        match = re.search(pat, text, re.I)
+        if match:
             try:
-                val = float(m[0] if isinstance(m, tuple) else m)
-                if 0 < val < 40:
-                    values.append(val)
+                return int(match.group(1))
             except:
-                continue
-    return max(values) if values else 0
+                pass
+    return 0
 
+def extract_education(text: str) -> str:
+    patterns = r'(B\.?Tech|B\.?E|M\.?Tech|MBA|Master|Bachelor|Ph\.?D|Diploma|CA|CPA)[\w\s]*?(?:in|of)?\s*([A-Za-z\s&]+)'
+    match = re.search(patterns, text, re.I)
+    return match.group(0).strip() if match else "Not specified"
 
-def score_resume_against_jd(resume_text, extra_keywords):
-    text = resume_text.lower()
-    jd_words = re.findall(r"\b[a-z]{4,}\b", text)
-    jd_keywords = list(set(jd_words))[:30]
-    keywords = jd_keywords + [k.lower() for k in extra_keywords]
-    if not keywords:
-        return 0
-    matches = sum(1 for k in keywords if k in text)
-    return round((matches / len(keywords)) * 100, 2)
+def extract_skills(text: str) -> str:
+    common_skills = ["Python", "JavaScript", "Java", "SQL", "AWS", "Azure", "GCP", "React", "Django", "Flask", "Machine Learning", "Data Analysis", "Excel", "Power BI", "Tableau", "Leadership", "Communication", "Project Management"]
+    found = [skill for skill in common_skills if skill.lower() in text.lower()]
+    return ", ".join(found) if found else "None detected"
 
+def score_resume_against_jd(resume_text: str, jd_keywords: list) -> int:
+    if not jd_keywords:
+        return 40
+    resume_lower = resume_text.lower()
+    matches = sum(1 for kw in jd_keywords if kw.lower() in resume_lower)
+    return min(100, int((matches / len(jd_keywords)) * 100))
 
-def get_role_from_jd(jd_text):
-    jd = jd_text.lower()
-    roles = {
-        "graphic designer": ["graphic designer", "visual designer"],
-        "software engineer": ["software engineer", "developer", "sde"],
-        "data analyst": ["data analyst", "business analyst"],
-        "sales executive": ["sales executive", "sales rep", "bdm", "business development"],
-        "hr executive": ["hr executive", "human resources"],
-        "marketing manager": ["marketing manager", "digital marketing"],
-        "qc manager": ["quality control", "qc manager", "quality assurance", "qa manager"],
-        "r&d manager": ["r&d", "research and development"],
-        "regional sales manager": ["regional sales manager", "rsm", "area sales manager"],
-    }
-    for label, keywords in roles.items():
-        if any(k in jd for k in keywords):
-            return label.title()
-    return "General Role"
+def extract_keywords_from_jd(jd_text: str) -> list:
+    if not jd_text:
+        return []
+    stop_words = {"the", "and", "for", "with", "this", "that", "are", "will", "must", "have", "good", "strong", "experience", "skills", "years", "role", "job"}
+    words = re.findall(r'\b[a-zA-Z]{4,}\b', jd_text.lower())
+    keywords = [w for w in words if w not in stop_words]
+    return list(dict.fromkeys(keywords))[:20]
 
+def is_likely_jd(text: str) -> bool:
+    if not text or len(text) < 100:
+        return False
+    text_l = text.lower()[:2500]
+    jd_indicators = ["job description", "responsibilities", "requirements", "qualifications", "we are looking for", "role overview", "key responsibilities", "must have", "nice to have", "about the role", "who you are", "what you will do"]
+    resume_indicators = ["professional summary", "work experience", "education", "projects", "certifications"]
+    jd_score = sum(text_l.count(ind) for ind in jd_indicators)
+    resume_score = sum(text_l.count(ind) for ind in resume_indicators)
+    return jd_score >= 2 and jd_score > resume_score * 0.6
 
-def get_industry_from_jd(jd_text):
-    jd = jd_text.lower()
-    if any(x in jd for x in ["agrochemical", "pesticide", "herbicide", "insecticide", "crop protection"]):
-        return "Agrochemicals"
-    if any(x in jd for x in ["pharma", "pharmaceutical", "drug", "biotech"]):
-        return "Pharma"
-    if any(x in jd for x in ["design", "ui", "ux", "graphic"]):
-        return "Design"
-    if any(x in jd for x in ["software", "developer", "tech", "it", "saas"]):
-        return "Technology"
-    if any(x in jd for x in ["sales", "business development"]):
-        return "Sales"
-    if any(x in jd for x in ["finance", "accounting", "ca", "cfa"]):
-        return "Finance"
-    if any(x in jd for x in ["marketing", "seo", "social media"]):
-        return "Marketing"
+def get_role_from_jd(jd_text: str) -> str:
+    if not jd_text:
+        return "General Role"
+    patterns = [r'(?:hiring|recruiting|for|position|role|title)\s*[:\-]?\s*([A-Za-z\s]+?)(?:\s+at|\s+in|\s+with|\.|$)', r'([A-Za-z\s]+?)\s*(?:Engineer|Developer|Manager|Analyst|Consultant|Specialist|Lead)']
+    for pat in patterns:
+        match = re.search(pat, jd_text, re.I)
+        if match:
+            return match.group(1).strip().title()
+    return "Role"
+
+def get_industry_from_jd(jd_text: str) -> str:
+    industries = ["Software", "Tech", "Finance", "Healthcare", "Marketing", "Sales", "Education", "Manufacturing", "Retail", "Consulting", "IT", "Data", "AI", "ML"]
+    text_l = jd_text.lower()
+    for ind in industries:
+        if ind.lower() in text_l:
+            return ind
     return "General"
 
-
-def suggest_checks(row):
-    suggestions = []
-    if row.get("Experience", 0) < 2:
-        suggestions.append("Low experience")
-    if row.get("Keyword Score", 0) < 20:
-        suggestions.append("Weak keyword match")
-    if row.get("Verdict", "") in ["Weak Fit", "Not Relevant"]:
-        suggestions.append("Low GPT match")
-    return ", ".join(suggestions) if suggestions else "Looks good"
+def suggest_checks(data: dict) -> str:
+    checks = []
+    if data.get("Experience", 0) < 2:
+        checks.append("Verify experience claims")
+    if data.get("Keyword Score", 0) < 50:
+        checks.append("Limited skill match")
+    if "Not specified" in data.get("Education", ""):
+        checks.append("Education unclear")
+    return ", ".join(checks) or "Strong profile"
