@@ -512,15 +512,8 @@ if page == "history":
             if st.button("Clear History"):
                 clear_history(st.session_state.username)
                 st.rerun()
-    st.stop()
 
-# ─────────────────────────────────────────────────────────────────
-# SETTINGS PAGE
-# ─────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────
-# SETTINGS PAGE
-# ─────────────────────────────────────────────────────────────────
-if page == "settings":
+elif page == "settings":
     st.markdown("## Settings")
     st.markdown('<p class="section-label">Gmail — used to send outreach emails</p>', unsafe_allow_html=True)
     st.session_state.smtp_email    = st.text_input("Gmail", value=st.session_state.smtp_email, placeholder="you@gmail.com")
@@ -533,12 +526,9 @@ if page == "settings":
     st.markdown(f"Logged in as **{st.session_state.name}**")
     if st.button("Logout", key="settings_logout"):
         do_logout()
-    st.stop()
 
-# ─────────────────────────────────────────────────────────────────
-# MAIN — single page, everything from the search bar
-# ─────────────────────────────────────────────────────────────────
-st.session_state.page = "main"
+if page not in ("history", "settings"):
+    st.session_state.page = "main"
 
 # Greeting when no chat
 if not st.session_state.chat:
