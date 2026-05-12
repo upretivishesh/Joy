@@ -4,88 +4,22 @@ import pdfplumber
 from docx import Document
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import re
+import re, json, random
 
 from resume_parser import (
     extract_name, extract_email, extract_phone, extract_experience,
-    score_resume_against_jd, get_role_from_jd, get_industry_from_jd,
-    suggest_checks
+    score_resume_against_jd, get_role_from_jd, get_industry_from_jd, suggest_checks
 )
-from gpt_utils import gpt_score_resume, gpt_generate_email
-from email_utils import send_email, send_bulk_screening_emails, SCREENING_QUESTIONS
-from database import save_to_db, load_history, clear_history, get_history_stats, save_chat_history, load_chat_history, log_login, load_login_log, save_chat_session, load_chat_sessions
-from joy_ai import get_greeting, joy_analyze_candidate
+from gpt_utils import gpt_score_resume
+from email_utils import send_bulk_screening_emails, SCREENING_QUESTIONS
+from database import (
+    save_to_db, load_history, clear_history, get_history_stats,
+    log_login, save_chat_session, load_chat_sessions
+)
 from jd_generator import generate_jd, refine_jd
 
-# ── CACHED HELPERS for speed ──
-@st.cache_data(show_spinner=False, ttl=3600)
-def cached_gpt_answer(system: str, user: str, ctx: str) -> str:
-    from openai import OpenAI
-    client = OpenAI()
-    msgs = [{"role": "system", "content": system}]
-    if ctx:
-        msgs.append({"role": "system", "content": ctx})
-    msgs.append({"role": "user", "content": user})
-    res = client.chat.completions.create(model="gpt-4o-mini", messages=msgs, max_tokens=300, temperature=0.8)
-    return res.choices[0].message.content.strip()
-
-@st.cache_data(show_spinner=False, ttl=600)
-def cached_extract_params(user_msg: str) -> dict:
-    from openai import OpenAI
-    import json, re
-    client = OpenAI()
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": f"Extract: role title, industry, location, experience from this. Return JSON only: {{\"role\":\"\",\"industry\":\"\",\"location\":\"\",\"experience\":\"\"}}\n\nRequest: {user_msg}"}],
-        max_tokens=150
-    )
-    raw = re.sub(r"```json|```", "", res.choices[0].message.content).strip()
-    try:
-        return json.loads(raw)
-    except:
-        return {"role": user_msg, "industry": "", "location": "", "experience": ""}
-
-@st.cache_data(show_spinner=False, ttl=1800)
-def cached_generate_jd(role, industry, location, experience, company) -> str:
-    return generate_jd(role=role, industry=industry, location=location,
-                       experience_range=experience, company_name=company)
-
-# Greeting lines pool — used on home page and new chat
-lines_pool = [
-    "The right hire changes everything.",
-    "Great talent doesn't find itself.",
-    "Your next star hire is one screen away.",
-    "Pipelines don't fill themselves.",
-    "Let's find someone brilliant today.",
-    "Good people are out there. Let's go find them.",
-    "Every great team started with one great hire.",
-    "Joy's ready when you are.",
-    "The best recruiters don't just hire — they build legacies.",
-    "Somewhere out there is your perfect candidate.",
-    "Hiring is just matchmaking with better vocabulary.",
-    "A bad hire costs more than a missed one. Choose wisely.",
-    "Behind every great company is a recruiter who didn't settle.",
-    "Talent is everywhere. The trick is knowing where to look.",
-    "Great hiring is 10% instinct and 90% Joy.",
-    "You're not just filling roles. You're building futures.",
-    "The best interview question? Let Joy rank them first.",
-    "Résumés don't hire people. Recruiters do.",
-    "Find the right person once. Stop hiring forever.",
-    "Culture fit is real. So is Joy's scoring algorithm.",
-    "Speed matters. The best candidates have three offers by Friday.",
-    "Not all CVs are created equal. Joy knows the difference.",
-    "Your competitors are also hiring today. Move faster.",
-    "The best hire you ever made started with a great JD.",
-    "Stop guessing. Start screening.",
-]
-
-try:
-    TWILIO_OK = True
-except ImportError:
-    TWILIO_OK = False
-
 # ─────────────────────────────────────────────────────────────────
-# CONFIG
+# PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Joy | AI Recruiter",
@@ -94,20 +28,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Force sidebar always open — prevent collapse state entirely
 st.html("""
 <style>
-  /* Force sidebar always visible, never collapse */
-  section[data-testid="stSidebar"] {
-    transform: none !important;
-    visibility: visible !important;
-    display: block !important;
-    left: 0 !important;
-    position: relative !important;
-  }
-  /* Hide the collapse toggle button completely */
-  [data-testid="collapsedControl"] { display: none !important; }
-  /* Hide all other Streamlit chrome */
+  [data-testid="collapsedControl"],
   [data-testid="stToolbar"],
   [data-testid="stDecoration"],
   [data-testid="stStatusWidget"],
@@ -119,6 +42,12 @@ st.html("""
     overflow: hidden !important;
     visibility: hidden !important;
   }
+  section[data-testid="stSidebar"] {
+    transform: none !important;
+    visibility: visible !important;
+    display: block !important;
+    left: 0 !important;
+  }
 </style>
 """)
 
@@ -127,265 +56,212 @@ st.html("""
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Josefin+Slab:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Josefin+Slab:wght@400;600;700&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
+    font-family: 'DM Sans', sans-serif;
     background-color: #0F0F0F;
     color: #ECECEC;
 }
+#MainMenu, footer, header { display: none !important; }
 
-/* Hide streamlit chrome completely */
-#MainMenu, footer, header { display: none !important; visibility: hidden !important; }
-
-/* Hide sidebar collapse toggle — sidebar always stays open */
-[data-testid="collapsedControl"] { display: none !important; }
-
-/* Main content — centered in the space to the right of the 210px sidebar */
 .block-container {
-    padding: 3rem 2rem 4rem 2rem !important;
-    max-width: 680px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-}
-section.main > div.block-container {
-    margin-left: auto !important;
-    margin-right: auto !important;
+    padding: 2.5rem 2rem 4rem 2rem !important;
+    max-width: 780px !important;
+    margin: 0 auto !important;
 }
 
-/* Hide sidebar collapse toggle permanently */
-[data-testid="collapsedControl"] { display: none !important; }
-
-/* File uploader — minimal, no drag box */
-[data-testid="stFileUploader"] {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-}
-[data-testid="stFileUploader"] label {
-    display: block !important;
-    font-size: 0.8rem !important;
-    color: #444 !important;
-    cursor: pointer !important;
-    padding: 4px 0 !important;
-    font-family: 'Inter', sans-serif !important;
-}
-[data-testid="stFileUploader"] label:hover { color: #888 !important; }
-[data-testid="stFileUploaderDropzone"] { display: none !important; }
-
-/* Hide Send button from chat form — Enter key submits */
-[data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
-
-/* Hide "Press Enter to apply" tooltip */
-[data-testid="InputInstructions"] { display: none !important; }
-
-/* Non-nav action buttons — keep styled */
-.action-button > div > button {
-    background: #1A1A1A !important;
-    color: #ECECEC !important;
-    border: 1px solid #2E2E2E !important;
-    border-radius: 8px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.88rem !important;
-    text-transform: none !important;
-    letter-spacing: normal !important;
-    padding: 0.5rem 1.2rem !important;
-}
-
-/* Action cards — full button styled as card */
-.card-btn > div > button {
-    background: #161616 !important;
-    border: 1px solid #2A2A2A !important;
-    border-radius: 12px !important;
-    padding: 18px 20px !important;
-    height: 110px !important;
-    width: 100% !important;
-    text-align: left !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: flex-start !important;
-    gap: 4px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    white-space: normal !important;
-    line-height: 1.4 !important;
-    font-size: 0.88rem !important;
-    color: #ECECEC !important;
-}
-.card-btn > div > button:hover {
-    border-color: #444 !important;
-    background: #1C1C1C !important;
-}
-
-/* Joy response — plain text, no box */
-.joy-bubble {
-    background: transparent;
-    border: none;
-    padding: 2px 0 10px 0;
+/* Joy text — plain, no box */
+.joy-msg {
     font-size: 0.92rem;
-    line-height: 1.7;
-    color: #D0D0D0;
-    margin: 0 0 4px 0;
+    line-height: 1.75;
+    color: #C8C8C8;
+    padding: 2px 0 14px 0;
 }
-
 /* User bubble */
-.user-bubble {
-    background: #181818;
+.user-msg {
+    background: #1A1A1A;
     border: 1px solid #222;
     border-radius: 14px 14px 2px 14px;
     padding: 9px 14px;
     font-size: 0.88rem;
-    color: #999;
-    margin: 4px 0 10px auto;
-    max-width: 75%;
+    color: #888;
+    margin: 4px 0 12px auto;
+    max-width: 72%;
     text-align: right;
     display: table;
     margin-left: auto;
 }
-
-/* Inputs */
-.stTextInput > div > div > input,
-.stTextArea > div > div > textarea {
-    background: #161616 !important;
-    border: 1px solid #2E2E2E !important;
-    border-radius: 8px !important;
-    color: #ECECEC !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.9rem !important;
+/* Results table */
+.result-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #1A1A1A;
+    gap: 12px;
+    font-size: 0.85rem;
 }
-.stTextInput > div > div > input:focus,
-.stTextArea > div > div > textarea:focus {
-    border-color: #444 !important;
+.result-row:last-child { border-bottom: none; }
+.verdict-strong { color: #6EBF6E; font-size: 0.75rem; }
+.verdict-good   { color: #4A9EFF; font-size: 0.75rem; }
+.verdict-weak   { color: #EF9F27; font-size: 0.75rem; }
+.verdict-not    { color: #888;    font-size: 0.75rem; }
+.score-num { color: #555; font-size: 0.78rem; min-width: 32px; }
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: #0A0A0A !important;
+    border-right: 1px solid #1A1A1A !important;
+    width: 210px !important;
+    min-width: 210px !important;
+}
+section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
+section[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 5px !important;
+    color: #3A3A3A !important;
+    font-family: 'Josefin Slab', serif !important;
+    font-size: 0.76rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+    text-align: left !important;
+    padding: 7px 14px !important;
+    width: 100% !important;
+    white-space: nowrap !important;
+    justify-content: flex-start !important;
     box-shadow: none !important;
+    min-height: 30px !important;
+    height: 30px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
 }
-
-/* Select box */
-.stSelectbox > div > div {
-    background: #161616 !important;
-    border: 1px solid #2E2E2E !important;
-    border-radius: 8px !important;
-    color: #ECECEC !important;
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: #141414 !important;
+    color: #ABABAB !important;
 }
+section[data-testid="stSidebar"] .stButton { margin: 0 !important; padding: 0 !important; }
+section[data-testid="stSidebar"] label { display: none !important; }
+section[data-testid="stSidebar"] hr { border-color: #1A1A1A !important; margin: 3px 0 !important; }
 
-/* File uploader */
-[data-testid="stFileUploader"] {
-    background: #161616;
-    border: 1px dashed #2E2E2E;
-    border-radius: 10px;
-    padding: 1rem;
+/* Chat history items */
+.hist-btn button {
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.68rem !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    color: #2A2A2A !important;
+    padding: 3px 14px !important;
+    height: 20px !important;
+    min-height: 20px !important;
+    font-weight: 400 !important;
 }
+.hist-btn button:hover { color: #666 !important; background: #111 !important; }
 
-/* Dataframe */
-[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-
-/* Divider */
-hr { border-color: #2A2A2A !important; margin: 1.5rem 0 !important; }
-
-/* Metrics */
-[data-testid="stMetric"] {
-    background: #161616;
-    border: 1px solid #2A2A2A;
-    border-radius: 10px;
-    padding: 14px 18px;
-}
-[data-testid="stMetricLabel"] { color: #888 !important; font-size: 0.8rem !important; }
-[data-testid="stMetricValue"] { color: #ECECEC !important; font-size: 1.5rem !important; font-weight: 600 !important; }
-
-/* Tab-style nav pills */
-.nav-pill {
-    display: inline-block;
-    background: #1A1A1A;
-    border: 1px solid #2E2E2E;
-    border-radius: 20px;
-    padding: 5px 14px;
-    font-size: 0.8rem;
-    color: #888;
-    margin: 0 4px 8px 0;
-    cursor: pointer;
-}
-.nav-pill.active {
-    background: #2A2A2A;
-    color: #ECECEC;
-    border-color: #444;
-}
-
-/* Call log */
-.call-log {
-    background: #0D1F0D;
-    border: 1px solid #1A3A1A;
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 0.82rem;
-    color: #6EBF6E;
-    margin: 5px 0;
-}
-
-/* Expander */
-[data-testid="stExpander"] {
-    background: #161616 !important;
-    border: 1px solid #2A2A2A !important;
+/* Input */
+.stTextInput > div > div > input {
+    background: #141414 !important;
+    border: 1px solid #222 !important;
     border-radius: 10px !important;
+    color: #ECECEC !important;
+    font-size: 0.9rem !important;
+    padding: 12px 16px !important;
 }
+.stTextInput > div > div > input:focus { border-color: #333 !important; box-shadow: none !important; }
 
-/* Success / Error / Warning */
-[data-testid="stAlert"] { border-radius: 8px !important; }
+/* File uploader minimal */
+[data-testid="stFileUploaderDropzone"] { display: none !important; }
+[data-testid="stFileUploader"] { background: transparent !important; border: none !important; padding: 0 !important; }
+[data-testid="stFileUploader"] > label {
+    font-size: 0.78rem !important;
+    color: #333 !important;
+    cursor: pointer !important;
+    font-family: 'DM Sans', sans-serif !important;
+}
+[data-testid="stFileUploader"] > label:hover { color: #666 !important; }
 
-/* Section label */
+/* Hide form submit */
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
+[data-testid="InputInstructions"] { display: none !important; }
+
+/* Checkbox */
+.stCheckbox { margin: 0 !important; padding: 0 !important; }
+
+/* JD box */
+.jd-box {
+    background: #111;
+    border: 1px solid #1E1E1E;
+    border-radius: 10px;
+    padding: 16px;
+    margin: 8px 0;
+}
+.jd-box pre {
+    font-size: 0.76rem;
+    color: #666;
+    white-space: pre-wrap;
+    line-height: 1.65;
+    font-family: 'DM Sans', sans-serif;
+    margin: 0;
+    max-height: 240px;
+    overflow-y: auto;
+}
 .section-label {
-    font-size: 0.72rem;
+    font-size: 0.6rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #555;
-    margin: 1.5rem 0 0.6rem 0;
+    letter-spacing: 0.1em;
+    color: #333;
+    margin: 12px 0 4px;
 }
 
-/* Greeting headline */
-.greeting-title {
-    font-size: 2.6rem;
-    font-weight: 600;
-    color: #ECECEC;
-    line-height: 1.2;
-    margin-bottom: 4px;
-    font-family: 'Josefin Slab', serif;
-    letter-spacing: 0.01em;
+/* Login */
+.login-wrap {
+    max-width: 360px;
+    margin: 14vh auto 0;
 }
-.greeting-sub {
-    font-size: 0.9rem;
-    color: #555;
-    margin-bottom: 2rem;
+[data-testid="stFormSubmitButton"] > button {
+    background: #ECECEC !important;
+    color: #0F0F0F !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 10px 20px !important;
+    font-family: 'Josefin Slab', serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    font-size: 0.84rem !important;
+    width: 100% !important;
+    min-height: 42px !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    white-space: nowrap !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
-
-/* Login card */
-.login-card {
-    background: #161616;
-    border: 1px solid #2A2A2A;
-    border-radius: 14px;
-    padding: 2.5rem 2rem;
+/* On login page, show the submit button */
+.login-form [data-testid="stForm"] [data-testid="stFormSubmitButton"] {
+    display: block !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# USERS — plain password check (bcrypt hashing on load was slow)
+# USERS + AUTH
 # ─────────────────────────────────────────────────────────────────
 USERS = {
     "vishesh": {"name": "Vishesh Upreti",  "password": "Qwerty@0987"},
     "ruhani":  {"name": "Ruhani Sukhija",  "password": "Ruhani@$67"},
 }
 
-def verify_password(username, password):
-    if username in USERS:
-        return USERS[username]["password"] == password
-    return False
+def verify_password(u, p):
+    return u in USERS and USERS[u]["password"] == p
 
-# ─────────────────────────────────────────────────────────────────
-# COOKIE MANAGER — persistent login
-# ─────────────────────────────────────────────────────────────────
 try:
     from streamlit_cookies_controller import CookieController
     cookie_ctrl = CookieController()
     COOKIES_OK = True
-except Exception:
+except:
     cookie_ctrl = None
     COOKIES_OK = False
 
@@ -393,22 +269,83 @@ except Exception:
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────
 defaults = {
-    "authenticated": False,
-    "username": "", "name": "",
-    "page": "home",
+    "authenticated": False, "username": "", "name": "",
+    "smtp_email": "", "smtp_password": "", "sender_name": "",
+    "chat": [],           # all messages: {role, content, type}
     "results_df": None, "role_detected": "", "industry_detected": "",
-    "smtp_email": "", "smtp_password": "",
-    "chat_history": [],
     "generated_jd": "", "jd_role": "",
-    "email_draft": "",
-    "sender_name": "",
-    "_history_loaded": False,
+    "uploads": [],        # currently attached files
     "_cookie_checked": False,
-    "home_uploaded_files": [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ─────────────────────────────────────────────────────────────────
+# COOKIE RESTORE
+# ─────────────────────────────────────────────────────────────────
+if not st.session_state._cookie_checked:
+    st.session_state._cookie_checked = True
+    if COOKIES_OK:
+        try:
+            saved = cookie_ctrl.get("joy_user")
+            if saved and saved in USERS:
+                st.session_state.authenticated = True
+                st.session_state.username = saved
+                st.session_state.name = USERS[saved]["name"]
+                st.session_state.sender_name = USERS[saved]["name"]
+        except: pass
+
+def do_login(ukey):
+    st.session_state.authenticated = True
+    st.session_state.username = ukey
+    st.session_state.name = USERS[ukey]["name"]
+    st.session_state.sender_name = USERS[ukey]["name"]
+    st.session_state.chat = []
+    log_login(ukey)
+    if COOKIES_OK:
+        try: cookie_ctrl.set("joy_user", ukey, max_age=60*60*24*365)
+        except: pass
+
+def do_logout():
+    if COOKIES_OK:
+        try: cookie_ctrl.remove("joy_user")
+        except: pass
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    st.rerun()
+
+# ─────────────────────────────────────────────────────────────────
+# LOGIN
+# ─────────────────────────────────────────────────────────────────
+if not st.session_state.authenticated:
+    st.markdown("""
+    <style>
+    section[data-testid="stSidebar"] { display: none !important; }
+    .block-container { max-width: 360px !important; padding-top: 12vh !important; }
+    [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: flex !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="text-align:center;margin-bottom:2rem;">
+        <p style="font-family:'Josefin Slab',serif;font-size:2.2rem;font-weight:700;color:#ECECEC;margin:0;letter-spacing:0.06em;">✦ Joy</p>
+        <p style="color:#333;font-size:0.82rem;margin-top:6px;">AI Recruiter — Seven Hiring</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("login_form"):
+        u = st.text_input("Username", placeholder="Enter username")
+        p = st.text_input("Password", type="password", placeholder="Enter password")
+        ok = st.form_submit_button("Sign in", use_container_width=True)
+
+    if ok:
+        if verify_password(u.strip().lower(), p):
+            do_login(u.strip().lower())
+            st.rerun()
+        else:
+            st.error("Invalid credentials.")
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────────
 # HELPERS
@@ -424,942 +361,455 @@ def read_file(f):
         return f.read().decode("utf-8", errors="ignore")
     return ""
 
-def joy_bubble(text):
-    st.markdown(f'<div class="joy-bubble">✦ {text}</div>', unsafe_allow_html=True)
+def joy(text, typ="text"):
+    st.session_state.chat.append({"role": "assistant", "content": text, "type": typ})
 
-def user_bubble(text):
-    st.markdown(f'<div class="user-bubble">{text}</div>', unsafe_allow_html=True)
+def push_user(text):
+    st.session_state.chat.append({"role": "user", "content": text, "type": "text"})
 
-def section_label(text):
-    st.markdown(f'<p class="section-label">{text}</p>', unsafe_allow_html=True)
+LINES = [
+    "The right hire changes everything.",
+    "Great talent doesn't find itself.",
+    "Your next star hire is one screen away.",
+    "Pipelines don't fill themselves.",
+    "Let's find someone brilliant today.",
+    "Good people are out there. Let's go get them.",
+    "Every great team started with one great hire.",
+    "Joy's ready when you are.",
+    "The best recruiters don't just hire — they build legacies.",
+    "Somewhere out there is your perfect candidate.",
+    "Hiring is just matchmaking with better vocabulary.",
+    "A bad hire costs more than a missed one.",
+    "Behind every great company is a recruiter who didn't settle.",
+    "Talent is everywhere. The trick is knowing where to look.",
+    "Great hiring is 10% instinct and 90% Joy.",
+    "You're not just filling roles. You're building futures.",
+    "Résumés don't hire people. Recruiters do.",
+    "Find the right person once. Stop hiring forever.",
+    "Speed matters. The best candidates have three offers by Friday.",
+    "Stop guessing. Start screening.",
+    "Not all CVs are created equal. Joy knows the difference.",
+    "Your competitors are also hiring today. Move faster.",
+    "The best hire you ever made started with a great JD.",
+    "Culture fit is real. So is Joy's scoring algorithm.",
+]
 
-def go(page):
-    st.session_state.page = page
-    st.rerun()
-
-def persist_chat(history):
-    try:
-        save_chat_history(st.session_state.username, history)
-    except Exception:
-        pass
-
-def do_login(ukey):
-    """Set session state after successful login."""
-    uname = USERS[ukey]["name"]
-    st.session_state.authenticated = True
-    st.session_state.username      = ukey
-    st.session_state.name          = uname
-    st.session_state.sender_name   = uname
-    st.session_state.chat_history  = []   # always fresh chat on login
-    st.session_state._history_loaded = True
-    log_login(ukey)
-    if COOKIES_OK:
-        try:
-            cookie_ctrl.set("joy_user", ukey, max_age=60*60*24*365)
-        except Exception:
-            pass
-
-def do_logout():
-    if COOKIES_OK:
-        try:
-            cookie_ctrl.remove("joy_user")
-        except Exception:
-            pass
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
-    st.rerun()
+if "greeting" not in st.session_state:
+    st.session_state.greeting = random.choice(LINES)
 
 # ─────────────────────────────────────────────────────────────────
-# COOKIE RESTORE — check once per browser session
+# SIDEBAR
 # ─────────────────────────────────────────────────────────────────
-if not st.session_state._cookie_checked:
-    st.session_state._cookie_checked = True
-    if COOKIES_OK and not st.session_state.authenticated:
-        try:
-            saved = cookie_ctrl.get("joy_user")
-            if saved and saved in USERS:
-                do_login(saved)
+initials = "".join(w[0].upper() for w in st.session_state.name.split()[:2])
+
+with st.sidebar:
+    st.markdown("""
+    <div style="padding:14px 14px 10px;border-bottom:1px solid #1A1A1A;
+    font-family:'Josefin Slab',serif;font-size:0.88rem;font-weight:700;
+    color:#ECECEC;letter-spacing:0.14em;">✦ JOY</div>
+    """, unsafe_allow_html=True)
+
+    if st.button("＋  New Chat", key="new_chat", use_container_width=True):
+        if st.session_state.chat:
+            preview = next((m["content"][:50] for m in st.session_state.chat if m["role"]=="user"), "Chat")
+            save_chat_session(st.session_state.username, st.session_state.chat)
+        st.session_state.chat = []
+        st.session_state.greeting = random.choice(LINES)
+        st.session_state.results_df = None
+        st.session_state.generated_jd = ""
+        st.session_state.uploads = []
+        st.rerun()
+
+    if st.button("◷  History",  key="nav_hist", use_container_width=True):
+        st.session_state.page = "history"; st.rerun()
+    if st.button("⚙  Settings", key="nav_set",  use_container_width=True):
+        st.session_state.page = "settings"; st.rerun()
+
+    past = load_chat_sessions(st.session_state.username)
+    if past:
+        st.markdown("""<div style="margin:6px 0 2px;padding:4px 14px 0;
+        font-size:0.56rem;color:#222;text-transform:uppercase;
+        letter-spacing:0.12em;border-top:1px solid #1A1A1A;">Recent</div>""",
+        unsafe_allow_html=True)
+        for i, s in enumerate(past[:8]):
+            st.markdown('<div class="hist-btn">', unsafe_allow_html=True)
+            if st.button(s.get("preview","Chat")[:32], key=f"h{i}", use_container_width=True):
+                st.session_state.chat = s.get("messages", [])
+                st.session_state.page = "main"
                 st.rerun()
-        except Exception:
-            pass
+            st.markdown('</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────
-# LOGIN PAGE
-# ─────────────────────────────────────────────────────────────────
-if not st.session_state.authenticated:
-    st.markdown("""
-    <style>
-    section[data-testid="stSidebar"] { display: none !important; }
-    [data-testid="collapsedControl"]  { display: none !important; }
-    .block-container {
-        max-width: 380px !important;
-        margin: 0 auto !important;
-        padding-top: 12vh !important;
-    }
-    [data-testid="stFormSubmitButton"] > button {
-        background: #ECECEC !important;
-        color: #0F0F0F !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 12px 20px !important;
-        font-family: 'Josefin Slab', serif !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.08em !important;
-        text-transform: uppercase !important;
-        font-size: 0.85rem !important;
-        width: 100% !important;
-        min-height: 44px !important;
-        height: auto !important;
-        line-height: 1.4 !important;
-        white-space: nowrap !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-    /* Override the global hide rule for login form only */
-    [data-testid="stForm"] [data-testid="stFormSubmitButton"] {
-        display: block !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="text-align:center; margin-bottom:2.5rem;">
-        <p style="font-family:'Josefin Slab',serif; font-size:2.4rem; font-weight:700;
-                  color:#ECECEC; margin:0; letter-spacing:0.06em;">✦ Joy</p>
-        <p style="color:#444; font-size:0.85rem; margin-top:8px; font-family:'Inter',sans-serif;">
-            AI Recruiter — Seven Hiring
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    with st.form("login_form"):
-        u = st.text_input("Username", placeholder="Enter username")
-        p = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("Sign in", use_container_width=True)
-
-    if submitted:
-        ukey = u.strip().lower()
-        if ukey in USERS and verify_password(ukey, p):
-            do_login(ukey)
-            st.rerun()
-        else:
-            st.error("Invalid credentials.")
-    st.stop()
-
-# ── Load chat history if not yet loaded (cookie restore path) ──
-if not st.session_state._history_loaded and st.session_state.username:
-    st.session_state.chat_history    = []   # fresh chat, don't restore
-    st.session_state._history_loaded = True
-
-# ─────────────────────────────────────────────────────────────────
-# SIDEBAR — Streamlit native (reliable buttons) + custom CSS overlay
-# ─────────────────────────────────────────────────────────────────
-def render_nav():
-    uname    = st.session_state.name
-    initials = "".join(w[0].upper() for w in uname.split()[:2]) if uname else "?"
-    page     = st.session_state.page
-
-    st.markdown("""
-    <style>
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #0E0E0E !important;
-        border-right: 1px solid #1A1A1A !important;
-        width: 210px !important;
-        min-width: 210px !important;
-    }
-    /* Sidebar inner padding reset */
-    section[data-testid="stSidebar"] > div:first-child { padding: 0 0 0 0 !important; }
-    section[data-testid="stSidebar"] .block-container { padding: 0 !important; }
-
-    /* ALL sidebar buttons */
-    section[data-testid="stSidebar"] .stButton > button {
-        background: transparent !important;
-        border: none !important;
-        border-radius: 5px !important;
-        color: #4A4A4A !important;
-        font-family: 'Josefin Slab', serif !important;
-        font-size: 0.78rem !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.07em !important;
-        text-transform: uppercase !important;
-        text-align: left !important;
-        padding: 7px 14px !important;
-        width: 100% !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        justify-content: flex-start !important;
-        box-shadow: none !important;
-        transition: color 0.12s, background 0.12s !important;
-        display: flex !important;
-        min-height: 32px !important;
-        height: 32px !important;
-        line-height: 1.2 !important;
-    }
-    section[data-testid="stSidebar"] .stButton > button:hover {
-        background: #161616 !important;
-        color: #DEDEDE !important;
-    }
-
-    /* Chat history buttons — smaller */
-    section[data-testid="stSidebar"] .chat-history-item .stButton > button {
-        font-family: 'Inter', sans-serif !important;
-        font-size: 0.7rem !important;
-        text-transform: none !important;
-        letter-spacing: 0 !important;
-        color: #303030 !important;
-        padding: 3px 14px !important;
-        height: 22px !important;
-        min-height: 22px !important;
-        font-weight: 400 !important;
-    }
-    section[data-testid="stSidebar"] .chat-history-item .stButton > button:hover {
-        color: #888 !important;
-        background: #141414 !important;
-    }
-
-    /* Remove extra margin/padding from button wrappers */
-    section[data-testid="stSidebar"] .stButton {
-        margin-bottom: 0 !important;
-        margin-top: 0 !important;
-        padding: 0 !important;
-    }
-
-    /* Hide Streamlit-added labels */
-    section[data-testid="stSidebar"] label { display: none !important; }
-
-    /* HR dividers */
-    section[data-testid="stSidebar"] hr {
-        border-color: #1A1A1A !important;
-        margin: 4px 0 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    with st.sidebar:
-        # Logo
-        st.markdown("""
-        <div style="padding:16px 14px 12px;border-bottom:1px solid #1A1A1A;
-                    font-family:'Josefin Slab',serif;font-size:0.9rem;font-weight:700;
-                    color:#ECECEC;letter-spacing:0.14em;margin-bottom:6px;">✦ JOY</div>
-        """, unsafe_allow_html=True)
-
-        # New Chat first
-        if st.button("＋  New Chat", key="nav_new", use_container_width=True):
-            if st.session_state.chat_history:
-                save_chat_session(st.session_state.username, st.session_state.chat_history)
-            st.session_state.chat_history = []
-            st.session_state.pop("greeting_line", None)
-            st.session_state.page = "home"
-            st.rerun()
-
-        # Nav buttons
-        if st.button("⌂  Home",     key="nav_home",     use_container_width=True):
-            st.session_state.page = "home";     st.rerun()
-        if st.button("⊞  Screen",   key="nav_screen",   use_container_width=True):
-            st.session_state.page = "screen";   st.rerun()
-        if st.button("✉  Outreach", key="nav_outreach", use_container_width=True):
-            st.session_state.page = "outreach"; st.rerun()
-        if st.button("◷  History",  key="nav_history",  use_container_width=True):
-            st.session_state.page = "history";  st.rerun()
-
-        # Recent chats
-        past = load_chat_sessions(st.session_state.username)
-        if past:
-            st.markdown("""
-            <div style="border-top:1px solid #1A1A1A;margin:6px 0 4px 0;
-                        padding:6px 14px 2px;font-size:0.58rem;color:#2A2A2A;
-                        text-transform:uppercase;letter-spacing:0.12em;
-                        font-family:'Inter',sans-serif;">Recent</div>
-            """, unsafe_allow_html=True)
-            for i, session in enumerate(past[:10]):
-                label = session.get("preview", "Chat")[:32]
-                st.markdown('<div class="chat-history-item">', unsafe_allow_html=True)
-                if st.button(label, key=f"past_{i}", use_container_width=True):
-                    st.session_state.chat_history = session.get("messages", [])
-                    st.session_state.page = "home"; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        # User + settings + logout at bottom
-        st.markdown("""<div style="border-top:1px solid #1A1A1A;margin-top:10px;
-                        padding-top:6px;"></div>""", unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="padding:6px 14px 4px;display:flex;align-items:center;
-                    gap:9px;overflow:hidden;">
-            <div style="width:24px;height:24px;background:#1A1A1A;border:1px solid #252525;
-                        border-radius:50%;display:flex;align-items:center;justify-content:center;
-                        font-size:0.58rem;font-weight:600;color:#666;flex-shrink:0;">{initials}</div>
-            <div style="overflow:hidden;min-width:0;">
-                <div style="font-size:0.73rem;color:#666;font-family:'Inter',sans-serif;
-                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{uname}</div>
-                <div style="font-size:0.6rem;color:#2A2A2A;font-family:'Inter',sans-serif;">Seven Hiring</div>
-            </div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("⚙  Settings", key="nav_settings", use_container_width=True):
-            st.session_state.page = "settings"; st.rerun()
-        if st.button("⏻  Logout",   key="nav_logout",   use_container_width=True):
-            do_logout()
+    st.markdown("---")
+    st.markdown(f"""
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:8px;">
+        <div style="width:22px;height:22px;background:#1A1A1A;border:1px solid #222;
+        border-radius:50%;display:flex;align-items:center;justify-content:center;
+        font-size:0.55rem;font-weight:600;color:#555;flex-shrink:0;">{initials}</div>
+        <div style="font-size:0.72rem;color:#444;white-space:nowrap;overflow:hidden;
+        text-overflow:ellipsis;">{st.session_state.name}</div>
+    </div>""", unsafe_allow_html=True)
+    if st.button("⏻  Logout", key="logout", use_container_width=True):
+        do_logout()
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE ROUTER
 # ─────────────────────────────────────────────────────────────────
-page = st.session_state.page
-render_nav()
+if "page" not in st.session_state:
+    st.session_state.page = "main"
 
-# ═════════════════════════════════════════════════════════════════
-# HOME — Claude-style landing
-# ═════════════════════════════════════════════════════════════════
-if page == "home":
+page = st.session_state.get("page", "main")
 
-    now  = datetime.now(ZoneInfo("Asia/Kolkata"))
-    first = st.session_state.name.split()[0]
-
-    import random
-    if "greeting_line" not in st.session_state:
-        st.session_state.greeting_line = random.choice(lines_pool)
-    greeting_line = st.session_state.greeting_line
-
-    # ── CENTERED GREETING ──
-    # When no chat yet — vertically center the whole thing like Claude
-    if not st.session_state.chat_history:
-        st.markdown(f"""
-        <div style="
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 55vh;
-            text-align: center;
-        ">
-            <p style="
-                font-size: 2.6rem;
-                font-weight: 600;
-                color: #ECECEC;
-                font-family: 'Josefin Slab', serif;
-                letter-spacing: 0.01em;
-                line-height: 1.2;
-                margin: 0 auto 3rem auto;
-                max-width: 620px;
-            ">{greeting_line}</p>
-        </div>
-        """, unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────────
+# HISTORY PAGE
+# ─────────────────────────────────────────────────────────────────
+if page == "history":
+    if st.button("← Back"):
+        st.session_state.page = "main"; st.rerun()
+    st.markdown("## History")
+    hist = load_history(st.session_state.username)
+    if hist.empty:
+        st.info("No screening history yet.")
     else:
-        st.markdown(f"""
-        <div style="text-align:center; padding: 2.5rem 0 1.5rem 0;">
-            <p style="font-size:1.6rem; font-weight:600; color:#ECECEC;
-                      font-family:'Josefin Slab',serif; letter-spacing:0.01em;
-                      line-height:1.2; margin:0 auto; max-width:580px;">
-                {greeting_line}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── CHAT HISTORY — no duplicates, tight spacing ──
-    for turn in st.session_state.chat_history[-14:]:
-        if turn["role"] == "jd":
-            continue
-        if turn["role"] == "assistant":
-            joy_bubble(turn["content"])
-        elif turn["role"] == "user":
-            user_bubble(turn["content"])
-
-    # ── RENDER JD ABOVE SEARCH BAR ──
-    for i, turn in enumerate(st.session_state.chat_history):
-        if turn["role"] == "jd":
-            jd_content = turn["content"]
-            role_name  = st.session_state.get("jd_role", "Role")
-            st.markdown(f"""
-            <div style="background:#111;border:1px solid #1E1E1E;border-radius:10px;
-                        padding:14px 16px;margin:6px 0 4px 0;">
-                <div style="font-size:0.65rem;color:#3A3A3A;font-family:'Inter',sans-serif;
-                             text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">
-                    JD — {role_name}
-                </div>
-                <pre style="font-size:0.77rem;color:#777;white-space:pre-wrap;line-height:1.65;
-                             font-family:'Inter',sans-serif;margin:0;max-height:220px;overflow-y:auto;">{jd_content[:1400]}{"…" if len(jd_content)>1400 else ""}</pre>
-            </div>
-            """, unsafe_allow_html=True)
-            # Tiny emoji-only action buttons — inline, no borders
-            st.markdown("""
-            <style>
-            .jd-actions > div > button {
-                background: transparent !important;
-                border: none !important;
-                color: #444 !important;
-                font-size: 0.82rem !important;
-                padding: 2px 8px !important;
-                min-height: unset !important;
-                height: 28px !important;
-                line-height: 1 !important;
-                box-shadow: none !important;
-                border-radius: 6px !important;
-                transition: color 0.15s, background 0.15s !important;
-            }
-            .jd-actions > div > button:hover {
-                background: #1A1A1A !important;
-                color: #ECECEC !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            st.markdown('<div class="jd-actions">', unsafe_allow_html=True)
-            act1, act2, act3, spacer = st.columns([1, 1, 2, 6])
-            with act1:
-                if st.button("📋", key=f"copy_{i}", help="Copy", use_container_width=False):
-                    st.toast("JD copied — paste it anywhere!")
-            with act2:
-                st.download_button("⬇", jd_content.encode(),
-                                   f"JD_{role_name.replace(' ','_')}.txt",
-                                   "text/plain", key=f"dl_{i}",
-                                   help="Download as .txt")
-            with act3:
-                if st.button("Use for Screening →", key=f"use_{i}"):
-                    st.session_state["prefilled_jd"] = jd_content
-                    st.session_state.page = "screen"
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-
-    # ── FILE UPLOADER — always visible, styled minimal ──
-    up_col, clr_col, _ = st.columns([3, 1, 8])
-    with up_col:
-        uploaded = st.file_uploader(
-            "＋  Attach resumes",
-            type=["pdf", "docx", "txt"],
-            accept_multiple_files=True,
-            label_visibility="visible"
-        )
-        if uploaded:
-            st.session_state.home_uploaded_files = list(uploaded)
-    with clr_col:
-        if st.session_state.chat_history:
-            if st.button("🗑", key="clear_chat", help="Clear chat"):
-                save_chat_session(st.session_state.username, st.session_state.chat_history)
-                st.session_state.chat_history = []
-                st.session_state.pop("greeting_line", None)
-                persist_chat([])
+        s = get_history_stats(st.session_state.username)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Candidates", s["total"])
+        c2.metric("Strong Fits", s["strong"])
+        c3.metric("Roles Screened", len(s["roles"]))
+        roles = ["All"] + list(hist["Role"].unique()) if "Role" in hist.columns else ["All"]
+        rf = st.selectbox("Filter", roles, label_visibility="collapsed")
+        show = hist if rf == "All" else hist[hist["Role"] == rf]
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            st.download_button("Download", show.to_csv(index=False).encode(), "joy_history.csv", "text/csv", use_container_width=True)
+        with col2:
+            if st.button("Clear History"):
+                clear_history(st.session_state.username)
                 st.rerun()
+    st.stop()
 
-    # ── TEXT INPUT FORM — Enter submits, no visible button ──
-    with st.form(key="chat_form", clear_on_submit=True):
-        msg       = st.text_input("Ask Joy",
-                                  placeholder="Type role/keywords, or attach resumes above and describe the role...",
-                                  label_visibility="collapsed")
-        submitted = st.form_submit_button("Send", use_container_width=False)
-
-    if submitted and (msg.strip() or st.session_state.get("home_uploaded_files")):
-        user_msg  = msg.strip()
-        files     = st.session_state.get("home_uploaded_files", [])
-        msg_lower = user_msg.lower()
-
-        if files:
-            # Use message as JD context if provided, else check prefilled
-            jd_text = st.session_state.pop("prefilled_jd", "") or user_msg
-
-            if not jd_text:
-                st.session_state.chat_history.append({"role": "user", "content": f"Uploaded: {', '.join(f.name for f in files)}"})
-                st.session_state.chat_history.append({"role": "assistant", "content": "Got the files! Tell me the role or paste the JD so I can screen properly."})
-                persist_chat(st.session_state.chat_history)
-                st.rerun()
-
-            with st.spinner(f"Screening {len(files)} resume(s)..."):
-                from resume_parser import (
-                    extract_name, extract_email, extract_phone,
-                    extract_experience, score_resume_against_jd,
-                    get_role_from_jd, get_industry_from_jd, suggest_checks
-                )
-                from gpt_utils import gpt_score_resume
-
-                role     = get_role_from_jd(jd_text) if jd_text else "General Role"
-                industry = get_industry_from_jd(jd_text) if jd_text else "General"
-                rows     = []
-
-                for f in files:
-                    text  = read_file(f)[:2500]
-                    name  = extract_name(text)
-                    email = extract_email(text)
-                    phone = extract_phone(text)
-                    exp   = extract_experience(text)
-                    kw    = score_resume_against_jd(text, [])
-                    gs, verdict, reason = gpt_score_resume(jd_text, text)
-                    fs    = round((gs * 0.65) + (kw * 0.25) + (min(exp, 10) * 1.5), 2)
-                    rows.append({
-                        "Name": name, "Email": email, "Phone": phone,
-                        "Experience": exp, "Keyword Score": kw,
-                        "GPT Score": gs, "Final Score": fs,
-                        "Verdict": verdict, "Reason": reason,
-                        "Suggestions": suggest_checks({"Experience": exp, "Keyword Score": kw, "Verdict": verdict})
-                    })
-
-            import pandas as pd
-            df = pd.DataFrame(rows).sort_values("Final Score", ascending=False).reset_index(drop=True)
-            df.insert(0, "Sr.No", range(1, len(df) + 1))
-            from database import save_to_db
-            save_to_db(df.copy(), role, industry, st.session_state.username)
-            st.session_state.results_df        = df
-            st.session_state.role_detected     = role
-            st.session_state.industry_detected = industry
-
-            names = ", ".join(f.name for f in files[:3])
-            extra = f" +{len(files)-3} more" if len(files) > 3 else ""
-            st.session_state.chat_history.append({
-                "role": "user",
-                "content": f"Screen: {names}{extra}" + (f" | Role: {user_msg}" if user_msg else "")
-            })
-
-            top    = df.iloc[0]
-            strong = len(df[df["Verdict"] == "Strong Fit"])
-            good   = len(df[df["Verdict"] == "Good Fit"])
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": (
-                    f"Screened **{len(df)} candidate{'s' if len(df)>1 else ''}** for **{role}**.\n\n"
-                    f"🥇 **{top['Name']}** — Score {top['Final Score']}, *{top['Verdict']}*\n"
-                    f"{top['Reason']}\n\n"
-                    f"**{strong} Strong Fit** · **{good} Good Fit** · {len(df)-strong-good} others"
-                )
-            })
-            st.session_state.chat_history.append({"role": "results", "content": df.to_json()})
-            st.session_state.home_uploaded_files = []
-            st.session_state.show_uploader = False
-            persist_chat(st.session_state.chat_history)
-            st.rerun()
-
-        elif user_msg:
-            st.session_state.chat_history.append({"role": "user", "content": user_msg})
-            persist_chat(st.session_state.chat_history)
-
-            jd_triggers       = ["jd", "job description", "form a jd", "write a jd", "create a jd", "draft a jd", "jd for"]
-            cand_triggers     = ["top candidate", "best candidate", "who should", "shortlist", "strongest", "highest score", "recommend", "who to hire", "best fit", "top pick"]
-            outreach_triggers = ["email", "call", "outreach", "reach out", "sms"]
-            is_jd       = any(t in msg_lower for t in jd_triggers)
-            is_cand     = any(t in msg_lower for t in cand_triggers)
-            is_outreach = any(t in msg_lower for t in outreach_triggers)
-
-            if is_jd:
-                with st.spinner("Writing JD..."):
-                    params = cached_extract_params(user_msg)
-                    jd = cached_generate_jd(
-                        params.get("role", user_msg), params.get("industry", ""),
-                        params.get("location", ""), params.get("experience", ""), "Our client"
-                    )
-                    st.session_state.generated_jd = jd
-                    st.session_state.jd_role = params.get("role", "")
-                st.session_state.chat_history.append({"role": "assistant", "content": f"Done. Here's the JD for **{params.get('role','the role')}**:"})
-                st.session_state.chat_history.append({"role": "jd", "content": jd})
-
-            elif is_cand and st.session_state.results_df is not None:
-                df     = st.session_state.results_df
-                top    = df.iloc[0]
-                strong = df[df["Verdict"] == "Strong Fit"]
-                good   = df[df["Verdict"] == "Good Fit"]
-                from joy_ai import joy_analyze_candidate
-                analysis = joy_analyze_candidate(top.to_dict(), st.session_state.name)
-                st.session_state.chat_history.append({"role": "assistant", "content": (
-                    f"**Top pick: {top['Name']}** — Score {top['Final Score']}, {top['Verdict']}\n\n"
-                    f"{analysis}\n\n**{len(strong)} Strong Fit** · **{len(good)} Good Fit** out of {len(df)} screened."
-                )})
-
-            elif is_cand:
-                st.session_state.chat_history.append({"role": "assistant", "content": "No screening data yet. Upload resumes using the ＋ button."})
-
-            elif is_outreach:
-                if st.session_state.results_df is None:
-                    st.session_state.chat_history.append({"role": "assistant", "content": "Screen candidates first, then I'll help you reach out."})
-                else:
-                    st.session_state.chat_history.append({"role": "assistant", "content": "Going to Outreach."})
-                    persist_chat(st.session_state.chat_history)
-                    st.session_state.page = "outreach"; st.rerun()
-            else:
-                ctx = ""
-                if st.session_state.results_df is not None:
-                    df   = st.session_state.results_df
-                    top3 = df.head(3)[["Name","Final Score","Verdict","Experience","Reason"]].to_dict("records")
-                    ctx  = f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}"
-                system = "You are Joy — sharp, witty AI recruitment assistant for Seven Hiring. Be specific, actionable, concise. Max 3 sentences."
-                with st.spinner("Joy is thinking..."):
-                    reply = cached_gpt_answer(system, user_msg, ctx)
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-
-            persist_chat(st.session_state.chat_history)
-            st.rerun()
-
-    # ── INLINE RESULTS TABLE ──
-    for i, turn in enumerate(st.session_state.chat_history):
-        if turn["role"] == "results":
-            import pandas as pd
-            try:
-                df = pd.read_json(turn["content"])
-                with st.expander("📊 Full Results", expanded=False):
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                    st.download_button("⬇ Download CSV", df.to_csv(index=False).encode(),
-                                       "joy_results.csv", "text/csv", key=f"res_dl_{i}")
-            except: pass
-
-
-
-# ═════════════════════════════════════════════════════════════════
-# SCREEN RESUMES
-# ═════════════════════════════════════════════════════════════════
-elif page == "screen":
-
-
-    st.markdown("## Screen Resumes")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Upload a JD and resumes. Joy ranks and scores every candidate.</p>', unsafe_allow_html=True)
-
-    # ── JD INPUT ──
-    section_label("Job Description")
-    prefilled = st.session_state.pop("prefilled_jd", "") if "prefilled_jd" in st.session_state else ""
-    jd_text = st.text_area("Paste JD", height=160,
-                            value=prefilled,
-                            placeholder="Paste the full job description here...",
-                            label_visibility="collapsed")
-    jd_file = st.file_uploader("Or upload JD (PDF / DOCX / TXT)", type=["pdf","docx","txt"])
-    if jd_file:
-        jd_text = read_file(jd_file)
-        st.success(f"Loaded: {jd_file.name}")
-
-    # ── OPTIONS ──
-    section_label("Options")
-    o1, o2 = st.columns(2)
-    with o1:
-        extra_kw      = st.text_input("Extra Keywords", placeholder="e.g. HPLC, CIPAC, SAP, GMP")
-        role_override = st.text_input("Role Override", placeholder="Leave blank to auto-detect")
-    with o2:
-        persona = st.text_input("Screening Persona", placeholder="e.g. Experienced field sales manager")
-
-    # ── RESUMES ──
-    section_label("Resumes")
-    files = st.file_uploader("Upload resumes (PDF or DOCX)", type=["pdf","docx"], accept_multiple_files=True, label_visibility="collapsed")
-
+# ─────────────────────────────────────────────────────────────────
+# SETTINGS PAGE
+# ─────────────────────────────────────────────────────────────────
+if page == "settings":
+    if st.button("← Back"):
+        st.session_state.page = "main"; st.rerun()
+    st.markdown("## Settings")
+    st.markdown('<p class="section-label">Gmail — used to send outreach emails</p>', unsafe_allow_html=True)
+    st.session_state.smtp_email    = st.text_input("Gmail", value=st.session_state.smtp_email, placeholder="you@gmail.com")
+    st.session_state.smtp_password = st.text_input("App Password", value=st.session_state.smtp_password, type="password", placeholder="16-character app password")
+    st.caption("Google Account → Security → 2-Step Verification → App Passwords → create one for Mail")
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Run Screening", use_container_width=False):
-        if not jd_text.strip() or not files:
-            st.error("Please provide both a JD and at least one resume.")
-            st.stop()
+    st.markdown('<p class="section-label">Your Name</p>', unsafe_allow_html=True)
+    st.session_state.sender_name = st.text_input("Name on emails", value=st.session_state.sender_name)
+    st.markdown("---")
+    st.markdown(f"Logged in as **{st.session_state.name}**")
+    if st.button("Logout"):
+        do_logout()
+    st.stop()
 
-        extra    = [k.strip().lower() for k in extra_kw.split(",")] if extra_kw.strip() else []
-        role     = role_override.strip() or get_role_from_jd(jd_text)
-        industry = get_industry_from_jd(jd_text)
-        rows     = []
-        prog     = st.progress(0)
-        stat     = st.empty()
+# ─────────────────────────────────────────────────────────────────
+# MAIN — single page, everything from the search bar
+# ─────────────────────────────────────────────────────────────────
+st.session_state.page = "main"
 
-        for i, f in enumerate(files):
-            stat.text(f"Screening {f.name}  ({i+1} / {len(files)})")
-            txt   = read_file(f)[:2000]
-            name  = extract_name(txt)
-            email = extract_email(txt)
-            phone = extract_phone(txt)
-            exp   = extract_experience(txt)
-            kw    = score_resume_against_jd(txt, extra)
-            gs, verdict, reason = gpt_score_resume(jd_text, txt, persona)
-            fs = round((gs * 0.65) + (kw * 0.25) + (min(exp, 10) * 1.5), 2)
-            rows.append({
-                "Name": name, "Email": email, "Phone": phone,
-                "Experience": exp, "Keyword Score": kw,
-                "GPT Score": gs, "Final Score": fs,
-                "Verdict": verdict, "Reason": reason,
-                "Suggestions": suggest_checks({"Experience": exp, "Keyword Score": kw, "Verdict": verdict})
-            })
-            prog.progress((i + 1) / len(files))
+# Greeting when no chat
+if not st.session_state.chat:
+    st.markdown(f"""
+    <div style="text-align:center;padding:5vh 0 3vh;">
+        <p style="font-family:'Josefin Slab',serif;font-size:2.5rem;font-weight:600;
+        color:#ECECEC;line-height:1.2;margin:0;letter-spacing:0.01em;max-width:580px;
+        margin-left:auto;margin-right:auto;">{st.session_state.greeting}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        stat.empty(); prog.empty()
-        df = pd.DataFrame(rows).sort_values("Final Score", ascending=False).reset_index(drop=True)
-        df.insert(0, "Sr.No", range(1, len(df) + 1))
+# ── RENDER CHAT ──
+for i, msg in enumerate(st.session_state.chat):
+    typ = msg.get("type", "text")
+    content = msg["content"]
+
+    if msg["role"] == "user":
+        st.markdown(f'<div class="user-msg">{content}</div>', unsafe_allow_html=True)
+
+    elif msg["role"] == "assistant":
+        if typ == "text":
+            st.markdown(f'<div class="joy-msg">✦ &nbsp;{content}</div>', unsafe_allow_html=True)
+
+        elif typ == "results":
+            # Inline results table
+            df = pd.read_json(content)
+            st.markdown(f'<div class="joy-msg">✦ &nbsp;Screened <strong>{len(df)}</strong> candidates for <strong>{st.session_state.role_detected}</strong>. Here\'s the ranking:</div>', unsafe_allow_html=True)
+
+            for _, row in df.iterrows():
+                verdict = row.get("Verdict","")
+                vc = {"Strong Fit":"verdict-strong","Good Fit":"verdict-good","Weak Fit":"verdict-weak"}.get(verdict,"verdict-not")
+                name  = row.get("Name","?")
+                score = row.get("Final Score",0)
+                exp   = row.get("Experience",0)
+                email = row.get("Email","")
+                reason = row.get("Reason","")
+                st.markdown(f"""
+                <div class="result-row">
+                    <span style="color:#ECECEC;min-width:140px;font-weight:500;">{name}</span>
+                    <span class="{vc}">{verdict}</span>
+                    <span class="score-num">{score}</span>
+                    <span style="color:#333;font-size:0.75rem;">{exp}y exp</span>
+                    <span style="color:#2A2A2A;font-size:0.72rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{reason[:60]}</span>
+                </div>""", unsafe_allow_html=True)
+
+            # Download
+            dl1, dl2 = st.columns([1, 5])
+            with dl1:
+                st.download_button("⬇ CSV", df.to_csv(index=False).encode(), "results.csv", "text/csv", key=f"dl_{i}")
+            with dl2:
+                if st.button("Send outreach emails →", key=f"outreach_{i}"):
+                    st.session_state.show_outreach = True
+                    st.rerun()
+
+        elif typ == "jd":
+            role_name = st.session_state.jd_role or "Role"
+            st.markdown(f'<div class="joy-msg">✦ &nbsp;Done. Here\'s the JD for <strong>{role_name}</strong>:</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="jd-box"><pre>{content}</pre></div>', unsafe_allow_html=True)
+            j1, j2, _ = st.columns([1, 1, 6])
+            with j1:
+                st.download_button("⬇", content.encode(), f"JD_{role_name}.txt", "text/plain", key=f"jd_dl_{i}", help="Download")
+            with j2:
+                if st.button("📋", key=f"jd_cp_{i}", help="Copy"):
+                    st.toast("JD copied!")
+
+        elif typ == "outreach":
+            # Outreach results
+            results = json.loads(content)
+            sent   = [r for r in results if r["success"]]
+            failed = [r for r in results if not r["success"]]
+            if sent:
+                names = ", ".join(r["name"] for r in sent)
+                st.markdown(f'<div class="joy-msg">✦ &nbsp;Sent screening emails to <strong>{len(sent)}</strong> candidate{"s" if len(sent)!=1 else ""}: {names}</div>', unsafe_allow_html=True)
+            for r in failed:
+                st.markdown(f'<div class="joy-msg" style="color:#774040;">✗ {r["name"]}: {r["message"]}</div>', unsafe_allow_html=True)
+
+# ── OUTREACH PANEL ──
+if st.session_state.get("show_outreach") and st.session_state.results_df is not None:
+    df   = st.session_state.results_df
+    role = st.session_state.role_detected
+
+    st.markdown("---")
+    st.markdown('<p class="section-label">Select candidates to invite</p>', unsafe_allow_html=True)
+
+    selected = []
+    for _, row in df.iterrows():
+        email_val = str(row.get("Email","")).strip()
+        has_email = email_val and "@" in email_val and email_val not in ["-","nan","None"]
+        verdict   = row.get("Verdict","")
+        default   = verdict in ["Strong Fit","Good Fit"]
+
+        c1, c2, c3, c4 = st.columns([0.4, 2.5, 1.8, 2.5])
+        with c1:
+            checked = st.checkbox("", key=f"sel_{row['Sr.No']}", value=default, label_visibility="collapsed")
+        with c2:
+            st.markdown(f"<p style='margin:5px 0;font-size:0.85rem;'>{row['Name']}</p>", unsafe_allow_html=True)
+        with c3:
+            color = {"Strong Fit":"#6EBF6E","Good Fit":"#4A9EFF","Weak Fit":"#EF9F27"}.get(verdict,"#555")
+            st.markdown(f"<p style='margin:5px 0;font-size:0.75rem;color:{color};'>{verdict}</p>", unsafe_allow_html=True)
+        with c4:
+            if has_email:
+                st.markdown(f"<p style='margin:5px 0;font-size:0.72rem;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{email_val}</p>", unsafe_allow_html=True)
+            else:
+                new_email = st.text_input("Email", placeholder="Enter email", key=f"em_{row['Sr.No']}", label_visibility="collapsed")
+                if new_email.strip(): email_val = new_email.strip()
+
+        if checked:
+            selected.append({"name": row["Name"], "email": email_val})
+
+    extra = st.text_input("Add a note to the email (optional)", placeholder="e.g. Budget ₹25-30L, Pune location, hybrid", label_visibility="visible")
+
+    no_email = [c["name"] for c in selected if not c.get("email") or "@" not in str(c.get("email",""))]
+    send_ok = len(selected) > 0 and len(no_email) == 0
+
+    if no_email:
+        st.warning(f"Missing email: {', '.join(no_email)}")
+
+    col_send, col_cancel, _ = st.columns([2, 1, 5])
+    with col_send:
+        if st.button(f"Send to {len(selected)} →", disabled=not send_ok, use_container_width=True):
+            if not st.session_state.smtp_email or not st.session_state.smtp_password:
+                st.error("Add Gmail credentials in Settings.")
+            else:
+                with st.spinner(f"Sending {len(selected)} emails..."):
+                    results = send_bulk_screening_emails(
+                        sender_email=st.session_state.smtp_email,
+                        sender_password=st.session_state.smtp_password,
+                        candidates=selected,
+                        role=role,
+                        sender_name=st.session_state.sender_name or st.session_state.name,
+                        extra_note=extra.strip()
+                    )
+                push_user(f"Send outreach to {len(selected)} candidates")
+                st.session_state.chat.append({"role":"assistant","content":json.dumps(results),"type":"outreach"})
+                st.session_state.show_outreach = False
+                st.rerun()
+    with col_cancel:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.show_outreach = False
+            st.rerun()
+
+st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+# ── INPUT BAR ──
+uploaded_files = st.file_uploader(
+    "＋  Attach resumes (PDF, DOCX)",
+    type=["pdf","docx","txt"],
+    accept_multiple_files=True,
+    label_visibility="visible"
+)
+if uploaded_files:
+    st.session_state.uploads = list(uploaded_files)
+    names = ", ".join(f.name for f in uploaded_files)
+    st.markdown(f'<p style="font-size:0.72rem;color:#333;margin:2px 0 4px;">📄 {names}</p>', unsafe_allow_html=True)
+
+with st.form(key="chat_form", clear_on_submit=True):
+    msg = st.text_input(
+        "Message",
+        placeholder="Type role/keywords to screen, ask Joy anything, or write a JD for...",
+        label_visibility="collapsed"
+    )
+    _ = st.form_submit_button("Send")
+
+# ── PROCESS INPUT ──
+if _ and (msg.strip() or st.session_state.uploads):
+    user_msg  = msg.strip()
+    files     = st.session_state.uploads
+    msg_lower = user_msg.lower()
+
+    # ── SCREENING — files uploaded ──
+    if files:
+        jd_text = user_msg or st.session_state.get("prefilled_jd","")
+
+        if not jd_text:
+            push_user(f"Uploaded: {', '.join(f.name for f in files)}")
+            joy("Got the files. Tell me the role or paste the JD and I'll screen them right away.")
+            st.session_state.uploads = []
+            st.rerun()
+
+        display = ", ".join(f.name for f in files[:3]) + (f" +{len(files)-3} more" if len(files)>3 else "")
+        push_user(f"Screen: {display}" + (f" | {user_msg}" if user_msg else ""))
+
+        with st.spinner(f"Screening {len(files)} resume(s)..."):
+            role     = get_role_from_jd(jd_text) if jd_text else "General Role"
+            industry = get_industry_from_jd(jd_text) if jd_text else "General"
+            rows     = []
+            for f in files:
+                text  = read_file(f)[:2500]
+                name  = extract_name(text)
+                email = extract_email(text)
+                phone = extract_phone(text)
+                exp   = extract_experience(text)
+                kw    = score_resume_against_jd(text, [])
+                gs, verdict, reason = gpt_score_resume(jd_text, text)
+                fs    = round((gs*0.65)+(kw*0.25)+(min(exp,10)*1.5), 2)
+                rows.append({
+                    "Name":name,"Email":email,"Phone":phone,
+                    "Experience":exp,"Keyword Score":kw,
+                    "GPT Score":gs,"Final Score":fs,
+                    "Verdict":verdict,"Reason":reason,
+                    "Suggestions":suggest_checks({"Experience":exp,"Keyword Score":kw,"Verdict":verdict})
+                })
+
+        df = pd.DataFrame(rows).sort_values("Final Score",ascending=False).reset_index(drop=True)
+        df.insert(0,"Sr.No",range(1,len(df)+1))
         save_to_db(df.copy(), role, industry, st.session_state.username)
         st.session_state.results_df        = df
         st.session_state.role_detected     = role
         st.session_state.industry_detected = industry
+        st.session_state.uploads           = []
+
+        st.session_state.chat.append({"role":"assistant","content":df.to_json(),"type":"results"})
         st.rerun()
 
-    # ── RESULTS ──
-    if st.session_state.results_df is not None:
-        df   = st.session_state.results_df
-        role = st.session_state.role_detected
+    elif user_msg:
+        push_user(user_msg)
 
-        st.markdown("---")
-        section_label(f"Results — {role}")
+        jd_triggers       = ["jd","job description","write a jd","form a jd","create a jd","draft a jd","jd for","write jd"]
+        cand_triggers     = ["top candidate","best candidate","who should","shortlist","strongest","highest score","recommend","who to hire","best fit","top pick"]
+        outreach_triggers = ["email","outreach","reach out","send email","invite"]
+        history_triggers  = ["history","past screening","previous"]
+        settings_triggers = ["settings","gmail","configure","setup email"]
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Screened",   len(df))
-        m2.metric("Strong Fit", len(df[df["Verdict"] == "Strong Fit"]))
-        m3.metric("Good Fit",   len(df[df["Verdict"] == "Good Fit"]))
-        m4.metric("Avg Score",  round(df["Final Score"].mean(), 1))
+        is_jd       = any(t in msg_lower for t in jd_triggers)
+        is_cand     = any(t in msg_lower for t in cand_triggers)
+        is_outreach = any(t in msg_lower for t in outreach_triggers)
+        is_history  = any(t in msg_lower for t in history_triggers)
+        is_settings = any(t in msg_lower for t in settings_triggers)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-        dl1, dl2 = st.columns([1, 5])
-        with dl1:
-            st.download_button("Download CSV", df.to_csv(index=False).encode(), "joy_results.csv", "text/csv")
-        with dl2:
-            if st.button("Go to Outreach →"):
-                go("outreach")
-
-        # Joy's take on top candidate
-        if len(df) > 0:
-            top = df.iloc[0].to_dict()
-            st.markdown("<br>", unsafe_allow_html=True)
-            section_label(f"Joy's take on {top['Name']}")
-            with st.spinner(""):
-                analysis = joy_analyze_candidate(top, st.session_state.name)
-            joy_bubble(analysis)
-
-
-# ═════════════════════════════════════════════════════════════════
-# WRITE JD
-# ═════════════════════════════════════════════════════════════════
-elif page == "jd":
-
-
-    st.markdown("## Write a Job Description")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Tell Joy what you need. She\'ll write a clean, specific JD — no buzzword soup.</p>', unsafe_allow_html=True)
-
-    section_label("Role Details")
-    f1, f2 = st.columns(2)
-    with f1:
-        role      = st.text_input("Role Title *",      value=st.session_state.jd_role, placeholder="e.g. Regional Sales Manager")
-        location  = st.text_input("Location",          placeholder="e.g. Pune / Pan India / Remote")
-        skills    = st.text_input("Key Skills",        placeholder="e.g. HPLC, GC-MS, distributor mgmt")
-    with f2:
-        industry  = st.text_input("Industry",          placeholder="e.g. Agrochemicals, Pharma, Technology")
-        exp_range = st.text_input("Experience",        placeholder="e.g. 5–10 years")
-        company   = st.text_input("Company Context",   placeholder="e.g. Mid-size agrochemical firm, ₹500Cr revenue")
-
-    section_label("Additional Context")
-    extra = st.text_area("Anything else Joy should know", height=80, placeholder="Reporting structure, key challenges, team size, travel requirements...", label_visibility="collapsed")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Write JD", use_container_width=False):
-        if not role.strip():
-            st.error("Role title is required.")
-        else:
-            with st.spinner("Joy is writing..."):
-                st.session_state.generated_jd = generate_jd(
-                    role=role, industry=industry, location=location,
-                    experience_range=exp_range, key_skills=skills,
-                    extra_context=extra, company_name=company or "Our client"
+        if is_jd:
+            with st.spinner("Writing JD..."):
+                from openai import OpenAI
+                import re as _re
+                client = OpenAI()
+                res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role":"user","content":f"Extract role, industry, location, experience from: '{user_msg}'. JSON only: {{\"role\":\"\",\"industry\":\"\",\"location\":\"\",\"experience\":\"\"}}"}],
+                    max_tokens=150
                 )
-            st.session_state.jd_role = role
-            st.rerun()
+                raw = _re.sub(r"```json|```","",res.choices[0].message.content).strip()
+                try: params = json.loads(raw)
+                except: params = {"role":user_msg,"industry":"","location":"","experience":""}
+                jd = generate_jd(
+                    role=params.get("role",user_msg), industry=params.get("industry",""),
+                    location=params.get("location",""), experience_range=params.get("experience",""),
+                    company_name="Our client"
+                )
+                st.session_state.generated_jd = jd
+                st.session_state.jd_role = params.get("role","")
+            st.session_state.chat.append({"role":"assistant","content":jd,"type":"jd"})
 
-    if st.session_state.generated_jd:
-        st.markdown("---")
-        section_label("Generated JD — edit freely")
-        edited = st.text_area("JD", value=st.session_state.generated_jd, height=480, label_visibility="collapsed")
-
-        a1, a2, a3 = st.columns([1, 2, 2])
-        with a1:
-            st.download_button(
-                "Download .txt",
-                data=edited.encode(),
-                file_name=f"JD_{role.replace(' ', '_')}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        with a2:
-            feedback = st.text_input("Feedback for refinement", placeholder="Make it more focused on field sales...", label_visibility="collapsed")
-        with a3:
-            if st.button("Refine JD", use_container_width=True):
-                if feedback.strip():
-                    with st.spinner("Refining..."):
-                        st.session_state.generated_jd = refine_jd(edited, feedback)
-                    st.rerun()
-                else:
-                    st.warning("Enter feedback first.")
-
-
-# ═════════════════════════════════════════════════════════════════
-# OUTREACH — Email only, bulk send with screening questions
-# ═════════════════════════════════════════════════════════════════
-elif page == "outreach":
-
-    st.markdown("## Outreach")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Select candidates and send them a screening email in one shot.</p>', unsafe_allow_html=True)
-
-    if st.session_state.results_df is None:
-        st.info("No screening results yet. Screen some resumes first.")
-        if st.button("Screen Resumes"):
-            st.session_state.page = "screen"; st.rerun()
-        st.stop()
-
-    df   = st.session_state.results_df
-    role = st.session_state.role_detected
-    sender_name = st.session_state.sender_name or st.session_state.name
-
-    # ── Gmail credentials check ──
-    if not st.session_state.smtp_email or not st.session_state.smtp_password:
-        st.warning("Add your Gmail and App Password in Settings first.")
-        if st.button("Go to Settings"):
-            st.session_state.page = "settings"; st.rerun()
-        st.markdown("---")
-
-    # ── Stats ──
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Screened",  len(df))
-    m2.metric("Strong Fit",      len(df[df["Verdict"] == "Strong Fit"]))
-    m3.metric("Good Fit",        len(df[df["Verdict"] == "Good Fit"]))
-
-    st.markdown("---")
-    section_label("Select candidates to invite")
-
-    # ── Candidate checkboxes ──
-    selected_candidates = []
-    for _, row in df.iterrows():
-        email_val = str(row.get("Email", "")).strip()
-        has_email = email_val and email_val not in ["-", "nan", "None", ""]
-        verdict   = row.get("Verdict", "")
-
-        col_check, col_name, col_verdict, col_score, col_email = st.columns([0.5, 2.5, 1.5, 1, 2])
-
-        with col_check:
-            # Auto-check Strong and Good fits by default
-            default = verdict in ["Strong Fit", "Good Fit"]
-            checked = st.checkbox("", key=f"chk_{row['Sr.No']}", value=default, label_visibility="collapsed")
-
-        with col_name:
-            st.markdown(f"<p style='margin:6px 0;font-size:0.88rem;color:#ECECEC;'>{row['Name']}</p>", unsafe_allow_html=True)
-
-        with col_verdict:
-            color = {"Strong Fit": "#6EBF6E", "Good Fit": "#4A9EFF", "Weak Fit": "#EF9F27"}.get(verdict, "#888")
-            st.markdown(f"<p style='margin:6px 0;font-size:0.78rem;color:{color};'>{verdict}</p>", unsafe_allow_html=True)
-
-        with col_score:
-            st.markdown(f"<p style='margin:6px 0;font-size:0.82rem;color:#888;'>{row['Final Score']}</p>", unsafe_allow_html=True)
-
-        with col_email:
-            if has_email:
-                st.markdown(f"<p style='margin:6px 0;font-size:0.75rem;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{email_val}</p>", unsafe_allow_html=True)
+        elif is_outreach:
+            if st.session_state.results_df is not None:
+                joy("Sure — select the candidates you want to invite below.")
+                st.session_state.show_outreach = True
             else:
-                # Editable email field for candidates without one
-                new_email = st.text_input("Email", placeholder="Enter email", key=f"em_{row['Sr.No']}", label_visibility="collapsed")
-                if new_email.strip():
-                    email_val = new_email.strip()
+                joy("Screen some resumes first — attach them above and tell me the role.")
 
-        if checked:
-            selected_candidates.append({"name": row["Name"], "email": email_val})
+        elif is_history:
+            joy("Opening your screening history.")
+            st.session_state.page = "history"
 
-    st.markdown("---")
+        elif is_settings:
+            joy("Opening settings.")
+            st.session_state.page = "settings"
 
-    # ── Extra note ──
-    section_label("Optional note to add to the email")
-    extra_note = st.text_area(
-        "Extra note",
-        placeholder="e.g. This is a leadership role with a budget of ₹25-30L. Location is Pune, hybrid.",
-        height=80,
-        label_visibility="collapsed"
-    )
+        elif is_cand and st.session_state.results_df is not None:
+            df  = st.session_state.results_df
+            top = df.iloc[0]
+            strong = len(df[df["Verdict"]=="Strong Fit"])
+            good   = len(df[df["Verdict"]=="Good Fit"])
+            joy(f"**{top['Name']}** is your top pick — {top['Final Score']} score, {top['Verdict']}. {top['Reason']} You have {strong} Strong and {good} Good fits in total.")
 
-    # ── Preview ──
-    with st.expander("Preview email template", expanded=False):
-        from email_utils import build_screening_email_html, SCREENING_QUESTIONS
-        st.markdown("**Questions that will be asked:**")
-        for i, q in enumerate(SCREENING_QUESTIONS):
-            st.markdown(f"{i+1}. {q}")
-        st.caption(f"Subject: Opportunity | {role} — Seven Hiring")
+        elif is_cand:
+            joy("No screening data yet. Attach resumes above and tell me the role.")
 
-    # ── Send button ──
-    no_email = [c["name"] for c in selected_candidates if not c["email"] or "@" not in str(c["email"])]
-    can_send  = len(selected_candidates) > 0 and len(no_email) == 0
-
-    if no_email:
-        st.warning(f"Missing email for: {', '.join(no_email)}. Add their email above.")
-
-    send_label = f"Send to {len(selected_candidates)} candidate{'s' if len(selected_candidates) != 1 else ''}"
-
-    if st.button(send_label, disabled=not can_send, use_container_width=False):
-        if not st.session_state.smtp_email or not st.session_state.smtp_password:
-            st.error("Add your Gmail and App Password in Settings.")
         else:
-            from email_utils import send_bulk_screening_emails
-            with st.spinner(f"Sending {len(selected_candidates)} emails..."):
-                results = send_bulk_screening_emails(
-                    sender_email=st.session_state.smtp_email,
-                    sender_password=st.session_state.smtp_password,
-                    candidates=selected_candidates,
-                    role=role,
-                    sender_name=sender_name,
-                    extra_note=extra_note.strip()
-                )
+            # General GPT answer
+            with st.spinner(""):
+                from openai import OpenAI
+                client = OpenAI()
+                ctx = ""
+                if st.session_state.results_df is not None:
+                    df   = st.session_state.results_df
+                    top3 = df.head(3)[["Name","Final Score","Verdict","Reason"]].to_dict("records")
+                    ctx  = f"Last screening: {len(df)} candidates for {st.session_state.role_detected}. Top 3: {top3}"
+                msgs = [{"role":"system","content":"You are Joy — sharp, witty AI recruitment assistant for Seven Hiring. Specific, actionable, max 3 sentences."}]
+                if ctx: msgs.append({"role":"system","content":ctx})
+                msgs.append({"role":"user","content":user_msg})
+                res = client.chat.completions.create(model="gpt-4o-mini",messages=msgs,max_tokens=300,temperature=0.8)
+                joy(res.choices[0].message.content.strip())
 
-            sent    = [r for r in results if r["success"]]
-            failed  = [r for r in results if not r["success"]]
+        st.rerun()
 
-            if sent:
-                st.success(f"✓ Sent to {len(sent)} candidate{'s' if len(sent) != 1 else ''}: {', '.join(r['name'] for r in sent)}")
-            if failed:
-                for r in failed:
-                    st.error(f"✗ {r['name']} ({r['email']}): {r['message']}")
-
-
-
-
-# ═════════════════════════════════════════════════════════════════
-# HISTORY
-# ═════════════════════════════════════════════════════════════════
-elif page == "history":
-
-
-    st.markdown("## Screening History")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">All past screenings saved to your account.</p>', unsafe_allow_html=True)
-
-    hist = load_history(st.session_state.username)
-
-    if hist.empty:
-        st.info("No history yet. Run your first screening to see results here.")
-        if st.button("Screen Resumes →"):
-            go("screen")
-    else:
-        s = get_history_stats(st.session_state.username)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total Candidates", s["total"])
-        m2.metric("Strong Fits",      s["strong"])
-        m3.metric("Roles Screened",   len(s["roles"]))
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        section_label("Filter")
-        roles = ["All"] + list(hist["Role"].unique()) if "Role" in hist.columns else ["All"]
-        rf    = st.selectbox("Role", roles, label_visibility="collapsed")
-        show  = hist if rf == "All" else hist[hist["Role"] == rf]
-
-        st.dataframe(show, use_container_width=True, hide_index=True)
-
-        h1, h2 = st.columns([1, 5])
-        with h1:
-            st.download_button("Download", show.to_csv(index=False).encode(), "joy_history.csv", "text/csv", use_container_width=True)
-        with h2:
-            if st.button("Clear All History", use_container_width=False):
-                clear_history(st.session_state.username)
-                st.success("History cleared.")
-                st.rerun()
-
-
-# ═════════════════════════════════════════════════════════════════
-# SETTINGS
-# ═════════════════════════════════════════════════════════════════
-elif page == "settings":
-
-    st.markdown("## Settings")
-    st.markdown('<p style="color:#555;font-size:0.88rem;margin-bottom:1.5rem">Configure your email credentials.</p>', unsafe_allow_html=True)
-
-    section_label("Gmail — used to send outreach emails")
-    st.session_state.smtp_email    = st.text_input("Gmail address", value=st.session_state.smtp_email, placeholder="you@gmail.com")
-    st.session_state.smtp_password = st.text_input("Gmail App Password", value=st.session_state.smtp_password, type="password", placeholder="16-character app password")
-    st.markdown("""
-    <p style="font-size:0.78rem;color:#444;margin-top:4px;line-height:1.6;">
-    To get an App Password: Google Account → Security → 2-Step Verification → App Passwords → create one for Mail.
-    </p>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    section_label("Your Name")
-    st.session_state.sender_name = st.text_input("Name shown in outreach emails", value=st.session_state.sender_name)
-
-    st.markdown("---")
-    section_label("Account")
-    st.markdown(f"Logged in as **{st.session_state.name}**")
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Logout", use_container_width=False):
-        do_logout()
+# ── CLEAR CHAT LINK ──
+if st.session_state.chat:
+    if st.button("🗑 Clear", key="clr"):
+        save_chat_session(st.session_state.username, st.session_state.chat)
+        st.session_state.chat = []
+        st.session_state.greeting = random.choice(LINES)
+        st.rerun()
