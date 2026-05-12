@@ -1,4 +1,4 @@
-# resume_parser.py - Upgraded for smarter screening
+# resume_parser.py - Upgraded Smart Version for Joy AI Recruiter
 import re
 
 def extract_name(text: str) -> str:
@@ -94,6 +94,6 @@ def suggest_checks(data: dict) -> str:
         checks.append("Verify experience claims")
     if data.get("Keyword Score", 0) < 50:
         checks.append("Limited skill match")
-    if "Not specified" in data.get("Education", ""):
+    if "Not specified" in str(data.get("Education", "")):
         checks.append("Education unclear")
     return ", ".join(checks) or "Strong profile"
