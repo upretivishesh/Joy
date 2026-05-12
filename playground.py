@@ -204,11 +204,7 @@ section[data-testid="stSidebar"] hr { border-color: #1A1A1A !important; margin: 
     height: 26px !important;
 }
 [data-testid="stFileUploader"] { background: transparent !important; border: none !important; padding: 0 !important; }
-[data-testid="stFileUploader"] > label {
-    font-size: 0.75rem !important;
-    color: #333 !important;
-    font-family: 'DM Sans', sans-serif !important;
-}
+[data-testid="stFileUploader"] > label { display: none !important; }
 
 /* Hide form submit */
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] { display: none !important; }
@@ -491,9 +487,10 @@ page = st.session_state.get("page", "main")
 # ─────────────────────────────────────────────────────────────────
 # HISTORY PAGE
 # ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# HISTORY PAGE
+# ─────────────────────────────────────────────────────────────────
 if page == "history":
-    if st.button("← Back"):
-        st.session_state.page = "main"; st.rerun()
     st.markdown("## History")
     hist = load_history(st.session_state.username)
     if hist.empty:
@@ -520,9 +517,10 @@ if page == "history":
 # ─────────────────────────────────────────────────────────────────
 # SETTINGS PAGE
 # ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# SETTINGS PAGE
+# ─────────────────────────────────────────────────────────────────
 if page == "settings":
-    if st.button("← Back"):
-        st.session_state.page = "main"; st.rerun()
     st.markdown("## Settings")
     st.markdown('<p class="section-label">Gmail — used to send outreach emails</p>', unsafe_allow_html=True)
     st.session_state.smtp_email    = st.text_input("Gmail", value=st.session_state.smtp_email, placeholder="you@gmail.com")
@@ -533,7 +531,7 @@ if page == "settings":
     st.session_state.sender_name = st.text_input("Name on emails", value=st.session_state.sender_name)
     st.markdown("---")
     st.markdown(f"Logged in as **{st.session_state.name}**")
-    if st.button("Logout"):
+    if st.button("Logout", key="settings_logout"):
         do_logout()
     st.stop()
 
@@ -686,10 +684,10 @@ st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
 # ── INPUT BAR ──
 uploaded_files = st.file_uploader(
-    "＋  Attach resumes (PDF, DOCX)",
+    "Attach resumes",
     type=["pdf","docx","txt"],
     accept_multiple_files=True,
-    label_visibility="visible"
+    label_visibility="collapsed"
 )
 if uploaded_files:
     st.session_state.uploads = list(uploaded_files)
