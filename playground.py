@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import pdfplumber
@@ -5,10 +6,13 @@ from docx import Document
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import re, json, random
+import io
 
 from resume_parser import (
     extract_name, extract_email, extract_phone, extract_experience,
-    score_resume_against_jd, get_role_from_jd, get_industry_from_jd, suggest_checks
+    score_resume_against_jd, get_role_from_jd, get_industry_from_jd,
+    suggest_checks, extract_education, extract_skills, extract_keywords_from_jd,
+    is_likely_jd
 )
 from gpt_utils import gpt_score_resume
 from email_utils import send_bulk_screening_emails, SCREENING_QUESTIONS
@@ -301,6 +305,7 @@ defaults = {
     "generated_jd": "", "jd_role": "",
     "uploads": [],        # currently attached files
     "_cookie_checked": False,
+    "show_outreach": False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -438,11 +443,17 @@ with st.sidebar:
         if st.session_state.chat:
             preview = next((m["content"][:50] for m in st.session_state.chat if m["role"]=="user"), "Chat")
             save_chat_session(st.session_state.username, st.session_state.chat)
+        # FULL RESET - fixed New Chat button
         st.session_state.chat = []
         st.session_state.greeting = random.choice(LINES)
         st.session_state.results_df = None
+        st.session_state.role_detected = ""
+        st.session_state.industry_detected = ""
         st.session_state.generated_jd = ""
+        st.session_state.jd_role = ""
         st.session_state.uploads = []
+        st.session_state.show_outreach = False
+        st.session_state.page = "main"
         st.rerun()
 
     if st.button("◷  History",  key="nav_hist", use_container_width=True):
@@ -484,9 +495,6 @@ if "page" not in st.session_state:
 
 page = st.session_state.get("page", "main")
 
-# ─────────────────────────────────────────────────────────────────
-# HISTORY PAGE
-# ─────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────
 # HISTORY PAGE
 # ─────────────────────────────────────────────────────────────────
@@ -553,8 +561,13 @@ for i, msg in enumerate(st.session_state.chat):
             st.markdown(f'<div class="joy-msg">✦ &nbsp;{content}</div>', unsafe_allow_html=True)
 
         elif typ == "results":
-            # Inline results table
-            df = pd.read_json(content)
+            # FIXED + improved JSON loading
+            try:
+                df = pd.read_json(io.StringIO(content), orient="records")
+            except Exception as e:
+                st.error(f"Error loading results: {e}")
+                df = pd.DataFrame()
+
             st.markdown(f'<div class="joy-msg">✦ &nbsp;Screened <strong>{len(df)}</strong> candidates for <strong>{st.session_state.role_detected}</strong>. Here\'s the ranking:</div>', unsafe_allow_html=True)
 
             for _, row in df.iterrows():
@@ -700,47 +713,76 @@ if _ and (msg.strip() or st.session_state.uploads):
 
     # ── SCREENING — files uploaded ──
     if files:
-        jd_text = user_msg or st.session_state.get("prefilled_jd","")
+        jd_text = user_msg.strip() if user_msg else ""
+        files_texts = [(f.name, read_file(f)[:3000]) for f in files]
 
+        # ── Smart auto JD detection from uploaded files ──
         if not jd_text:
-            push_user(f"Uploaded: {', '.join(f.name for f in files)}")
-            joy("Got the files. Tell me the role or paste the JD and I'll screen them right away.")
-            st.session_state.uploads = []
+            potential_jds = [(name, txt) for name, txt in files_texts if is_likely_jd(txt)]
+            if potential_jds:
+                jd_text = potential_jds[0][1]
+                joy(f"✅ Auto-detected **Job Description** from uploaded file: **{potential_jds[0][0]}**")
+                resume_texts = [(name, txt) for name, txt in files_texts if name != potential_jds[0][0]]
+            else:
+                resume_texts = files_texts
+                joy("📄 Got resumes but no JD detected.\nPlease paste the JD or upload it next time for accurate screening.")
+                st.session_state.uploads = []
+                st.rerun()
+        else:
+            resume_texts = files_texts
+
+        if not resume_texts:
+            joy("No resume files found after JD detection.")
             st.rerun()
 
-        display = ", ".join(f.name for f in files[:3]) + (f" +{len(files)-3} more" if len(files)>3 else "")
-        push_user(f"Screen: {display}" + (f" | {user_msg}" if user_msg else ""))
+        display = ", ".join([n for n, _ in resume_texts[:3]]) + (f" +{len(resume_texts)-3} more" if len(resume_texts)>3 else "")
+        push_user(f"Screen: {display}" + (f" | JD provided" if user_msg else ""))
 
-        with st.spinner(f"Screening {len(files)} resume(s)..."):
+        with st.spinner(f"Screening {len(resume_texts)} resume(s) intelligently..."):
             role     = get_role_from_jd(jd_text) if jd_text else "General Role"
             industry = get_industry_from_jd(jd_text) if jd_text else "General"
-            rows     = []
-            for f in files:
-                text  = read_file(f)[:2500]
+            keywords = extract_keywords_from_jd(jd_text) if jd_text else []
+
+            rows = []
+            for fname, text in resume_texts:
                 name  = extract_name(text)
                 email = extract_email(text)
                 phone = extract_phone(text)
                 exp   = extract_experience(text)
-                kw    = score_resume_against_jd(text, [])
+                edu   = extract_education(text)
+                skills = extract_skills(text)
+                kw    = score_resume_against_jd(text, keywords)
                 gs, verdict, reason = gpt_score_resume(jd_text, text)
-                fs    = round((gs*0.65)+(kw*0.25)+(min(exp,10)*1.5), 2)
+
+                # Smarter final score with education bonus
+                education_bonus = 8 if any(x in edu.lower() for x in ["b.tech", "m.tech", "b.e", "mba", "master", "bachelor"]) else 0
+                fs = round((gs * 0.55) + (kw * 0.25) + (min(exp, 15) * 1.2) + education_bonus, 2)
+
                 rows.append({
-                    "Name":name,"Email":email,"Phone":phone,
-                    "Experience":exp,"Keyword Score":kw,
-                    "GPT Score":gs,"Final Score":fs,
-                    "Verdict":verdict,"Reason":reason,
-                    "Suggestions":suggest_checks({"Experience":exp,"Keyword Score":kw,"Verdict":verdict})
+                    "Name": name or fname.split(".")[0].title(),
+                    "Email": email,
+                    "Phone": phone,
+                    "Experience": exp,
+                    "Education": edu,
+                    "Skills": skills,
+                    "Keyword Score": kw,
+                    "GPT Score": gs,
+                    "Final Score": fs,
+                    "Verdict": verdict,
+                    "Reason": reason,
+                    "Suggestions": suggest_checks({"Experience": exp, "Keyword Score": kw, "Verdict": verdict, "Education": edu})
                 })
 
-        df = pd.DataFrame(rows).sort_values("Final Score",ascending=False).reset_index(drop=True)
-        df.insert(0,"Sr.No",range(1,len(df)+1))
+        df = pd.DataFrame(rows).sort_values("Final Score", ascending=False).reset_index(drop=True)
+        df.insert(0, "Sr.No", range(1, len(df) + 1))
+
         save_to_db(df.copy(), role, industry, st.session_state.username)
         st.session_state.results_df        = df
         st.session_state.role_detected     = role
         st.session_state.industry_detected = industry
         st.session_state.uploads           = []
 
-        st.session_state.chat.append({"role":"assistant","content":df.to_json(),"type":"results"})
+        st.session_state.chat.append({"role": "assistant", "content": df.to_json(orient="records"), "type": "results"})
         st.rerun()
 
     elif user_msg:
