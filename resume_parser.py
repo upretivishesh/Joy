@@ -1,19 +1,69 @@
-# resume_parser.py - Upgraded Smart Version for Joy AI Recruiter
+# resume_parser.py - BEST VERSION (Smart JD Detection + Screening)
 import re
 
-def extract_name(text: str) -> str:
+# ── Enhanced JD Detection ─────────────────────────────────────
+JD_FILENAME_INDICATORS = ["jd", "job description", "job desc", "jdd", "requirement", "requirements", "role description", "hiring for", "we are hiring"]
+
+def is_likely_jd_by_filename(filename: str) -> bool:
+    fname = filename.lower()
+    return any(ind in fname for ind in JD_FILENAME_INDICATORS)
+
+def jd_likelihood_score(text: str) -> float:
+    """Returns 0–100 score. Higher = more likely to be JD"""
+    if not text or len(text) < 80:
+        return 0.0
+    t = text.lower()[:3000]
+    
+    jd_signals = [
+        "job description", "role overview", "key responsibilities", "what you will do",
+        "requirements", "qualifications", "must have", "nice to have", "responsibilities",
+        "we are looking for", "about the role", "who you are", "job summary",
+        "experience required", "skills required", "reporting to", "location", "salary"
+    ]
+    resume_signals = [
+        "work experience", "professional summary", "education", "projects",
+        "certifications", "skills", "achievements", "objective"
+    ]
+    
+    jd_score = sum(t.count(sig) for sig in jd_signals) * 8
+    resume_score = sum(t.count(sig) for sig in resume_signals) * 10
+    
+    # Bonus for typical JD structure
+    if re.search(r'(?:position|role|title)[:\s-]{1,3}[a-zA-Z\s]+', t):
+        jd_score += 25
+    if re.search(r'(?:₹|\$|lpa|ctc|salary|package)', t):
+        jd_score += 15
+    
+    final = jd_score - resume_score
+    return max(0, min(100, final))
+
+# ── Core Parsers (improved) ───────────────────────────────────
+def extract_name(text: str, filename: str = "") -> str:
+    # Try first line
     lines = [line.strip() for line in text.split("\n") if line.strip()]
-    if lines and re.match(r'^[A-Z][a-zA-Z\s\.-]{3,50}$', lines[0]):
+    if lines and re.match(r'^[A-Z][a-zA-Z\s\.\-\']{3,60}$', lines[0]):
         return lines[0]
-    match = re.search(r'([A-Z][a-zA-Z\s\.-]{4,40})(?:\n|$)', text)
-    return match.group(1).strip() if match else "Unknown Candidate"
+    # Regex fallback
+    match = re.search(r'([A-Z][a-zA-Z\s\.\-\']{4,50})', text)
+    if match:
+        return match.group(1).strip()
+    # Ultimate fallback: use filename
+    if filename:
+        clean = re.sub(r'\.(pdf|docx|doc|txt)$', '', filename)
+        clean = re.sub(r'[^a-zA-Z\s]', ' ', clean).strip()
+        if len(clean.split()) >= 2:
+            return clean.title()
+    return "Unknown Candidate"
 
 def extract_email(text: str) -> str:
     match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
     return match.group(0) if match else ""
 
 def extract_phone(text: str) -> str:
-    patterns = [r'\+?\d{1,4}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}', r'(\+91)?[-.\s]?[6-9]\d{9}']
+    patterns = [
+        r'\+?\d{1,4}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
+        r'(\+91)?[-.\s]?[6-9]\d{9}'
+    ]
     for pat in patterns:
         match = re.search(pat, text)
         if match:
@@ -25,6 +75,7 @@ def extract_experience(text: str) -> int:
         r'(\d{1,2})\+?\s*(?:years?|yrs?)\s*(?:of)?\s*experience',
         r'experience\s*[:\-]?\s*(\d{1,2})',
         r'(\d{1,2})\s*years?',
+        r'(\d+)\s*\+?\s*years?'
     ]
     for pat in patterns:
         match = re.search(pat, text, re.I)
@@ -36,13 +87,13 @@ def extract_experience(text: str) -> int:
     return 0
 
 def extract_education(text: str) -> str:
-    patterns = r'(B\.?Tech|B\.?E|M\.?Tech|MBA|Master|Bachelor|Ph\.?D|Diploma|CA|CPA)[\w\s]*?(?:in|of)?\s*([A-Za-z\s&]+)'
-    match = re.search(patterns, text, re.I)
+    pat = r'(B\.?Tech|B\.?E|M\.?Tech|MBA|Master|Bachelor|Ph\.?D|Diploma|CA|CPA)[\w\s]*?(?:in|of)?\s*([A-Za-z\s&]+)'
+    match = re.search(pat, text, re.I)
     return match.group(0).strip() if match else "Not specified"
 
 def extract_skills(text: str) -> str:
-    common_skills = ["Python", "JavaScript", "Java", "SQL", "AWS", "Azure", "GCP", "React", "Django", "Flask", "Machine Learning", "Data Analysis", "Excel", "Power BI", "Tableau", "Leadership", "Communication", "Project Management"]
-    found = [skill for skill in common_skills if skill.lower() in text.lower()]
+    skills = ["Python", "JavaScript", "Java", "SQL", "AWS", "Azure", "GCP", "React", "Django", "Flask", "Machine Learning", "Data Analysis", "Excel", "Power BI", "Tableau", "Leadership", "Communication", "Project Management", "SAP", "ERP", "Salesforce"]
+    found = [s for s in skills if s.lower() in text.lower()]
     return ", ".join(found) if found else "None detected"
 
 def score_resume_against_jd(resume_text: str, jd_keywords: list) -> int:
@@ -55,44 +106,31 @@ def score_resume_against_jd(resume_text: str, jd_keywords: list) -> int:
 def extract_keywords_from_jd(jd_text: str) -> list:
     if not jd_text:
         return []
-    stop_words = {"the", "and", "for", "with", "this", "that", "are", "will", "must", "have", "good", "strong", "experience", "skills", "years", "role", "job"}
+    stop = {"the", "and", "for", "with", "this", "that", "are", "will", "must", "have", "good", "strong", "experience", "skills", "years", "role", "job", "description"}
     words = re.findall(r'\b[a-zA-Z]{4,}\b', jd_text.lower())
-    keywords = [w for w in words if w not in stop_words]
-    return list(dict.fromkeys(keywords))[:20]
-
-def is_likely_jd(text: str) -> bool:
-    if not text or len(text) < 100:
-        return False
-    text_l = text.lower()[:2500]
-    jd_indicators = ["job description", "responsibilities", "requirements", "qualifications", "we are looking for", "role overview", "key responsibilities", "must have", "nice to have", "about the role", "who you are", "what you will do"]
-    resume_indicators = ["professional summary", "work experience", "education", "projects", "certifications"]
-    jd_score = sum(text_l.count(ind) for ind in jd_indicators)
-    resume_score = sum(text_l.count(ind) for ind in resume_indicators)
-    return jd_score >= 2 and jd_score > resume_score * 0.6
+    keywords = [w for w in words if w not in stop]
+    return list(dict.fromkeys(keywords))[:25]
 
 def get_role_from_jd(jd_text: str) -> str:
     if not jd_text:
         return "General Role"
-    patterns = [r'(?:hiring|recruiting|for|position|role|title)\s*[:\-]?\s*([A-Za-z\s]+?)(?:\s+at|\s+in|\s+with|\.|$)', r'([A-Za-z\s]+?)\s*(?:Engineer|Developer|Manager|Analyst|Consultant|Specialist|Lead)']
-    for pat in patterns:
-        match = re.search(pat, jd_text, re.I)
-        if match:
-            return match.group(1).strip().title()
-    return "Role"
+    pat = r'(?:hiring|for|position|role|title)[:\s-]{1,3}([A-Za-z\s]+?)(?:\s+at|\s+in|\s+with|\.|$)'
+    m = re.search(pat, jd_text, re.I)
+    return m.group(1).strip().title() if m else "Role"
 
 def get_industry_from_jd(jd_text: str) -> str:
-    industries = ["Software", "Tech", "Finance", "Healthcare", "Marketing", "Sales", "Education", "Manufacturing", "Retail", "Consulting", "IT", "Data", "AI", "ML"]
-    text_l = jd_text.lower()
+    industries = ["Software", "Tech", "Finance", "Healthcare", "Marketing", "Sales", "Education", "Manufacturing", "Retail", "Consulting", "IT", "Data", "AI", "ML", "Chemical", "Production"]
+    t = jd_text.lower()
     for ind in industries:
-        if ind.lower() in text_l:
+        if ind.lower() in t:
             return ind
     return "General"
 
 def suggest_checks(data: dict) -> str:
     checks = []
-    if data.get("Experience", 0) < 2:
-        checks.append("Verify experience claims")
-    if data.get("Keyword Score", 0) < 50:
+    if data.get("Experience", 0) < 3:
+        checks.append("Verify experience")
+    if data.get("Keyword Score", 0) < 45:
         checks.append("Limited skill match")
     if "Not specified" in str(data.get("Education", "")):
         checks.append("Education unclear")
