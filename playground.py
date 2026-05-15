@@ -78,6 +78,7 @@ def init_state() -> None:
         "sender_password": "",
         "sender_name": "",
         "company_name": DEFAULT_COMPANY,
+        "upload_session": 0,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -128,7 +129,13 @@ def login_user(email: str, app_password: str, sender_name: str, company_name: st
 
 
 def logout_user() -> None:
-    for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name"]:
+    for key in [
+    "gmail_authenticated",
+    "sender_email",
+    "sender_password",
+    "sender_name",
+    "company_name",
+]:
         st.session_state[key] = False if key == "gmail_authenticated" else ""
     st.session_state.email_results = []
     st.rerun()
@@ -156,15 +163,35 @@ def read_uploaded_file(upload) -> tuple[str, str]:
                 text = "\n".join(page.extract_text() or "" for page in pdf.pages)
             return text.strip(), ""
 
+        if name.endswith(".txt"):
+            return data.decode("utf-8", errors="ignore").strip(), ""
+        
         if name.endswith(".docx"):
             if Document is None:
                 return "", "python-docx is not installed."
-            doc = Document(BytesIO(data))
-            text = "\n".join(p.text for p in doc.paragraphs)
-            return text.strip(), ""
 
-        if name.endswith(".txt"):
-            return data.decode("utf-8", errors="ignore").strip(), ""
+            try:
+                doc = Document(BytesIO(data))
+
+                text = "\n".join(p.text for p in doc.paragraphs)
+
+                if not text.strip():
+                    tables_text = []
+
+                    for table in doc.tables:
+                        for row in table.rows:
+                            row_text = " ".join(cell.text for cell in row.cells)
+                            tables_text.append(row_text)
+
+                    text = "\n".join(tables_text)
+
+                if not text.strip():
+                    return "", "DOCX opened but no readable text found."
+
+                return text.strip(), ""
+
+            except Exception as exc:
+                return "", f"DOCX parsing failed: {exc}"
 
         return "", "Unsupported file type."
     except Exception as exc:
@@ -573,6 +600,10 @@ def save_history(df: pd.DataFrame, role: str, user_key: str) -> None:
     if path.exists():
         old = pd.read_csv(path)
         to_save = pd.concat([old, to_save], ignore_index=True)
+        to_save = to_save.drop_duplicates(
+            subset=["Email", "Role", "Source File"],
+            keep="last"
+        )
     to_save.to_csv(path, index=False)
 
 
@@ -588,6 +619,22 @@ def clear_history(user_key: str) -> None:
     if path.exists():
         path.unlink()
 
+def reset_screening_session() -> None:
+    st.session_state.results_df = pd.DataFrame()
+    st.session_state.email_results = []
+    st.session_state.last_role = ""
+    st.session_state.last_jd = ""
+    st.session_state.last_keywords = []
+
+    # reset text areas
+    st.session_state["typed_jd_text"] = ""
+    st.session_state["role_input"] = ""
+    st.session_state["extra_keywords"] = ""
+
+    # force uploader refresh
+    st.session_state.upload_session += 1
+
+    st.rerun()
 
 def questions_from_text(text: str) -> list[str]:
     questions = []
@@ -618,7 +665,7 @@ def build_email_body(
     verdict = candidate.get("Verdict", "")
 
     lines = [
-        f"Hi {greeting},",
+        "Hi {first_name},",
         "",
         f"I reviewed your profile for the {role} role and it looks relevant for the first screening round.",
         "",
@@ -640,8 +687,7 @@ def build_email_body(
     lines.extend(
         [
             "",
-            "Once I have this, I can confirm fit, share the next step, and avoid asking you the same basics again on call."
-            "",
+            "Once I have this, I can confirm fit, share the next step, and avoid asking you the same basics again on call.",
             "",
             "Best regards,",
             sender_name or "Recruitment Team",
@@ -664,7 +710,17 @@ def send_email(
         msg["From"] = formataddr((sender_name or sender_email, sender_email))
         msg["To"] = recipient_email
         msg["Subject"] = subject
+        html_body = f"""
+        <html>
+        <body style="font-family:Aptos, Arial, sans-serif; font-size:12pt; line-height:1.6;">
+        {body.replace(chr(10), "<br>")}
+        </body>
+        </html>
+        """
+
         msg.set_content(body)
+
+        msg.add_alternative(html_body, subtype="html")
 
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.starttls()
@@ -676,6 +732,25 @@ def send_email(
     except Exception as exc:
         return False, str(exc)
 
+def render_template_variables(text: str, candidate: pd.Series, role: str) -> str:
+
+    variables = {
+        "{first_name}": first_name(str(candidate.get("Name", ""))),
+        "{full_name}": str(candidate.get("Name", "")),
+        "{role}": role,
+        "{email}": str(candidate.get("Email", "")),
+        "{phone}": str(candidate.get("Phone", "")),
+        "{experience}": str(candidate.get("Experience", "")),
+        "{score}": str(candidate.get("Final Score", "")),
+        "{verdict}": str(candidate.get("Verdict", "")),
+    }
+
+    rendered = text
+
+    for key, value in variables.items():
+        rendered = rendered.replace(key, value)
+
+    return rendered
 
 def send_bulk_emails(
     selected_df: pd.DataFrame,
@@ -706,10 +781,17 @@ def send_bulk_emails(
             )
             continue
 
-        body = (
-            custom_body
-            if custom_body.strip()
-            else build_email_body(
+        if custom_body.strip():
+
+            body = render_template_variables(
+                custom_body,
+                candidate,
+                role,
+            )
+
+        else:
+
+            body = build_email_body(
                 candidate,
                 role,
                 sender_name,
@@ -717,6 +799,11 @@ def send_bulk_emails(
                 questions,
                 extra_note,
             )
+
+        personalized_subject = render_template_variables(
+            subject,
+            candidate,
+            role,
         )
 
         ok, message = send_email(
@@ -724,7 +811,7 @@ def send_bulk_emails(
             sender_password,
             sender_name,
             recipient,
-            subject,
+            personalized_subject,
             body,
         )
 
@@ -933,6 +1020,21 @@ def render_css() -> None:
         .stAlert {
             border-radius: 12px;
         }
+        
+        button[kind="secondary"] {
+            background: transparent !important;
+            border: 1px solid #222733 !important;
+            color: #98a2b3 !important;
+            transition: all 0.18s ease;
+            font-weight: 600 !important;
+        }
+
+        button[kind="secondary"]:hover {
+            border-color: #54d6b6 !important;
+            color: white !important;
+            background: rgba(84,214,182,0.06) !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1127,17 +1229,35 @@ st.markdown(
 screen_tab, email_tab, history_tab = st.tabs(["Screen", "Email", "History"])
 
 with screen_tab:
-    st.subheader("Job")
+
+    title_col, button_col = st.columns([8.5, 1.5], vertical_alignment="center")
+
+    with title_col:
+        st.subheader("Job")
+
+    with button_col:
+        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
+
+        new_search = st.button(
+            "New",
+            key="new_search_btn",
+            use_container_width=True,
+        )
+
+    if new_search:
+        reset_screening_session()
+
     jd_upload = st.file_uploader(
         "Upload JD",
         type=["pdf", "docx", "txt"],
-        key="jd_upload",
+        key=f"jd_upload_{st.session_state.upload_session}",
     )
 
     typed_jd_text = st.text_area(
         "Or paste JD",
         height=190,
         placeholder="Paste the job description or role requirements here. Joy will detect the title automatically.",
+        key="typed_jd_text",
     )
 
     jd_text = typed_jd_text
@@ -1153,10 +1273,12 @@ with screen_tab:
         role_input = st.text_input(
             "Role title override",
             placeholder="Leave blank. Joy will detect it from the JD.",
+            key="role_input",
         )
         extra_keywords = st.text_input(
             "Must-have keywords",
             placeholder="HPLC, distributor management, SAP",
+            key="extra_keywords",
         )
 
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
@@ -1167,7 +1289,7 @@ with screen_tab:
         "Upload resumes",
         type=["pdf", "docx", "txt"],
         accept_multiple_files=True,
-        key="resume_uploads",
+        key=f"resume_uploads_{st.session_state.upload_session}",
     )
 
     run_col, _ = st.columns([1, 4])
@@ -1246,6 +1368,7 @@ with email_tab:
         )
 
         questions = questions_from_text(st.session_state.questions_text)
+        
         if not selected.empty:
             preview_body = build_email_body(
                 selected.iloc[0],
@@ -1256,7 +1379,13 @@ with email_tab:
                 extra_note,
             )
 
-            with st.expander(f"Preview: {selected.iloc[0]['Name']}", expanded=True):
+
+        if not selected.empty:
+
+            with st.expander(
+                f"Preview: {selected.iloc[0]['Name']}",
+                expanded=True
+            ):
 
                 edited_preview_body = st.text_area(
                     "Edit email before sending",
@@ -1265,7 +1394,13 @@ with email_tab:
                     key="edited_email_preview",
                 )
 
-                st.caption("This edited version will be sent to all selected candidates.")
+                st.caption("Use {first_name} anywhere for automatic personalization.")
+
+                st.caption(
+                    "Variables supported: "
+                    "{first_name}, {full_name}, {role}, "
+                    "{experience}, {score}, {verdict}"
+                )
 
         c1, c2, c3 = st.columns([1.3, 1.5, 3])
         with c1:
@@ -1339,18 +1474,120 @@ with history_tab:
         else:
             shown = hist
 
-        st.dataframe(shown, use_container_width=True, hide_index=True)
-        h1, h2, h3 = st.columns([1.2, 1.2, 4])
-        with h1:
-            st.download_button(
-                "Download history",
-                shown.to_csv(index=False).encode("utf-8"),
-                "joy_history.csv",
-                "text/csv",
-                use_container_width=True,
+        history_editable = shown.copy()
+
+        if "Send" not in history_editable.columns:
+            history_editable.insert(0, "Send", False)
+
+        history_edited = st.data_editor(
+            history_editable,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            key="history_editor",
+            column_config={
+                "Send": st.column_config.CheckboxColumn("Send"),
+                "Email": st.column_config.TextColumn("Email"),
+            },
+        )
+
+        selected_history = history_edited[history_edited["Send"] == True].copy()
+
+        if not selected_history.empty:
+
+            st.divider()
+            st.subheader("Send email from history")
+
+            history_role = selected_history.iloc[0].get(
+                "Role",
+                st.session_state.last_role or "the role",
             )
-        with h2:
-            confirm_clear = st.checkbox("Confirm clear")
-            if st.button("Clear history", disabled=not confirm_clear, use_container_width=True):
-                clear_history(user_key)
-                st.rerun()
+
+            history_subject = st.text_input(
+                "Subject",
+                value=f"Details required for {history_role}",
+                key="history_subject",
+            )
+
+            history_questions = st.text_area(
+                "Questions to collect",
+                value=st.session_state.questions_text,
+                height=180,
+                key="history_questions",
+            )
+
+            history_note = st.text_area(
+                "Extra note",
+                placeholder="Optional context for candidates",
+                height=100,
+                key="history_note",
+            )
+
+            parsed_questions = questions_from_text(history_questions)
+
+            preview_body = build_email_body(
+                selected_history.iloc[0],
+                selected_history.iloc[0].get("Role", st.session_state.last_role),
+                st.session_state.sender_name,
+                st.session_state.company_name,
+                parsed_questions,
+                history_note,
+            )
+
+            edited_history_body = st.text_area(
+                "Edit email before sending",
+                value=preview_body,
+                height=380,
+                key="history_email_preview",
+            )
+
+            history_confirm = st.checkbox(
+                "History recipient list reviewed",
+                key="history_confirm",
+            )
+
+            send_history = st.button(
+                f"Send {len(selected_history)} email(s)",
+                type="primary",
+                disabled=not history_confirm,
+                key="send_history_btn",
+            )
+
+            if send_history:
+
+                custom_body = st.session_state.get(
+                    "history_email_preview",
+                    "",
+                ).strip()
+
+                with st.spinner("Sending emails from history..."):
+
+                    history_results = send_bulk_emails(
+                        selected_df=selected_history,
+                        role=selected_history.iloc[0].get(
+                            "Role",
+                            st.session_state.last_role,
+                        ),
+                        sender_email=st.session_state.sender_email,
+                        sender_password=st.session_state.sender_password,
+                        sender_name=st.session_state.sender_name,
+                        company_name=st.session_state.company_name,
+                        subject=history_subject,
+                        questions=parsed_questions,
+                        extra_note=history_note,
+                        custom_body=custom_body,
+                    )
+
+                sent_count = sum(
+                    1 for item in history_results if item["Success"]
+                )
+
+                st.success(
+                    f"Sent {sent_count} of {len(history_results)} email(s)."
+                )
+
+                st.dataframe(
+                    pd.DataFrame(history_results),
+                    use_container_width=True,
+                    hide_index=True,
+                )
