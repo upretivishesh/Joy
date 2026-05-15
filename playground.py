@@ -586,7 +586,7 @@ def render_css() -> None:
         h2, h3 { font-weight: 650 !important; }
 
         .hero {
-            padding: 8px 0 20px;
+            padding: 30px 0 20px;
             max-width: 860px;
         }
 
