@@ -57,8 +57,8 @@ DEFAULT_QUESTIONS = [
     "Notice period",
     "Current location",
     "Preferred work location",
-    "Total experience"
-    "Reason for job change"
+    "Total experience",
+    "Reason for job change",
     "Current company and designation",
     "Any offer in hand",
     "Suitable slot for a 5-minute discussion",
@@ -641,6 +641,7 @@ def build_email_body(
         [
             "",
             "Once I have this, I can confirm fit, share the next step, and avoid asking you the same basics again on call."
+            "",
             "",
             "Best regards,",
             sender_name or "Recruitment Team",
