@@ -1,6 +1,5 @@
 streamlit
+pandas
 pdfplumber
 python-docx
-pandas
 openai
-streamlit-cookies-controller
