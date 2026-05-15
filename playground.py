@@ -244,8 +244,18 @@ def extract_name(text: str, filename: str = "") -> str:
         "resume", "curriculum", "vitae", "profile", "email", "phone", "mobile",
         "linkedin", "github", "portfolio", "address", "summary", "objective",
         "education", "experience", "employment", "project", "projects", "skills",
-        "certification", "certifications", "developer", "engineer", "manager",
-        "analyst", "consultant", "specialist", "executive", "assistant",
+        "certification", "certifications",
+
+        # job titles
+        "developer", "engineer", "manager", "analyst", "consultant",
+        "specialist", "executive", "assistant", "designer", "architect",
+        "lead", "intern", "recruiter", "marketer", "accountant",
+        "graphic designer", "ui ux", "ui/ux", "sales executive",
+        "hr executive", "software engineer", "data analyst",
+
+        # random resume junk
+        "curriculum vitae", "professional summary",
+        "work experience", "career objective",
     }
 
     candidates: list[tuple[int, str]] = []
@@ -260,11 +270,14 @@ def extract_name(text: str, filename: str = "") -> str:
 
         lower = clean.lower()
         words = clean.split()
-        if not 1 <= len(words) <= 4:
+        if not 2 <= len(words) <= 4:
             continue
         if any(char.isdigit() for char in clean):
             continue
-        if any(phrase in lower for phrase in bad_phrases):
+        if any(
+            phrase == lower or phrase in lower.split()
+            for phrase in bad_phrases
+        ):
             continue
         if len(clean) > 48:
             continue
@@ -296,18 +309,47 @@ def extract_name(text: str, filename: str = "") -> str:
 
 
 def extract_experience(text: str) -> float:
-    patterns = [
-        r"(\d{1,2}(?:\.\d)?)\+?\s*(?:years?|yrs?)\s*(?:of)?\s*(?:total\s*)?experience",
-        r"experience\s*[:\-]?\s*(\d{1,2}(?:\.\d)?)",
-        r"(\d{1,2}(?:\.\d)?)\+?\s*(?:years?|yrs?)",
+
+    text = text.lower()
+
+    # explicit experience mentions first
+    explicit_patterns = [
+        r"(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr)",
+        r"experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
     ]
-    for pattern in patterns:
+
+    for pattern in explicit_patterns:
         match = re.search(pattern, text, flags=re.I)
         if match:
             try:
-                return float(match.group(1))
-            except ValueError:
-                return 0.0
+                years = float(match.group(1))
+
+                if 0 <= years <= 50:
+                    return round(years, 1)
+
+            except:
+                pass
+
+    # fallback → calculate from years in resume
+    years = re.findall(r"(20\d{2}|19\d{2})", text)
+
+    years = [int(y) for y in years]
+
+    if len(years) >= 2:
+
+        min_year = min(years)
+        max_year = max(years)
+
+        current_year = datetime.now().year
+
+        if max_year > current_year:
+            max_year = current_year
+
+        exp = max_year - min_year
+
+        if 0 <= exp <= 40:
+            return float(exp)
+
     return 0.0
 
 
