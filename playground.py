@@ -635,8 +635,6 @@ def build_email_body(
     lines.extend(
         [
             "",
-            "Once I have this, I can confirm fit and will share the next step.",
-            "",
             "Best regards,",
             sender_name or "Recruitment Team",
             company,
