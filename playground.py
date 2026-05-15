@@ -624,7 +624,7 @@ def build_email_body(
 
     lines.extend(
         [
-            "To move ahead without a back-and-forth call, please reply with these details:",
+            "To move ahead, please reply with these details:",
             "",
         ]
     )
@@ -636,7 +636,6 @@ def build_email_body(
         [
             "",
             "Once I have this, I can confirm fit and will share the next step.",
-            "",
             "",
             "Best regards,",
             sender_name or "Recruitment Team",
