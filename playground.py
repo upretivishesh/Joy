@@ -679,18 +679,56 @@ def send_bulk_emails(
     subject: str,
     questions: list[str],
     extra_note: str,
+    custom_body: str = "",
 ) -> list[dict]:
     results = []
+
     for _, candidate in selected_df.iterrows():
         name = str(candidate.get("Name", "Candidate"))
         recipient = str(candidate.get("Email", "")).strip()
+
         if "@" not in recipient:
-            results.append({"Name": name, "Email": recipient, "Success": False, "Message": "Missing email"})
+            results.append(
+                {
+                    "Name": name,
+                    "Email": recipient,
+                    "Success": False,
+                    "Message": "Missing email",
+                }
+            )
             continue
 
-        body = build_email_body(candidate, role, sender_name, company_name, questions, extra_note)
-        ok, message = send_email(sender_email, sender_password, sender_name, recipient, subject, body)
-        results.append({"Name": name, "Email": recipient, "Success": ok, "Message": message})
+        body = (
+            custom_body
+            if custom_body.strip()
+            else build_email_body(
+                candidate,
+                role,
+                sender_name,
+                company_name,
+                questions,
+                extra_note,
+            )
+        )
+
+        ok, message = send_email(
+            sender_email,
+            sender_password,
+            sender_name,
+            recipient,
+            subject,
+            body,
+        )
+
+        results.append(
+            {
+                "Name": name,
+                "Email": recipient,
+                "Success": ok,
+                "Message": message,
+            }
+        )
+
     return results
 
 
@@ -1209,8 +1247,17 @@ with email_tab:
                 questions,
                 extra_note,
             )
-            with st.expander(f"Preview: {selected.iloc[0]['Name']}", expanded=False):
-                st.code(preview_body, language="text")
+
+            with st.expander(f"Preview: {selected.iloc[0]['Name']}", expanded=True):
+
+                edited_preview_body = st.text_area(
+                    "Edit email before sending",
+                    value=preview_body,
+                    height=380,
+                    key="edited_email_preview",
+                )
+
+                st.caption("This edited version will be sent to all selected candidates.")
 
         c1, c2, c3 = st.columns([1.3, 1.5, 3])
         with c1:
@@ -1229,11 +1276,16 @@ with email_tab:
         if send_clicked:
             if not st.session_state.sender_email or not st.session_state.sender_password:
                 st.error("Your Gmail session expired. Sign in again to send emails.")
+
             elif not st.session_state.sender_name:
                 st.error("Add sender name in the sidebar.")
+
             elif not missing_email.empty:
                 st.error("Fix missing candidate email addresses first.")
+
             else:
+                custom_email_body = st.session_state.get("edited_email_preview", "").strip()
+
                 with st.spinner("Sending emails..."):
                     st.session_state.email_results = send_bulk_emails(
                         selected_df=selected,
@@ -1245,12 +1297,19 @@ with email_tab:
                         subject=subject,
                         questions=questions,
                         extra_note=extra_note,
+                        custom_body=custom_email_body,
                     )
-                sent_count = sum(1 for item in st.session_state.email_results if item["Success"])
-                st.success(f"Sent {sent_count} of {len(st.session_state.email_results)} email(s).")
 
-        if st.session_state.email_results:
-            st.dataframe(pd.DataFrame(st.session_state.email_results), use_container_width=True, hide_index=True)
+                sent_count = sum(
+                    1 for item in st.session_state.email_results if item["Success"]
+                )
+
+                st.success(
+                    f"Sent {sent_count} of {len(st.session_state.email_results)} email(s)."
+                )
+
+            if st.session_state.email_results:
+                st.dataframe(pd.DataFrame(st.session_state.email_results), use_container_width=True, hide_index=True)
 
 
 with history_tab:
