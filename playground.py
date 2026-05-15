@@ -54,14 +54,9 @@ STOP_WORDS = {
 DEFAULT_QUESTIONS = [
     "Current CTC",
     "Expected CTC",
-    "Notice period / earliest joining date",
+    "Notice period",
     "Current location",
-    "Preferred work location",
-    "Total experience and relevant experience",
-    "Reason for job change",
-    "Current company and designation",
-    "Any offer in hand",
-    "Two suitable slots for a 15-minute discussion",
+    "Total experience",
 ]
 
 
@@ -640,9 +635,8 @@ def build_email_body(
     lines.extend(
         [
             "",
-            "Once I have this, I can confirm fit, share the next step, and avoid asking you the same basics again on call.",
+            "Once I have this, I can confirm fit and will share the next step.",
             "",
-            f"Internal note: screening result {verdict}, score {score}.",
             "",
             "Best regards,",
             sender_name or "Recruitment Team",
