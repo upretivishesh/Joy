@@ -56,7 +56,12 @@ DEFAULT_QUESTIONS = [
     "Expected CTC",
     "Notice period",
     "Current location",
-    "Total experience",
+    "Preferred work location",
+    "Total experience"
+    "Reason for job change"
+    "Current company and designation",
+    "Any offer in hand",
+    "Suitable slot for a 5-minute discussion",
 ]
 
 
@@ -624,7 +629,7 @@ def build_email_body(
 
     lines.extend(
         [
-            "To move ahead, please reply with these details:",
+            "To move ahead without a back-and-forth call, please reply with these details:",
             "",
         ]
     )
@@ -634,6 +639,8 @@ def build_email_body(
 
     lines.extend(
         [
+            "",
+            "Once I have this, I can confirm fit, share the next step, and avoid asking you the same basics again on call."
             "",
             "Best regards,",
             sender_name or "Recruitment Team",
