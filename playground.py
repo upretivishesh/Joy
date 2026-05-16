@@ -8,6 +8,10 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from io import BytesIO
 from pathlib import Path
+from pdf2image import convert_from_bytes
+import pytesseract
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 import pandas as pd
 import streamlit as st
@@ -123,7 +127,7 @@ def login_user(email: str, app_password: str, sender_name: str, company_name: st
     clean_email = email.strip().lower()
     st.session_state.gmail_authenticated = True
     st.session_state.sender_email = clean_email
-    st.session_state.sender_password = app_password.strip()
+    st.session_state.sender_password = app_password.replace(" ", "").strip()
     st.session_state.sender_name = sender_name.strip() or name_from_email_address(clean_email)
     st.session_state.company_name = company_name.strip() or DEFAULT_COMPANY
 
@@ -150,17 +154,35 @@ def history_path(user_key: str) -> Path:
     DATA_DIR.mkdir(exist_ok=True)
     return DATA_DIR / f"history_{safe_filename_part(user_key)}.csv"
 
-
-def read_uploaded_file(upload) -> tuple[str, str]:
-    name = upload.name.lower()
-    data = upload.getvalue()
+@st.cache_data(show_spinner=False)
+def read_uploaded_file(file_name, data) -> tuple[str, str]:
+    name = file_name.lower()
 
     try:
         if name.endswith(".pdf"):
+
             if pdfplumber is None:
                 return "", "pdfplumber is not installed."
+
             with pdfplumber.open(BytesIO(data)) as pdf:
-                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+                pages = pdf.pages[:5]
+
+                text = "\n".join(
+                    page.extract_text() or ""
+                    for page in pages
+                )
+
+            text = text.strip()
+
+            # OCR fallback for scanned/image PDFs
+            if len(text) < 35:
+
+                ocr_text = ocr_pdf(data)
+
+                if len(ocr_text) > len(text):
+                    text = ocr_text
+
             return text.strip(), ""
 
         if name.endswith(".txt"):
@@ -197,6 +219,32 @@ def read_uploaded_file(upload) -> tuple[str, str]:
     except Exception as exc:
         return "", f"Could not read file: {exc}"
 
+def ocr_pdf(data: bytes) -> str:
+
+    try:
+
+        images = convert_from_bytes(
+            data,
+            dpi=170,
+            first_page=1,
+            last_page=2,
+            thread_count=1,
+            grayscale=True,
+        )
+
+        text_parts = []
+
+        for image in images:
+
+            text = pytesseract.image_to_string(image)
+
+            if text.strip():
+                text_parts.append(text)
+
+        return "\n".join(text_parts).strip()
+
+    except Exception:
+        return ""
 
 def extract_email(text: str) -> str:
     match = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", text)
@@ -270,7 +318,7 @@ def extract_name(text: str, filename: str = "") -> str:
 
         lower = clean.lower()
         words = clean.split()
-        if not 2 <= len(words) <= 4:
+        if not 2 <= len(words) <= 5:
             continue
         if any(char.isdigit() for char in clean):
             continue
@@ -279,7 +327,7 @@ def extract_name(text: str, filename: str = "") -> str:
             for phrase in bad_phrases
         ):
             continue
-        if len(clean) > 48:
+        if len(clean) > 55:
             continue
         if not all(re.fullmatch(r"[A-Za-z][A-Za-z.'-]*", word) for word in words):
             continue
@@ -295,6 +343,10 @@ def extract_name(text: str, filename: str = "") -> str:
             score += 12
         if idx <= 3:
             score += 12
+        if idx == 0:
+            score += 25
+        if idx == 1:
+            score += 18    
         candidates.append((score, clean.title() if clean.isupper() else clean))
 
     if candidates:
@@ -314,8 +366,19 @@ def extract_experience(text: str) -> float:
 
     # explicit experience mentions first
     explicit_patterns = [
+
         r"(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr)",
+
         r"experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+
+        r"total\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+
+        r"overall\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+
+        r"professional\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+
+        r"worked\s*for\s*(\d{1,2}(?:\.\d+)?)\s*(?:years|yrs)",
+
     ]
 
     for pattern in explicit_patterns:
@@ -375,40 +438,130 @@ def clean_role_title(value: str) -> str:
 
 
 def extract_role_from_jd(jd_text: str, fallback: str = "") -> str:
+
     if fallback.strip():
         return clean_role_title(fallback)
 
     text = jd_text or ""
-    lines = [normalize_whitespace(line) for line in text.splitlines() if normalize_whitespace(line)]
-    patterns = [
-        r"(?:job\s*)?title\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9 /&+.,'-]{2,90})",
-        r"(?:role|position|designation)\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9 /&+.,'-]{2,90})",
-        r"(?:we\s+are\s+)?hiring\s+(?:for\s+)?(?:a|an|the)?\s*([A-Za-z0-9][A-Za-z0-9 /&+.,'-]{2,90})",
-        r"job description\s*(?:for|:|-)\s*([A-Za-z0-9][A-Za-z0-9 /&+.,'-]{2,90})",
-        r"opening\s+(?:for|:|-)\s*([A-Za-z0-9][A-Za-z0-9 /&+.,'-]{2,90})",
+
+    if not text.strip():
+        return "Open Role"
+
+    lines = [
+        normalize_whitespace(line)
+        for line in text.splitlines()
+        if normalize_whitespace(line)
     ]
 
-    for line in lines[:30]:
-        for pattern in patterns:
-            match = re.search(pattern, line, flags=re.I)
-            if match:
-                role = clean_role_title(match.group(1))
-                if role:
-                    return role
-
-    bad_line_words = {
-        "about", "company", "overview", "responsibilities", "requirements",
-        "qualification", "qualifications", "benefits", "salary", "location",
-        "experience", "skills", "apply", "contact", "email",
+    # common actual job titles
+    title_keywords = {
+        "engineer", "developer", "designer", "manager", "executive",
+        "specialist", "associate", "lead", "architect", "consultant",
+        "analyst", "officer", "head", "director", "intern",
+        "coordinator", "writer", "recruiter", "marketer",
+        "sales", "hr", "product", "ui", "ux", "qa",
+        "accountant", "teacher", "trainer", "chef"
     }
-    for line in lines[:12]:
+
+    # garbage phrases
+    bad_phrases = {
+        "about us", "job description", "responsibilities",
+        "requirements", "qualifications", "preferred",
+        "mandatory", "salary", "location", "experience",
+        "apply now", "about company", "skills required",
+        "candidate profile", "company overview"
+    }
+
+    patterns = [
+        r"(?:job\s*)?title\s*[:\-]\s*(.+)",
+        r"(?:role|position|designation)\s*[:\-]\s*(.+)",
+        r"hiring\s+(?:for\s+)?(.+)",
+        r"opening\s+(?:for\s+)?(.+)",
+        r"urgent\s+(?:requirement\s+for\s+)?(.+)",
+        r"looking\s+for\s+(.+)",
+    ]
+
+    scored_candidates = []
+
+    # ---------- regex extraction ----------
+    for idx, line in enumerate(lines[:40]):
+
+        lower = line.lower()
+
+        if any(bad in lower for bad in bad_phrases):
+            continue
+
+        for pattern in patterns:
+
+            match = re.search(pattern, line, flags=re.I)
+
+            if match:
+
+                role = clean_role_title(match.group(1))
+
+                if not role:
+                    continue
+
+                score = 100 - idx
+
+                if len(role.split()) <= 8:
+                    score += 10
+
+                scored_candidates.append((score, role))
+
+    # ---------- heading detection ----------
+    for idx, line in enumerate(lines[:15]):
+
         clean = clean_role_title(line)
-        words = clean.split()
+
+        if not clean:
+            continue
+
         lower = clean.lower()
-        if 2 <= len(words) <= 7 and not any(word in lower for word in bad_line_words):
-            title_words = {"manager", "engineer", "developer", "analyst", "consultant", "executive", "specialist", "lead", "head", "director", "officer", "associate"}
-            if any(word.lower().strip(".,") in title_words for word in words):
-                return clean
+
+        if any(bad in lower for bad in bad_phrases):
+            continue
+
+        words = clean.split()
+
+        # skip giant paragraphs
+        if len(words) > 8:
+            continue
+
+        score = 60 - idx
+
+        # title keyword bonus
+        if any(
+            keyword in lower
+            for keyword in title_keywords
+        ):
+            score += 40
+
+        # uppercase headings bonus
+        if line.isupper():
+            score += 15
+
+        # top-of-document bonus
+        if idx <= 3:
+            score += 20
+
+        # penalize weird lines
+        if ":" in line:
+            score -= 10
+
+        scored_candidates.append((score, clean))
+
+    # ---------- final selection ----------
+    if scored_candidates:
+
+        scored_candidates.sort(
+            key=lambda x: x[0],
+            reverse=True
+        )
+
+        best_role = scored_candidates[0][1]
+
+        return clean_role_title(best_role)
 
     return "Open Role"
 
@@ -546,8 +699,9 @@ Resume:
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.2,
-            max_tokens=220,
+            temperature=0,
+            max_tokens=120,
+            timeout=20,
         )
         raw = response.choices[0].message.content or "{}"
         raw = re.sub(r"```json|```", "", raw).strip()
@@ -601,7 +755,19 @@ def score_resume(
     skill_score = min(100, len(skills) * 12)
 
     heuristic = (kw_score * 0.55) + (exp_score * 0.2) + (skill_score * 0.15) + (cnt_score * 0.1)
-    ai_score, ai_reason = ai_score_resume(jd_text, resume_text, role, api_key, model)
+    ai_score = None
+    ai_reason = ""
+
+    # only AI-score promising resumes
+    if kw_score >= 35 or exp_score >= 55:
+
+        ai_score, ai_reason = ai_score_resume(
+            jd_text,
+            resume_text,
+            role,
+            api_key,
+            model,
+        )
 
     if ai_score is None:
         final_score = round(heuristic, 1)
@@ -661,6 +827,22 @@ def clear_history(user_key: str) -> None:
     if path.exists():
         path.unlink()
 
+def clear_role_history(user_key: str, role: str) -> None:
+
+    path = history_path(user_key)
+
+    if not path.exists():
+        return
+
+    df = pd.read_csv(path)
+
+    if "Role" not in df.columns:
+        return
+
+    df = df[df["Role"] != role]
+
+    df.to_csv(path, index=False)        
+
 def reset_screening_session() -> None:
     st.session_state.results_df = pd.DataFrame()
     st.session_state.email_results = []
@@ -676,7 +858,7 @@ def reset_screening_session() -> None:
     # force uploader refresh
     st.session_state.upload_session += 1
 
-    st.rerun()
+    st.session_state["_reset_done"] = True
 
 def questions_from_text(text: str) -> list[str]:
     questions = []
@@ -752,10 +934,16 @@ def send_email(
         msg["From"] = formataddr((sender_name or sender_email, sender_email))
         msg["To"] = recipient_email
         msg["Subject"] = subject
+        safe_body = (
+            body.encode("utf-8", errors="ignore")
+            .decode("utf-8", errors="ignore")
+            .replace(chr(10), "<br>")
+        )
+
         html_body = f"""
         <html>
         <body style="font-family:Aptos, Arial, sans-serif; font-size:12pt; line-height:1.6;">
-        {body.replace(chr(10), "<br>")}
+        {safe_body}
         </body>
         </html>
         """
@@ -772,6 +960,7 @@ def send_email(
     except smtplib.SMTPAuthenticationError:
         return False, "Gmail rejected the login. Use a Gmail App Password, not your normal password."
     except Exception as exc:
+        print("EMAIL ERROR:", exc)
         return False, str(exc)
 
 def render_template_variables(text: str, candidate: pd.Series, role: str) -> str:
@@ -808,20 +997,21 @@ def send_bulk_emails(
 ) -> list[dict]:
     results = []
 
-    for _, candidate in selected_df.iterrows():
+
+    def email_worker(candidate):
+
         name = str(candidate.get("Name", "Candidate"))
+
         recipient = str(candidate.get("Email", "")).strip()
 
         if "@" not in recipient:
-            results.append(
-                {
-                    "Name": name,
-                    "Email": recipient,
-                    "Success": False,
-                    "Message": "Missing email",
-                }
-            )
-            continue
+
+            return {
+                "Name": name,
+                "Email": recipient,
+                "Success": False,
+                "Message": "Missing email",
+            }
 
         if custom_body.strip():
 
@@ -857,14 +1047,33 @@ def send_bulk_emails(
             body,
         )
 
-        results.append(
-            {
-                "Name": name,
-                "Email": recipient,
-                "Success": ok,
-                "Message": message,
-            }
-        )
+        return {
+            "Name": name,
+            "Email": recipient,
+            "Success": ok,
+            "Message": message,
+        }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+
+        futures = [
+            executor.submit(email_worker, candidate)
+            for _, candidate in selected_df.iterrows()
+        ]
+
+        for future in as_completed(futures):
+
+            try:
+                results.append(future.result())
+
+            except Exception as exc:
+
+                results.append({
+                    "Name": "Unknown",
+                    "Email": "",
+                    "Success": False,
+                    "Message": str(exc),
+                })
 
     return results
 
@@ -1107,6 +1316,72 @@ def show_results_summary(df: pd.DataFrame) -> None:
         use_container_width=False,
     )
 
+def process_resume_worker(
+    upload,
+    jd_text,
+    role,
+    keywords,
+    min_exp,
+    api_key,
+    model,
+):
+
+    if not upload:
+        return None
+
+    text, error = read_uploaded_file(
+        upload.name,
+        upload.getvalue(),
+    )
+
+    if error:
+        return {
+            "Send": False,
+            "Name": upload.name,
+            "Email": "",
+            "Phone": "",
+            "Experience": 0.0,
+            "Keyword Score": 0,
+            "Final Score": 0.0,
+            "Verdict": "Low Fit",
+            "Matched Keywords": "",
+            "Missing Keywords": ", ".join(keywords[:10]),
+            "Skills": "",
+            "Reason": error,
+            "Source File": upload.name,
+            "AI Used": False,
+        }
+
+    if not text.strip():
+        return {
+            "Send": False,
+            "Name": upload.name,
+            "Email": "",
+            "Phone": "",
+            "Experience": 0.0,
+            "Keyword Score": 0,
+            "Final Score": 0.0,
+            "Verdict": "Low Fit",
+            "Matched Keywords": "",
+            "Missing Keywords": ", ".join(keywords[:10]),
+            "Skills": "",
+            "Reason": "No readable text found.",
+            "Source File": upload.name,
+            "AI Used": False,
+        }
+
+    return score_resume(
+        jd_text=jd_text,
+        role=role,
+        resume_text=text,
+        filename=upload.name,
+        keywords=keywords,
+        min_exp=min_exp,
+        api_key=api_key,
+        model=model,
+    )
+
+
 
 def run_screening(
     uploads,
@@ -1126,44 +1401,50 @@ def run_screening(
     progress = st.progress(0)
     status = st.empty()
 
-    for idx, upload in enumerate(uploads, start=1):
-        status.write(f"Reading {upload.name} ({idx}/{len(uploads)})")
-        text, error = read_uploaded_file(upload)
-        if error:
-            errors.append(f"{upload.name}: {error}")
-        if not text.strip():
-            rows.append(
-                {
-                    "Send": False,
-                    "Name": upload.name,
-                    "Email": "",
-                    "Phone": "",
-                    "Experience": 0.0,
-                    "Keyword Score": 0,
-                    "Final Score": 0.0,
-                    "Verdict": "Low Fit",
-                    "Matched Keywords": "",
-                    "Missing Keywords": ", ".join(keywords[:10]),
-                    "Skills": "",
-                    "Reason": error or "No readable text found.",
-                    "Source File": upload.name,
-                    "AI Used": False,
-                }
+    cpu_count = os.cpu_count() or 4
+
+    max_workers = min(
+        4,
+        cpu_count,
+        max(1, len(uploads))
+    )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+
+        futures = {
+            executor.submit(
+                process_resume_worker,
+                upload,
+                jd_text,
+                role,
+                keywords,
+                min_exp,
+                api_key,
+                model,
+            ): upload
+            for upload in uploads
+        }
+
+        completed = 0
+
+        for future in as_completed(futures):
+
+            upload = futures[future]
+
+            try:
+                result = future.result()
+                rows.append(result)
+
+            except Exception as exc:
+                errors.append(f"{upload.name}: {exc}")
+
+            completed += 1
+
+            status.write(
+                f"Processed {completed}/{len(uploads)} resumes"
             )
-        else:
-            rows.append(
-                score_resume(
-                    jd_text=jd_text,
-                    role=role,
-                    resume_text=text,
-                    filename=upload.name,
-                    keywords=keywords,
-                    min_exp=min_exp,
-                    api_key=api_key,
-                    model=model,
-                )
-            )
-        progress.progress(idx / len(uploads))
+
+            progress.progress(completed / len(uploads))
 
     progress.empty()
     status.empty()
@@ -1212,7 +1493,7 @@ if not st.session_state.gmail_authenticated:
     if submitted:
         if "@" not in login_email:
             st.error("Enter a valid Gmail address.")
-        elif len(login_password.strip()) < 12:
+        elif len(login_password.replace(" ", "").strip()) < 16:
             st.error("Enter your Gmail App Password.")
         else:
             login_user(login_email, login_password, login_name, login_company)
@@ -1287,7 +1568,13 @@ with screen_tab:
         )
 
     if new_search:
+
         reset_screening_session()
+
+        if not st.session_state.get("_reset_done"):
+            st.rerun()
+
+        st.session_state["_reset_done"] = False
 
     jd_upload = st.file_uploader(
         "Upload JD",
@@ -1304,7 +1591,10 @@ with screen_tab:
 
     jd_text = typed_jd_text
     if jd_upload:
-        uploaded_jd_text, jd_error = read_uploaded_file(jd_upload)
+        uploaded_jd_text, jd_error = read_uploaded_file(
+            jd_upload.name,
+            jd_upload.getvalue(),
+        )
         if jd_error:
             st.warning(f"JD upload: {jd_error}")
         if uploaded_jd_text.strip():
@@ -1510,19 +1800,51 @@ with history_tab:
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
         if "Role" in hist.columns:
-            roles = ["All"] + sorted(hist["Role"].dropna().unique().tolist())
+            roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
-            shown = hist if selected_role == "All" else hist[hist["Role"] == selected_role]
+            shown = hist if selected_role == "all" else hist[hist["Role"] == selected_role]
+            delete_col1, delete_col2 = st.columns(2)
+
+            with delete_col1:
+
+                if selected_role != "all":
+
+                    if st.button(
+                        f"Delete {selected_role} history",
+                        use_container_width=True,
+                    ):
+
+                        clear_role_history(user_key, selected_role)
+
+                        st.success(f"Deleted history for {selected_role}")
+
+                        st.rerun()
+
+            with delete_col2:
+
+                if st.button(
+                    "Delete all history",
+                    use_container_width=True,
+                ):
+
+                    clear_history(user_key)
+
+                    st.success("All history deleted")
+
+                    st.rerun()
         else:
             shown = hist
 
         history_editable = shown.copy()
+        # limit huge history rendering slowdown
+        history_editable = history_editable.tail(300)
 
         if "Send" not in history_editable.columns:
             history_editable.insert(0, "Send", False)
 
         history_edited = st.data_editor(
             history_editable,
+            height=500,
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
