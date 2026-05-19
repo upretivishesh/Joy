@@ -1,6 +1,5 @@
 import json
 import os
-from random import random
 import re
 import smtplib
 import threading
@@ -40,6 +39,35 @@ except Exception:
 APP_NAME = "Joy"
 DEFAULT_COMPANY = "Seven Hiring"
 DATA_DIR = Path(".joy_data")
+
+DATE_RANGE_REGEX = re.compile(
+    r"""
+    (?:
+        (jan|feb|mar|apr|may|jun|
+         jul|aug|sep|oct|nov|dec)?
+        \s*
+    )
+
+    ((?:19|20)\d{2})
+
+    \s*
+
+    (?:-|to|–)
+
+    \s*
+
+    (?:
+        (present|current)|
+        (?:
+            (jan|feb|mar|apr|may|jun|
+             jul|aug|sep|oct|nov|dec)?
+            \s*
+        )
+        ((?:19|20)\d{2})
+    )
+    """,
+    re.I | re.X
+)
 
 SKILL_ALIASES = {
 
@@ -182,6 +210,87 @@ DEFAULT_QUESTIONS = [
     "Suitable slot for a 5-minute discussion",
 ]
 
+from datetime import datetime
+
+
+MONTH_MAP = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+
+def calculate_total_experience(ranges) -> float:
+
+    total_months = 0
+
+    for start_year, start_month, end_year, end_month in ranges:
+
+        months = (
+            (end_year - start_year) * 12
+            + (end_month - start_month)
+        )
+
+        if months > 0:
+            total_months += months
+
+    years = total_months / 12
+
+    return round(years, 1)
+
+
+def parse_date_ranges(text: str):
+
+    matches = DATE_RANGE_REGEX.findall(text)
+
+    ranges = []
+
+    current_year = datetime.now().year
+    current_month = datetime.now().month
+
+    for match in matches:
+
+        start_month, start_year, present, end_month, end_year = match
+
+        start_year = int(start_year)
+
+        start_month_num = MONTH_MAP.get(
+            start_month.lower(),
+            1
+        ) if start_month else 1
+
+        if present:
+
+            end_year_num = current_year
+            end_month_num = current_month
+
+        else:
+
+            end_year_num = int(end_year)
+
+            end_month_num = MONTH_MAP.get(
+                end_month.lower(),
+                12
+            ) if end_month else 12
+
+        ranges.append(
+            (
+                start_year,
+                start_month_num,
+                end_year_num,
+                end_month_num,
+            )
+        )
+
+    return ranges
 
 def init_state() -> None:
     defaults = {
@@ -506,61 +615,79 @@ def extract_name(text: str, filename: str = "") -> str:
 
     return "Unknown Candidate"
 
+EMPLOYMENT_HEADERS = [
+
+    "experience",
+    "work experience",
+    "professional experience",
+    "employment history",
+    "career history",
+    "work history",
+    "professional background",
+]
+
+SECTION_BREAK_HEADERS = [
+
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+    "languages",
+    "achievements",
+    "summary",
+    "objective",
+    "personal details",
+]
 
 def extract_experience(text: str) -> float:
 
-    text = text.lower()
+    exp_section = extract_experience_section(text)
 
-    # explicit experience mentions first
-    explicit_patterns = [
+    if not exp_section.strip():
 
-        r"(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr)",
+        exp_section = text
 
-        r"experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+    ranges = parse_date_ranges(exp_section)
 
-        r"total\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+    if not ranges:
+        return 0.0
 
-        r"overall\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+    return calculate_total_experience(ranges)
 
-        r"professional\s*experience\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)",
+def extract_experience_section(text: str) -> str:
 
-        r"worked\s*for\s*(\d{1,2}(?:\.\d+)?)\s*(?:years|yrs)",
+    lines = text.splitlines()
 
-    ]
+    collecting = False
 
-    for pattern in explicit_patterns:
-        match = re.search(pattern, text, flags=re.I)
-        if match:
-            try:
-                years = float(match.group(1))
+    collected = []
 
-                if 0 <= years <= 50:
-                    return round(years, 1)
+    for line in lines:
 
-            except:
-                pass
+        clean = line.strip()
 
-    # fallback → calculate from years in resume
-    years = re.findall(r"(20\d{2}|19\d{2})", text)
+        lower = clean.lower()
 
-    years = [int(y) for y in years]
+        # start collecting
+        if any(
+            header in lower
+            for header in EMPLOYMENT_HEADERS
+        ):
+            collecting = True
+            continue
 
-    if len(years) >= 2:
+        if collecting:
 
-        min_year = min(years)
-        max_year = max(years)
+            # stop at next major section
+            if any(
+                lower.startswith(header)
+                for header in SECTION_BREAK_HEADERS
+            ):
+                break
 
-        current_year = datetime.now().year
+            collected.append(clean)
 
-        if max_year > current_year:
-            max_year = current_year
-
-        exp = max_year - min_year
-
-        if 0 <= exp <= 40:
-            return float(exp)
-
-    return 0.0
+    return "\n".join(collected)
 
 
 def extract_skills(text: str) -> list[str]:
@@ -1018,7 +1145,18 @@ def save_history(df: pd.DataFrame, role: str, user_key: str) -> None:
             subset=["Email", "Role", "Source File"],
             keep="last"
         )
-    to_save.to_csv(path, index=False)
+    # remove duplicate columns
+    to_save = to_save.loc[
+        :,
+        ~to_save.columns.duplicated()
+    ]
+
+    # normalize datatypes
+    to_save = to_save.fillna("")
+
+    if "Send" in to_save.columns:
+        to_save["Send"] = to_save["Send"].astype(bool)    
+        to_save.to_csv(path, index=False)
 
 
 def load_history(user_key: str) -> pd.DataFrame:
@@ -2127,11 +2265,54 @@ with history_tab:
             shown = hist
 
         history_editable = shown.copy()
+
         # limit huge history rendering slowdown
         history_editable = history_editable.tail(300)
 
+        # ensure Send column exists
         if "Send" not in history_editable.columns:
+
             history_editable.insert(0, "Send", False)
+
+        # sanitize checkbox column
+        history_editable["Send"] = (
+            history_editable["Send"]
+            .fillna(False)
+            .astype(bool)
+        )
+
+        # sanitize numeric columns
+        numeric_columns = [
+            "Experience",
+            "Keyword Score",
+            "Final Score",
+        ]
+
+        for col in numeric_columns:
+
+            if col in history_editable.columns:
+
+                history_editable[col] = pd.to_numeric(
+                    history_editable[col],
+                    errors="coerce"
+                )
+
+        # sanitize text columns
+        for col in history_editable.columns:
+
+            if col not in numeric_columns + ["Send"]:
+
+                history_editable[col] = (
+                    history_editable[col]
+                    .fillna("")
+                    .astype(str)
+                )
+
+        # remove duplicate columns if any
+        history_editable = history_editable.loc[
+            :,
+            ~history_editable.columns.duplicated()
+        ]
 
         history_edited = st.data_editor(
             history_editable,
