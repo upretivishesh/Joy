@@ -1,16 +1,26 @@
 import json
 import os
+from random import random
 import re
 import smtplib
+import threading
 from collections import Counter
 from datetime import datetime
+import time
+import random
 from email.message import EmailMessage
 from email.utils import formataddr
 from io import BytesIO
 from pathlib import Path
 from pdf2image import convert_from_bytes
+
 import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+ocr_lock = threading.Lock()
 
 
 import pandas as pd
@@ -31,16 +41,120 @@ APP_NAME = "Joy"
 DEFAULT_COMPANY = "Seven Hiring"
 DATA_DIR = Path(".joy_data")
 
-KNOWN_SKILLS = [
-    "python", "java", "javascript", "typescript", "react", "node", "django",
-    "flask", "fastapi", "sql", "postgresql", "mysql", "mongodb", "aws",
-    "azure", "gcp", "docker", "kubernetes", "terraform", "linux", "git",
-    "machine learning", "data analysis", "excel", "power bi", "tableau",
-    "salesforce", "sap", "erp", "crm", "leadership", "communication",
-    "project management", "agrochemical", "pharma", "fmcg", "sales",
-    "distribution", "channel sales", "key account", "hplc", "gc-ms", "gmp",
-    "qa", "qc", "production", "manufacturing", "finance", "accounting",
-]
+SKILL_ALIASES = {
+
+    # ---------- Graphic / Creative ----------
+    "photoshop": ["photoshop", "adobe photoshop", "ps"],
+    "illustrator": ["illustrator", "adobe illustrator", "ai"],
+    "indesign": ["indesign", "adobe indesign"],
+    "figma": ["figma"],
+    "canva": ["canva"],
+    "coreldraw": ["coreldraw", "corel draw"],
+    "after effects": ["after effects", "aftereffects"],
+    "premiere pro": ["premiere pro", "premiere"],
+    "branding": ["branding", "brand identity"],
+    "social media design": ["social media design", "instagram creatives"],
+    "visual merchandising": ["visual merchandising"],
+
+    # ---------- Interior / Architecture ----------
+    "autocad": ["autocad", "auto cad"],
+    "sketchup": ["sketchup", "sketch up"],
+    "3ds max": ["3ds max", "3d max"],
+    "vray": ["vray", "v-ray"],
+    "revit": ["revit"],
+    "lumion": ["lumion"],
+    "space planning": ["space planning"],
+    "site supervision": ["site supervision", "site execution"],
+    "interior design": ["interior design", "interior designing"],
+    "modular furniture": ["modular furniture"],
+    "residential projects": ["residential projects"],
+    "commercial projects": ["commercial projects"],
+
+    # ---------- Finance / Accounts ----------
+    "tally": ["tally", "tally erp"],
+    "gst": ["gst"],
+    "tds": ["tds"],
+    "accounting": ["accounting", "bookkeeping"],
+    "financial analysis": ["financial analysis"],
+    "budgeting": ["budgeting", "budget planning"],
+    "bank reconciliation": ["bank reconciliation"],
+    "accounts payable": ["accounts payable", "ap"],
+    "accounts receivable": ["accounts receivable", "ar"],
+    "invoice processing": ["invoice processing"],
+    "taxation": ["taxation"],
+    "mis reporting": ["mis reporting", "mis"],
+    "quickbooks": ["quickbooks"],
+
+    # ---------- Production / Manufacturing ----------
+    "production planning": ["production planning"],
+    "inventory management": ["inventory management"],
+    "quality control": ["quality control", "qc"],
+    "quality assurance": ["quality assurance", "qa"],
+    "lean manufacturing": ["lean manufacturing"],
+    "six sigma": ["six sigma"],
+    "supply chain": ["supply chain"],
+    "procurement": ["procurement", "purchasing"],
+    "vendor management": ["vendor management"],
+    "warehouse operations": ["warehouse operations"],
+    "dispatch": ["dispatch"],
+    "logistics": ["logistics"],
+    "bom": ["bom", "bill of materials"],
+    "production scheduling": ["production scheduling"],
+
+    # ---------- Sales ----------
+    "channel sales": ["channel sales"],
+    "territory sales": ["territory sales"],
+    "b2b sales": ["b2b sales"],
+    "b2c sales": ["b2c sales"],
+    "dealer management": ["dealer management"],
+    "distribution": ["distribution"],
+    "key account management": ["key account management", "kam"],
+    "business development": ["business development", "bd"],
+    "lead generation": ["lead generation"],
+    "inside sales": ["inside sales"],
+    "field sales": ["field sales"],
+    "retail sales": ["retail sales"],
+    "sales target": ["sales target", "target achievement"],
+    "client relationship": ["client relationship", "client handling"],
+
+    # ---------- HR / Recruitment ----------
+    "recruitment": ["recruitment", "talent acquisition"],
+    "screening": ["screening", "resume screening"],
+    "sourcing": ["sourcing", "candidate sourcing"],
+    "bulk hiring": ["bulk hiring"],
+    "payroll": ["payroll"],
+    "employee engagement": ["employee engagement"],
+    "hr operations": ["hr operations"],
+    "onboarding": ["onboarding"],
+    "attendance management": ["attendance management"],
+
+    # ---------- Operations ----------
+    "operations management": ["operations management"],
+    "team handling": ["team handling", "team management"],
+    "process improvement": ["process improvement"],
+    "coordination": ["coordination"],
+    "client servicing": ["client servicing"],
+    "documentation": ["documentation"],
+    "reporting": ["reporting"],
+    "excel": ["excel", "ms excel", "microsoft excel"],
+    "communication": ["communication"],
+    "leadership": ["leadership"],
+
+    # ---------- Hospitality ----------
+    "kitchen operations": ["kitchen operations"],
+    "food preparation": ["food preparation"],
+    "food safety": ["food safety"],
+    "hotel management": ["hotel management"],
+    "housekeeping": ["housekeeping"],
+    "restaurant operations": ["restaurant operations"],
+    "inventory control": ["inventory control"],
+
+    # ---------- IT Support (minimal) ----------
+    "hardware networking": ["hardware networking"],
+    "it support": ["it support"],
+    "system administration": ["system administration"],
+    "cctv": ["cctv"],
+}
 
 STOP_WORDS = {
     "about", "above", "after", "again", "against", "also", "among", "and",
@@ -83,6 +197,8 @@ def init_state() -> None:
         "sender_name": "",
         "company_name": DEFAULT_COMPANY,
         "upload_session": 0,
+        "selected_candidates": pd.DataFrame(),
+        "selected_history": pd.DataFrame(),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -149,10 +265,37 @@ def safe_filename_part(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", value or "user")
     return clean.strip("_")[:80] or "user"
 
-
 def history_path(user_key: str) -> Path:
     DATA_DIR.mkdir(exist_ok=True)
     return DATA_DIR / f"history_{safe_filename_part(user_key)}.csv"
+
+def already_emailed(
+    user_key: str,
+    email: str,
+    role: str,
+) -> bool:
+
+    log_path = DATA_DIR / f"email_history_{safe_filename_part(user_key)}.csv"
+
+    if not log_path.exists():
+        return False
+
+    try:
+        df = pd.read_csv(log_path)
+
+        if "Email" not in df.columns or "Role" not in df.columns:
+            return False
+
+        same_role = df[
+            (df["Email"].astype(str).str.lower().str.strip() == email.lower().strip()) &
+            (df["Role"].astype(str).str.lower().str.strip() == role.lower().strip())
+        ]
+
+        return not same_role.empty
+
+    except Exception:
+        return False
+    
 
 @st.cache_data(show_spinner=False)
 def read_uploaded_file(file_name, data) -> tuple[str, str]:
@@ -176,9 +319,11 @@ def read_uploaded_file(file_name, data) -> tuple[str, str]:
             text = text.strip()
 
             # OCR fallback for scanned/image PDFs
-            if len(text) < 35:
+            alpha_ratio = sum(c.isalpha() for c in text) / max(len(text), 1)
 
-                ocr_text = ocr_pdf(data)
+            if alpha_ratio < 0.25:
+                with ocr_lock:
+                    ocr_text = ocr_pdf(data)
 
                 if len(ocr_text) > len(text):
                     text = ocr_text
@@ -218,6 +363,8 @@ def read_uploaded_file(file_name, data) -> tuple[str, str]:
         return "", "Unsupported file type."
     except Exception as exc:
         return "", f"Could not read file: {exc}"
+    
+    
 
 def ocr_pdf(data: bytes) -> str:
 
@@ -242,9 +389,12 @@ def ocr_pdf(data: bytes) -> str:
                 text_parts.append(text)
 
         return "\n".join(text_parts).strip()
+        
 
     except Exception:
         return ""
+    
+
 
 def extract_email(text: str) -> str:
     match = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", text)
@@ -322,10 +472,7 @@ def extract_name(text: str, filename: str = "") -> str:
             continue
         if any(char.isdigit() for char in clean):
             continue
-        if any(
-            phrase == lower or phrase in lower.split()
-            for phrase in bad_phrases
-        ):
+        if any(phrase in lower for phrase in bad_phrases):    
             continue
         if len(clean) > 55:
             continue
@@ -417,9 +564,24 @@ def extract_experience(text: str) -> float:
 
 
 def extract_skills(text: str) -> list[str]:
-    lower = text.lower()
-    return sorted({skill for skill in KNOWN_SKILLS if skill in lower})
 
+    lower = text.lower()
+
+    found = set()
+
+    for canonical_skill, aliases in SKILL_ALIASES.items():
+
+        for alias in aliases:
+
+            pattern = rf"\b{re.escape(alias.lower())}\b"
+
+            if re.search(pattern, lower):
+
+                found.add(canonical_skill)
+
+                break
+
+    return sorted(found)
 
 def clean_role_title(value: str) -> str:
     value = normalize_whitespace(value)
@@ -619,21 +781,65 @@ def parse_min_experience(jd_text: str) -> float:
     return 0.0
 
 
-def extract_keywords(text: str, extra_keywords: str = "", limit: int = 35) -> list[str]:
-    text = text or ""
-    configured = [kw.strip().lower() for kw in extra_keywords.split(",") if kw.strip()]
-    skill_hits = [skill for skill in KNOWN_SKILLS if skill in text.lower()]
+def extract_keywords(
+    text: str,
+    extra_keywords: str = "",
+    limit: int = 35,
+) -> list[str]:
 
-    words = re.findall(r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b", text.lower())
-    words = [w.strip(".-") for w in words if w not in STOP_WORDS and len(w) >= 3]
-    common = [word for word, _ in Counter(words).most_common(limit)]
+    text = text or ""
+    lower = text.lower()
+
+    configured = [
+        kw.strip().lower()
+        for kw in extra_keywords.split(",")
+        if kw.strip()
+    ]
+
+    # use canonical skill names
+    skill_hits = []
+
+    for canonical_skill, aliases in SKILL_ALIASES.items():
+
+        for alias in aliases:
+
+            pattern = rf"\b{re.escape(alias.lower())}\b"
+
+            if re.search(pattern, lower):
+
+                skill_hits.append(canonical_skill)
+
+                break
+
+    # generic keyword extraction
+    words = re.findall(
+        r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b",
+        lower
+    )
+
+    words = [
+        w.strip(".-")
+        for w in words
+        if w not in STOP_WORDS and len(w) >= 3
+    ]
+
+    common = [
+        word
+        for word, _ in Counter(words).most_common(limit)
+    ]
 
     keywords = []
-    for item in configured + skill_hits + common:
-        if item and item not in keywords and item not in STOP_WORDS:
-            keywords.append(item)
-    return keywords[:limit]
 
+    for item in configured + skill_hits + common:
+
+        if (
+            item
+            and item not in keywords
+            and item not in STOP_WORDS
+        ):
+            keywords.append(item)
+
+    return keywords[:limit]
 
 def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, list[str], list[str]]:
     if not keywords:
@@ -759,7 +965,7 @@ def score_resume(
     ai_reason = ""
 
     # only AI-score promising resumes
-    if kw_score >= 35 or exp_score >= 55:
+    if heuristic >= 65:
 
         ai_score, ai_reason = ai_score_resume(
             jd_text,
@@ -922,27 +1128,34 @@ def build_email_body(
 
 
 def send_email(
+    server,
     sender_email: str,
-    sender_password: str,
     sender_name: str,
     recipient_email: str,
     subject: str,
     body: str,
+    role: str,
 ) -> tuple[bool, str]:
+
     try:
+
         msg = EmailMessage()
-        msg["From"] = formataddr((sender_name or sender_email, sender_email))
-        msg["To"] = recipient_email
-        msg["Subject"] = subject
-        safe_body = (
-            body.encode("utf-8", errors="ignore")
-            .decode("utf-8", errors="ignore")
-            .replace(chr(10), "<br>")
+
+        msg["From"] = formataddr(
+            (sender_name or sender_email, sender_email)
         )
+
+        msg["To"] = recipient_email
+
+        msg["Subject"] = subject
+
+        import html
+
+        safe_body = html.escape(body).replace("\n", "<br>")
 
         html_body = f"""
         <html>
-        <body style="font-family:Aptos, Arial, sans-serif; font-size:12pt; line-height:1.6;">
+        <body style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;">
         {safe_body}
         </body>
         </html>
@@ -950,17 +1163,44 @@ def send_email(
 
         msg.set_content(body)
 
-        msg.add_alternative(html_body, subtype="html")
+        msg.add_alternative(
+            html_body,
+            subtype="html"
+        )
 
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
+        time.sleep(random.uniform(1.5, 4))
+
+        server.send_message(msg)
+
+        email_log = pd.DataFrame([{
+            "Email": recipient_email,
+            "Subject": subject,
+            "Role": role,
+            "Sent At": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }])
+
+        log_path = DATA_DIR / f"email_history_{safe_filename_part(sender_email)}.csv"
+
+        if log_path.exists():
+
+            old = pd.read_csv(log_path)
+
+            email_log = pd.concat(
+                [old, email_log],
+                ignore_index=True
+            )
+
+        email_log.to_csv(
+            log_path,
+            index=False
+        )
+
         return True, "Sent"
-    except smtplib.SMTPAuthenticationError:
-        return False, "Gmail rejected the login. Use a Gmail App Password, not your normal password."
+
     except Exception as exc:
+
         print("EMAIL ERROR:", exc)
+
         return False, str(exc)
 
 def render_template_variables(text: str, candidate: pd.Series, role: str) -> str:
@@ -995,23 +1235,74 @@ def send_bulk_emails(
     extra_note: str,
     custom_body: str = "",
 ) -> list[dict]:
+    
     results = []
 
+    try:
 
-    def email_worker(candidate):
+        server = smtplib.SMTP(
+            "smtp.gmail.com",
+            587,
+            timeout=20
+        )
+
+        server.starttls()
+
+        server.login(
+            sender_email,
+            sender_password,
+        )
+
+    except smtplib.SMTPAuthenticationError:
+
+        return [{
+            "Name": "",
+            "Email": "",
+            "Success": False,
+            "Message": "Gmail authentication failed. Use App Password.",
+        }]
+
+    except Exception as exc:
+
+        return [{
+            "Name": "",
+            "Email": "",
+            "Success": False,
+            "Message": str(exc),
+        }]
+
+
+    for _, candidate in selected_df.iterrows():
 
         name = str(candidate.get("Name", "Candidate"))
 
         recipient = str(candidate.get("Email", "")).strip()
 
+        if already_emailed(
+            sender_email,
+            recipient,
+            role,
+        ):
+
+            results.append({
+                "Name": name,
+                "Email": recipient,
+                "Success": False,
+                "Message": "Skipped duplicate candidate",
+            })
+
+            continue
+
         if "@" not in recipient:
 
-            return {
+            results.append({
                 "Name": name,
                 "Email": recipient,
                 "Success": False,
                 "Message": "Missing email",
-            }
+            })
+
+            continue
 
         if custom_body.strip():
 
@@ -1039,41 +1330,24 @@ def send_bulk_emails(
         )
 
         ok, message = send_email(
+            server,
             sender_email,
-            sender_password,
             sender_name,
             recipient,
             personalized_subject,
             body,
+            role,
         )
 
-        return {
+
+        results.append({
             "Name": name,
             "Email": recipient,
             "Success": ok,
             "Message": message,
-        }
+        })
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-
-        futures = [
-            executor.submit(email_worker, candidate)
-            for _, candidate in selected_df.iterrows()
-        ]
-
-        for future in as_completed(futures):
-
-            try:
-                results.append(future.result())
-
-            except Exception as exc:
-
-                results.append({
-                    "Name": "Unknown",
-                    "Email": "",
-                    "Success": False,
-                    "Message": str(exc),
-                })
+    server.quit()
 
     return results
 
@@ -1329,9 +1603,11 @@ def process_resume_worker(
     if not upload:
         return None
 
+    data = upload.getvalue()
+
     text, error = read_uploaded_file(
         upload.name,
-        upload.getvalue(),
+        data,
     )
 
     if error:
@@ -1380,8 +1656,6 @@ def process_resume_worker(
         api_key=api_key,
         model=model,
     )
-
-
 
 def run_screening(
     uploads,
@@ -1680,8 +1954,8 @@ with email_tab:
             key="email_editor",
         )
 
-        selected = edited[edited["Send"] == True].copy()
-        missing_email = selected[~selected["Email"].astype(str).str.contains("@", na=False)]
+        st.session_state.selected_candidates = edited[edited["Send"] == True].copy()
+        missing_email = st.session_state.selected_candidates[~st.session_state.selected_candidates["Email"].astype(str).str.contains("@", na=False)]
 
         st.session_state.questions_text = st.text_area(
             "Questions to collect",
@@ -1701,9 +1975,9 @@ with email_tab:
 
         questions = questions_from_text(st.session_state.questions_text)
         
-        if not selected.empty:
+        if not st.session_state.selected_candidates.empty:
             preview_body = build_email_body(
-                selected.iloc[0],
+                st.session_state.selected_candidates.iloc[0],
                 st.session_state.last_role,
                 st.session_state.sender_name,
                 st.session_state.company_name,
@@ -1712,10 +1986,10 @@ with email_tab:
             )
 
 
-        if not selected.empty:
+        if not st.session_state.selected_candidates.empty:
 
             with st.expander(
-                f"Preview: {selected.iloc[0]['Name']}",
+                f"Preview: {st.session_state.selected_candidates.iloc[0]['Name']}",
                 expanded=True
             ):
 
@@ -1739,9 +2013,9 @@ with email_tab:
             confirm = st.checkbox("Recipient list reviewed")
         with c2:
             send_clicked = st.button(
-                f"Send {len(selected)} email(s)",
+                f"Send {len(st.session_state.selected_candidates)} email(s)",
                 type="primary",
-                disabled=selected.empty or not confirm,
+                disabled=st.session_state.selected_candidates.empty or not confirm,
                 use_container_width=True,
             )
 
@@ -1759,11 +2033,19 @@ with email_tab:
                 st.error("Fix missing candidate email addresses first.")
 
             else:
-                custom_email_body = st.session_state.get("edited_email_preview", "").strip()
+                custom_email_body = st.session_state.get(
+                "edited_email_preview",
+                ""
+                ).strip()
 
                 with st.spinner("Sending emails..."):
-                    st.session_state.email_results = send_bulk_emails(
-                        selected_df=selected,
+
+                    progress = st.progress(0)
+
+                    status = st.empty()
+
+                    email_results = send_bulk_emails(
+                        selected_df=st.session_state.selected_candidates,
                         role=st.session_state.last_role,
                         sender_email=st.session_state.sender_email,
                         sender_password=st.session_state.sender_password,
@@ -1775,17 +2057,26 @@ with email_tab:
                         custom_body=custom_email_body,
                     )
 
-                sent_count = sum(
-                    1 for item in st.session_state.email_results if item["Success"]
-                )
+                    progress.progress(1.0)
 
-                st.success(
-                    f"Sent {sent_count} of {len(st.session_state.email_results)} email(s)."
-                )
+                    status.write(f"Processed {len(st.session_state.selected_candidates)} email(s)")
 
-            if st.session_state.email_results:
-                st.dataframe(pd.DataFrame(st.session_state.email_results), use_container_width=True, hide_index=True)
+                    st.session_state.email_results = email_results
 
+                    sent_count = sum(
+                        1 for item in email_results if item["Success"]
+                    )
+
+                    st.success(
+                        f"Sent {sent_count} of {len(email_results)} email(s)."
+                    )
+                    st.dataframe(
+                        pd.DataFrame(email_results),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    
 
 with history_tab:
     st.subheader("History")
@@ -1855,14 +2146,14 @@ with history_tab:
             },
         )
 
-        selected_history = history_edited[history_edited["Send"] == True].copy()
+        st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
 
-        if not selected_history.empty:
+        if not st.session_state.selected_history.empty:
 
             st.divider()
             st.subheader("Send email from history")
 
-            history_role = selected_history.iloc[0].get(
+            history_role = st.session_state.selected_history.iloc[0].get(
                 "Role",
                 st.session_state.last_role or "the role",
             )
@@ -1890,8 +2181,11 @@ with history_tab:
             parsed_questions = questions_from_text(history_questions)
 
             preview_body = build_email_body(
-                selected_history.iloc[0],
-                selected_history.iloc[0].get("Role", st.session_state.last_role),
+                st.session_state.selected_history.iloc[0],
+                st.session_state.selected_history.iloc[0].get(
+                    "Role",
+                    st.session_state.last_role
+                ),
                 st.session_state.sender_name,
                 st.session_state.company_name,
                 parsed_questions,
@@ -1911,7 +2205,7 @@ with history_tab:
             )
 
             send_history = st.button(
-                f"Send {len(selected_history)} email(s)",
+                f"Send {len(st.session_state.selected_history)} email(s)",
                 type="primary",
                 disabled=not history_confirm,
                 key="send_history_btn",
@@ -1927,8 +2221,8 @@ with history_tab:
                 with st.spinner("Sending emails from history..."):
 
                     history_results = send_bulk_emails(
-                        selected_df=selected_history,
-                        role=selected_history.iloc[0].get(
+                        selected_df=st.session_state.selected_history,
+                        role=st.session_state.selected_history.iloc[0].get(
                             "Role",
                             st.session_state.last_role,
                         ),
