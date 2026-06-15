@@ -112,8 +112,15 @@ screen_tab, email_tab, history_tab = st.tabs(["Screen", "Email", "History"])
 
 with screen_tab:
 
-    title_col, button_col = st.columns([8.5, 1.5], vertical_alignment="center")
+    pending_jd = st.session_state.pop("_pending_jd_text", None)
+    pending_role = st.session_state.pop("_pending_role_input", None)
+    if pending_jd is not None:
+        st.session_state["typed_jd_text"] = pending_jd
+    if pending_role is not None:
+        st.session_state["role_input"] = pending_role
 
+    title_col, button_col = st.columns([8.5, 1.5], vertical_alignment="center")
+    
     with title_col:
         st.subheader("Job")
 
