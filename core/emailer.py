@@ -74,7 +74,7 @@ def build_email_body(
     company = company_name or DEFAULT_COMPANY
     role_text = f"{role} opportunity" if role and "opportunity" not in role.lower() else role
     lines = [
-        f"Hi {first_name(str(candidate.get('Name', '')))},",
+        f"Hi {first_name},",
         "",
         f"I reviewed your profile for the {role_text} and it looks relevant for the first screening round.",
         "",
