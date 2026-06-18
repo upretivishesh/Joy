@@ -38,10 +38,15 @@ def ocr_pdf(data: bytes) -> str:
     if pytesseract is None or convert_from_bytes is None:
         return ""
     try:
-        images = convert_from_bytes(data, dpi=180, first_page=1, last_page=5)
+        images = convert_from_bytes(data, dpi=250, first_page=1, last_page=5)
         text_parts = []
         for image in images:
-            text_parts.append(pytesseract.image_to_string(image))
+            text_parts.append(
+                pytesseract.image_to_string(
+                    image,
+                    config="--psm 6 --oem 3"
+                )
+            )
         return "\n".join(text_parts).strip()
     except Exception:
         return ""
