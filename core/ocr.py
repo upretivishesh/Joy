@@ -44,7 +44,7 @@ def ocr_pdf(data: bytes) -> str:
             text_parts.append(
                 pytesseract.image_to_string(
                     image,
-                    config="--psm 6 --oem 3"
+                    config="--psm 3 --oem 3"
                 )
             )
         return "\n".join(text_parts).strip()
