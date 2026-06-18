@@ -8,8 +8,15 @@ def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, lis
     if not keywords:
         return 50, [], []
     lower = (resume_text or "").lower()
-    matched = [kw for kw in keywords if kw.lower() in lower]
-    missing = [kw for kw in keywords if kw.lower() not in lower]
+    matched = []
+    missing = []
+    for kw in keywords:
+        kw_lower = kw.lower()
+        # exact word boundary match, not just substring
+        if re.search(rf"\b{re.escape(kw_lower)}\b", lower):
+            matched.append(kw)
+        else:
+            missing.append(kw)
     score = round((len(matched) / len(keywords)) * 100)
     return int(score), matched, missing
 
@@ -17,9 +24,20 @@ def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, lis
 def experience_score(candidate_years: float, required_years: float) -> int:
     if required_years <= 0:
         return 70 if candidate_years == 0 else 85
+    if candidate_years == 0:
+        return 30  # unknown experience is not neutral
     if candidate_years >= required_years:
-        return 100
-    return int(max(0, min(100, (candidate_years / required_years) * 100)))
+        # slight bonus for exceeding requirement, capped at 100
+        bonus = min(10, int((candidate_years - required_years) * 2))
+        return min(100, 100 + bonus)
+    ratio = candidate_years / required_years
+    if ratio >= 0.85:
+        return 88  # close enough, not a hard disqualifier
+    if ratio >= 0.70:
+        return 72
+    if ratio >= 0.50:
+        return 55
+    return int(max(0, ratio * 100))
 
 
 def contact_score(email: str, phone: str) -> int:
@@ -29,6 +47,17 @@ def contact_score(email: str, phone: str) -> int:
     if phone:
         score += 35
     return score
+
+
+def section_presence_score(resume_text: str) -> int:
+    """Bonus for resumes with clear structured sections."""
+    lower = (resume_text or "").lower()
+    sections = [
+        "experience", "education", "skills", "objective", "summary",
+        "projects", "certifications", "achievements",
+    ]
+    found = sum(1 for s in sections if s in lower)
+    return min(20, found * 4)
 
 
 def ai_score_resume(
@@ -45,13 +74,25 @@ def ai_score_resume(
 
         client = OpenAI(api_key=api_key)
         prompt = f"""
-Score the resume against the role and job description.
-Return JSON only:
-{{"score": 0, "reason": ""}}
+You are a strict senior recruiter evaluating a resume for a specific role.
+
+Score from 0 to 100:
+- 85-100: Exceptional match, directly relevant experience, meets all must-haves
+- 70-84: Good match, most requirements met, minor gaps
+- 50-69: Partial match, some relevant experience, notable gaps
+- 0-49: Poor match, missing critical requirements
+
+Penalise heavily for:
+- Missing industry-specific experience clearly stated in JD
+- Significant experience gap (more than 30% below required)
+- No evidence of key technical skills mentioned in JD
+
+Return JSON only, no markdown:
+{{"score": 0, "reason": "2-3 sentence specific reason mentioning actual matched and missing elements"}}
 
 Role: {role}
 
-Job description:
+Job Description:
 {jd_text[:2500]}
 
 Resume:
@@ -62,12 +103,12 @@ Resume:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a strict recruiter. Reward direct evidence, penalize missing must-haves, and stay concise.",
+                    "content": "You are a strict recruiter. Be specific, reward direct evidence, penalize vague claims and missing must-haves.",
                 },
                 {"role": "user", "content": prompt},
             ],
             temperature=0,
-            max_tokens=120,
+            max_tokens=180,
             timeout=20,
         )
         raw = re.sub(r"```json|```", "", response.choices[0].message.content or "{}").strip()
@@ -82,8 +123,12 @@ Resume:
 def make_reason(matched: list[str], missing: list[str], exp: float, min_exp: float) -> str:
     matched_text = ", ".join(matched[:5]) if matched else "few direct keyword matches"
     missing_text = ", ".join(missing[:4]) if missing else "no obvious must-have gaps"
-    exp_text = f"{exp:g} yrs found vs {min_exp:g}+ yrs expected" if min_exp > 0 else (f"{exp:g} yrs found" if exp else "experience not clearly stated")
-    return f"Matched {matched_text}. Missing/unclear: {missing_text}. {exp_text}."
+    exp_text = (
+        f"{exp:g} yrs found vs {min_exp:g}+ yrs expected"
+        if min_exp > 0
+        else (f"{exp:g} yrs found" if exp else "experience not clearly stated")
+    )
+    return f"Matched: {matched_text}. Missing: {missing_text}. {exp_text}."
 
 
 def verdict_from_score(score: float) -> str:
@@ -115,12 +160,23 @@ def score_resume(
     kw_score, matched, missing = keyword_match_score(resume_text, keywords)
     exp_score = experience_score(exp, min_exp)
     cnt_score = contact_score(email, phone)
-    skill_score = min(100, len(skills) * 12)
+    skill_score = min(100, len(skills) * 10)
+    structure_score = section_presence_score(resume_text)
 
-    heuristic = (kw_score * 0.55) + (exp_score * 0.2) + (skill_score * 0.15) + (cnt_score * 0.1)
+    # weighted heuristic — keywords and experience are the dominant signals
+    heuristic = (
+        (kw_score * 0.50)
+        + (exp_score * 0.25)
+        + (skill_score * 0.12)
+        + (cnt_score * 0.08)
+        + (structure_score * 0.05)
+    )
+
     ai_score = None
     ai_reason = ""
-    if heuristic >= 65:
+
+    # only call AI for borderline and above to save tokens
+    if heuristic >= 55 and api_key:
         ai_score, ai_reason = ai_score_resume(jd_text, resume_text, role, api_key, model)
 
     if ai_score is None:
@@ -128,11 +184,14 @@ def score_resume(
         reason = ai_reason or make_reason(matched, missing, exp, min_exp)
         ai_used = False
     else:
-        final_score = round((heuristic * 0.45) + (ai_score * 0.55), 1)
+        # AI carries more weight when heuristic is confident
+        ai_weight = 0.60 if heuristic >= 70 else 0.50
+        final_score = round((heuristic * (1 - ai_weight)) + (ai_score * ai_weight), 1)
         reason = ai_reason or make_reason(matched, missing, exp, min_exp)
         ai_used = True
 
     verdict = verdict_from_score(final_score)
+
     return {
         "Send": verdict in {"Strong Fit", "Good Fit"} and bool(email),
         "Duplicate": False,
