@@ -164,64 +164,231 @@ def name_score(clean: str, line_index: int, email_tokens: set[str]) -> int:
         score -= 18
     return score
 
+def score_name_candidate(
+    candidate: str,
+    position: int,
+    email_tokens: set[str],
+) -> int:
 
-def extract_name(text: str, filename: str = "") -> str:
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    candidate = clean_name_candidate(candidate)
+
+    if not candidate:
+        return -999
+
+    words = candidate.split()
+
+    if not (2 <= len(words) <= 4):
+        return -999
+
+    if any(char.isdigit() for char in candidate):
+        return -999
+
+    lower = candidate.lower()
+
+    score = 0
+
+    # resumes usually start with the name
+    score += max(0, 50 - position * 4)
+
+    # ideal length
+    if len(words) in (2, 3):
+        score += 25
+
+    # capitalization
+    if all(word[0].isupper() for word in words):
+        score += 20
+
+    # email overlap
+    overlaps = sum(
+        word.lower() in email_tokens
+        for word in words
+    )
+
+    score += overlaps * 25
+
+    # blacklist
+    if any(
+        word in BAD_NAME_WORDS
+        for word in lower.split()
+    ):
+        score -= 100
+
+    # initials penalty
+    if any(
+        len(word) == 1
+        for word in words
+    ):
+        score -= 10
+
+    return score
+
+def extract_name_ner(text: str) -> str:
+
+    if NLP is None:
+        return ""
+
+    try:
+
+        doc = NLP(text[:3000])
+
+        for ent in doc.ents:
+
+            if ent.label_ != "PERSON":
+                continue
+
+            candidate = clean_name_candidate(
+                ent.text
+            )
+
+            words = candidate.split()
+
+            if not (2 <= len(words) <= 4):
+                continue
+
+            if any(
+                word.lower() in BAD_NAME_WORDS
+                for word in words
+            ):
+                continue
+
+            return candidate
+
+    except Exception:
+        return ""
+
+    return ""
+
+def extract_name(
+    text: str,
+    filename: str = "",
+) -> str:
+
+    text = text or ""
+
+    lines = [
+        normalize_whitespace(line)
+        for line in text.splitlines()
+        if normalize_whitespace(line)
+    ]
+
     email_name = extract_name_from_email(text)
-    email_tokens = {token.lower() for token in email_name.split()}
-    candidates: list[tuple[int, str]] = []
 
-    def add_candidate(raw_value: str, line_index: int, bonus: int = 0) -> None:
-        clean = clean_name_candidate(raw_value)
-        score = name_score(clean, line_index, email_tokens)
-        if score > 0:
-            candidates.append((score + bonus, clean.title() if clean.isupper() else clean))
+    email_tokens = {
+        token.lower()
+        for token in email_name.split()
+    }
 
-    labelled_patterns = [
+    candidates = []
+
+    # explicit labels
+    patterns = [
         r"(?:name|candidate\s*name|applicant)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{3,60})",
-        r"(?:name|candidate\s*name|applicant)\s+([A-Za-z][A-Za-z .'-]{3,60})",
         r"(?:i\s+am|my\s+name\s+is)\s+([A-Za-z][A-Za-z .'-]{3,60})",
     ]
-    for pattern in labelled_patterns:
-        match = re.search(pattern, text or "", flags=re.I)
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            text,
+            flags=re.I,
+        )
+
         if match:
-            add_candidate(match.group(1), 0, 35)
 
-    separators = r"\s*(?:\||•|·|\t| {3,}|/)\s*"
-    for idx, line in enumerate(lines[:42]):
-        lower_line = line.lower()
-        if "http" in lower_line:
-            continue
+            name = match.group(1)
 
-        chunks = [chunk for chunk in re.split(separators, line) if chunk.strip()]
-        if chunks and len(chunks) > 1:
-            for chunk in chunks[:4]:
-                add_candidate(chunk, idx, 10)
+            candidates.append(
+                (
+                    score_name_candidate(
+                        name,
+                        0,
+                        email_tokens,
+                    ) + 50,
+                    name,
+                )
+            )
 
-        if ":" in line and not re.search(r"^[A-Za-z .'-]{3,60}\s*:$", line):
-            label, _, value = line.partition(":")
-            if re.search(r"\b(name|candidate|applicant)\b", label, flags=re.I):
-                add_candidate(value, idx, 25)
-            else:
-                add_candidate(line, idx, -8)
-            continue
+    # SpaCy
+    ner_name = extract_name_ner(text)
 
-        add_candidate(line, idx, 0)
+    if ner_name:
+
+        candidates.append(
+            (
+                score_name_candidate(
+                    ner_name,
+                    1,
+                    email_tokens,
+                ) + 40,
+                ner_name,
+            )
+        )
+
+    # top resume section
+    for idx, line in enumerate(lines[:25]):
+
+        score = score_name_candidate(
+            line,
+            idx,
+            email_tokens,
+        )
+
+        if score > 0:
+
+            candidates.append(
+                (
+                    score,
+                    line,
+                )
+            )
+
+    # email fallback
+    if email_name:
+
+        candidates.append(
+            (
+                score_name_candidate(
+                    email_name,
+                    5,
+                    email_tokens,
+                ) + 10,
+                email_name,
+            )
+        )
+
+    # filename fallback
+    file_name = filename_name_candidate(
+        filename
+    )
+
+    if file_name:
+
+        candidates.append(
+            (
+                score_name_candidate(
+                    file_name,
+                    10,
+                    email_tokens,
+                ),
+                file_name,
+            )
+        )
 
     if candidates:
-        candidates.sort(reverse=True, key=lambda item: item[0])
-        if candidates[0][0] >= 58:
-            return candidates[0][1]
 
-    if email_name:
-        return email_name
+        candidates.sort(
+            reverse=True,
+            key=lambda x: x[0],
+        )
 
-    file_name = filename_name_candidate(filename)
-    if file_name:
-        return file_name
+        best_score, best_name = candidates[0]
+
+        if best_score >= 50:
+
+            return best_name
 
     return "Unknown Candidate"
-
 
 def calculate_total_experience(ranges: list[tuple[int, int, int, int]]) -> float:
     intervals = []
@@ -276,6 +443,46 @@ SECTION_BREAK_HEADERS = [
     "achievements", "summary", "objective", "personal details", "declaration",
 ]
 
+BAD_NAME_WORDS = {
+    "resume",
+    "curriculum",
+    "vitae",
+    "cv",
+    "summary",
+    "profile",
+    "professional",
+    "experience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+    "languages",
+    "achievements",
+    "objective",
+    "declaration",
+    "contact",
+    "mobile",
+    "phone",
+    "email",
+    "linkedin",
+    "github",
+    "portfolio",
+    "address",
+    "location",
+    "india",
+    "manager",
+    "engineer",
+    "developer",
+    "analyst",
+    "consultant",
+    "executive",
+    "specialist",
+    "director",
+    "lead",
+    "intern",
+    "associate",
+    "head",
+}
 
 def extract_experience_section(text: str) -> str:
     lines = (text or "").splitlines()
