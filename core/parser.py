@@ -1,14 +1,10 @@
-import spacy
 import hashlib
 import json
 import re
 from collections import Counter
 from datetime import datetime
 
-try:
-    NLP = spacy.load("en_core_web_sm")
-except Exception:
-    NLP = None
+NLP = None
 
 from .constants import (
     DATE_RANGE_REGEX,
@@ -444,6 +440,11 @@ SECTION_BREAK_HEADERS = [
 ]
 
 BAD_NAME_WORDS = {
+    "delhi", "mumbai", "bangalore", "bengaluru", "pune", "hyderabad",
+"chennai", "kolkata", "ahmedabad", "noida", "gurugram", "gurgaon",
+"india", "maharashtra", "karnataka", "gujarat", "rajasthan",
+"street", "nagar", "colony", "sector", "plot", "flat", "floor",
+"road", "avenue", "lane", "block", "phase", "near", "opposite",
     "resume",
     "curriculum",
     "vitae",
