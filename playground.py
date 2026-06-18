@@ -476,7 +476,9 @@ with history_tab:
                     .fillna("")
                     .astype(str)
                 )
-
+        if "Name" in history_editable.columns:
+            history_editable["Name"] = history_editable["Name"].str.title()
+        
         # remove duplicate columns if any
         history_editable = history_editable.loc[
             :,
