@@ -3,7 +3,7 @@ import streamlit as st
 
 from core.constants import APP_NAME, DEFAULT_COMPANY
 from core.emailer import build_email_body, send_bulk_emails
-from core.history import clear_history, clear_role_history, load_history
+from core.history import clear_history, clear_role_history, load_history, load_jd_library, save_jd, delete_jd
 from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd
 from core.screening import run_screening
@@ -108,7 +108,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-screen_tab, email_tab, history_tab = st.tabs(["Screen", "Email", "History"])
+screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "History", "JD Library"])
 
 with screen_tab:
 
@@ -600,3 +600,106 @@ with history_tab:
                     use_container_width=True,
                     hide_index=True,
                 )
+
+with jd_tab:
+    st.subheader("JD Library")
+ 
+    jd_lib = load_jd_library(user_key)
+ 
+    # ── Save current JD ──────────────────────────────────────────────────────
+    st.markdown("**Save a JD**")
+ 
+    save_role = st.text_input(
+        "Role title",
+        value=st.session_state.get("last_role", ""),
+        placeholder="e.g. Assistant Manager Supply",
+        key="jd_save_role",
+    )
+ 
+    save_jd_text = st.text_area(
+        "JD text",
+        value=st.session_state.get("last_jd", ""),
+        height=200,
+        placeholder="Paste JD here or it auto-fills from your last screening.",
+        key="jd_save_text",
+    )
+ 
+    save_tags = st.text_input(
+        "Tags (optional)",
+        placeholder="e.g. agrochemicals, bangalore, urgent",
+        key="jd_save_tags",
+    )
+ 
+    if st.button("Save to JD Library", type="primary", use_container_width=False):
+        if not save_role.strip():
+            st.error("Add a role title before saving.")
+        elif not save_jd_text.strip():
+            st.error("JD text is empty.")
+        else:
+            success = save_jd(user_key, save_role, save_jd_text, save_tags)
+            if success:
+                st.success(f"Saved: {save_role}")
+                st.rerun()
+            else:
+                st.error("Could not save. Check role title and JD text.")
+ 
+    st.divider()
+ 
+    # ── Browse and load saved JDs ─────────────────────────────────────────────
+    st.markdown("**Saved JDs**")
+ 
+    if jd_lib.empty:
+        st.info("No JDs saved yet. Run a screening or paste a JD above to save it.")
+    else:
+        # search/filter
+        search_query = st.text_input(
+            "Search",
+            placeholder="Filter by role or tags",
+            key="jd_search",
+        )
+ 
+        display_df = jd_lib.copy()
+ 
+        if search_query.strip():
+            mask = (
+                display_df["Role"].astype(str).str.lower().str.contains(search_query.lower(), na=False)
+                | display_df.get("Tags", pd.Series(dtype=str)).astype(str).str.lower().str.contains(search_query.lower(), na=False)
+            )
+            display_df = display_df[mask]
+ 
+        if display_df.empty:
+            st.info("No JDs match that search.")
+        else:
+            for _, row in display_df.iterrows():
+                role_label = str(row.get("Role", ""))
+                saved_at = str(row.get("Saved At", ""))
+                tags = str(row.get("Tags", ""))
+                jd_preview = str(row.get("JD Text", ""))[:180].replace("\n", " ")
+ 
+                with st.expander(f"{role_label}  ·  {saved_at[:10]}" + (f"  ·  {tags}" if tags and tags != "nan" else "")):
+                    st.caption(jd_preview + ("..." if len(str(row.get("JD Text", ""))) > 180 else ""))
+ 
+                    col1, col2 = st.columns([1, 1])
+ 
+                    with col1:
+                        if st.button(
+                            "Load into screener",
+                            key=f"load_jd_{role_label}",
+                            use_container_width=True,
+                        ):
+                            st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
+                            st.session_state["_pending_role_input"] = role_label
+                            st.success(f"Loaded: {role_label}. Switch to Screen tab.")
+ 
+                    with col2:
+                        if st.button(
+                            "Delete",
+                            key=f"delete_jd_{role_label}",
+                            use_container_width=True,
+                        ):
+                            delete_jd(user_key, role_label)
+                            st.success(f"Deleted: {role_label}")
+                            st.rerun()
+ 
+    st.divider()
+    st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
