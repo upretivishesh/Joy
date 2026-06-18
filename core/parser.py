@@ -179,42 +179,78 @@ def score_name_candidate(
     if any(char.isdigit() for char in candidate):
         return -999
 
+    if len(candidate) > 50:
+        return -999
+
     lower = candidate.lower()
+
+    # hard kill: any bad word anywhere
+    if any(word in BAD_NAME_WORDS for word in lower.split()):
+        return -999
+
+    # hard kill: looks like a location "City, State" pattern
+    if re.search(r"[A-Za-z]+,\s*[A-Za-z]+", candidate):
+        return -999
+
+    # hard kill: contains pipe, slash, colon (header/contact line)
+    if re.search(r"[|/:\\]", candidate):
+        return -999
+
+    # hard kill: all words are short (initials mess like "R K S")
+    if all(len(word) <= 2 for word in words):
+        return -999
+
+    # hard kill: single char word with no email overlap
+    single_chars = sum(1 for word in words if len(word) == 1)
+    if single_chars > 1:
+        return -999
 
     score = 0
 
-    # resumes usually start with the name
-    score += max(0, 50 - position * 4)
+    # position bonus: name is almost always in first 10 lines
+    if position == 0:
+        score += 60
+    elif position <= 2:
+        score += 45
+    elif position <= 5:
+        score += 30
+    elif position <= 10:
+        score += 15
+    elif position <= 25:
+        score += 5
+    else:
+        score -= 20
 
-    # ideal length
-    if len(words) in (2, 3):
+    # ideal word count
+    if len(words) == 2:
+        score += 30
+    elif len(words) == 3:
         score += 25
+    elif len(words) == 4:
+        score += 10
 
-    # capitalization
-    if all(word[0].isupper() for word in words):
-        score += 20
+    # proper capitalization (Title Case)
+    if all(word[0].isupper() and word[1:].islower() for word in words if len(word) > 1):
+        score += 25
+    elif all(word[0].isupper() for word in words):
+        score += 15
 
-    # email overlap
-    overlaps = sum(
-        word.lower() in email_tokens
-        for word in words
-    )
+    # email token overlap (strongest signal)
+    overlaps = sum(word.lower() in email_tokens for word in words)
+    score += overlaps * 35
+    if overlaps >= 2:
+        score += 25  # both first and last name match email
 
-    score += overlaps * 25
+    # word length sanity (real names have substance)
+    avg_len = sum(len(w) for w in words) / len(words)
+    if avg_len >= 4:
+        score += 10
+    elif avg_len < 3:
+        score -= 20
 
-    # blacklist
-    if any(
-        word in BAD_NAME_WORDS
-        for word in lower.split()
-    ):
-        score -= 100
-
-    # initials penalty
-    if any(
-        len(word) == 1
-        for word in words
-    ):
-        score -= 10
+    # single char initial penalty (but not disqualify if email matches)
+    if single_chars == 1 and overlaps == 0:
+        score -= 15
 
     return score
 
