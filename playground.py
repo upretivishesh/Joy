@@ -605,9 +605,16 @@ with jd_tab:
     st.subheader("JD Library")
  
     jd_lib = load_jd_library(user_key)
+
+    col_title, col_new = st.columns([8, 2])
+    with col_title:
+        st.markdown("**Save a JD**")
+    with col_new:
+        if st.button("New screening", key="jd_new_btn", use_container_width=True):
+            reset_screening_session()
+            st.rerun()
  
     # ── Save current JD ──────────────────────────────────────────────────────
-    st.markdown("**Save a JD**")
  
     save_role = st.text_input(
         "Role title",
@@ -689,7 +696,7 @@ with jd_tab:
                         ):
                             st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
                             st.session_state["_pending_role_input"] = role_label
-                            st.success(f"Loaded: {role_label}. Switch to Screen tab.")
+                            st.rerun()
  
                     with col2:
                         if st.button(
