@@ -584,6 +584,7 @@ with history_tab:
                         questions=parsed_questions,
                         extra_note=history_note,
                         custom_body=custom_body,
+                        template_mode=True,
                     )
 
                 sent_count = sum(
