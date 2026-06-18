@@ -85,11 +85,14 @@ def reset_screening_session() -> None:
     st.session_state.last_role = ""
     st.session_state.last_jd = ""
     st.session_state.last_keywords = []
-    st.session_state["typed_jd_text"] = ""
-    st.session_state["role_input"] = ""
-    st.session_state["extra_keywords"] = ""
     st.session_state.upload_session += 1
     st.session_state["_reset_done"] = True
+    st.session_state["_pending_jd_text"] = ""
+    st.session_state["_pending_role_input"] = ""
+    # remove widget keys so they reinitialize fresh on next render
+    for key in ["typed_jd_text", "role_input", "extra_keywords"]:
+        if key in st.session_state:
+            del st.session_state[key]
 
 
 def questions_from_text(text: str) -> list[str]:
