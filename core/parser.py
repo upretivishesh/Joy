@@ -1,8 +1,14 @@
+import spacy
 import hashlib
 import json
 import re
 from collections import Counter
 from datetime import datetime
+
+try:
+    NLP = spacy.load("en_core_web_sm")
+except Exception:
+    NLP = None
 
 from .constants import (
     DATE_RANGE_REGEX,
