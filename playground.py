@@ -540,6 +540,7 @@ with history_tab:
                 st.session_state.company_name,
                 parsed_questions,
                 history_note,
+                template_mode=True,
             )
 
             edited_history_body = st.text_area(
@@ -584,7 +585,6 @@ with history_tab:
                         questions=parsed_questions,
                         extra_note=history_note,
                         custom_body=custom_body,
-                        template_mode=True,
                     )
 
                 sent_count = sum(
