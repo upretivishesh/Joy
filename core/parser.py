@@ -177,6 +177,9 @@ def score_name_candidate(
     if not candidate:
         return -999
 
+    if candidate.isupper():
+        candidate = candidate.title()
+
     words = candidate.split()
 
     if not (2 <= len(words) <= 4):
@@ -380,7 +383,16 @@ def extract_name(
                     line,
                 )
             )
+    # consecutive line combiner: catches names split across two lines
+    for idx in range(min(len(lines) - 1, 10)):
+        for combo_size in [2, 3]:
+            if idx + combo_size <= len(lines):
+                combined = " ".join(lines[idx:idx + combo_size])
+                score = score_name_candidate(combined, idx, email_tokens)
+                if score > 0:
+                    candidates.append((score, combined))
 
+    
     # email fallback
     if email_name:
 
