@@ -72,24 +72,41 @@ def build_email_body(
     extra_note: str,
     template_mode: bool = False,
 ) -> str:
+
     company = company_name or DEFAULT_COMPANY
-    role_text = f"{role} opportunity" if role and "opportunity" not in role.lower() else role
+
+    role_text = (
+        f"{role} opportunity"
+        if role and "opportunity" not in role.lower()
+        else role
+    )
+
+    greeting = (
+        "{first_name}"
+        if template_mode
+        else first_name(str(candidate.get("Name", "")))
+    )
+
     lines = [
-        greeting = (
-            "{first_name}"
-            if template_mode
-            else first_name(str(candidate.get("Name", "")))
-        )
-        
         f"Hi {greeting},",
+        "",
         f"I reviewed your profile for the {role_text} and it looks relevant for the first screening round.",
         "",
     ]
+
     if extra_note.strip():
         lines.extend([extra_note.strip(), ""])
-    lines.extend(["To move ahead without a back-and-forth call, please reply with these details:", ""])
+
+    lines.extend(
+        [
+            "To move ahead without a back-and-forth call, please reply with these details:",
+            "",
+        ]
+    )
+
     for idx, question in enumerate(questions, start=1):
         lines.append(f"{idx}. {question}")
+
     lines.extend(
         [
             "",
@@ -100,8 +117,8 @@ def build_email_body(
             company,
         ]
     )
-    return "\n".join(lines)
 
+    return "\n".join(lines)
 
 def render_template_variables(text: str, candidate: pd.Series, role: str) -> str:
     variables = {
