@@ -46,7 +46,6 @@ def normalize_email_text(text: str) -> str:
     text = re.sub(r"(?i)(?<=[A-Za-z0-9._%+\-])\s+dot\s+(?=[A-Za-z]{2,24}\b)", ".", text)
     text = re.sub(r"(?i)(?<=[A-Za-z0-9._%+\-])\s+dot\s+(?=[A-Za-z0-9._%+\-]+\s+(?:dot|\.))", ".", text)
     text = re.sub(r"(?<=\w)\s*@\s*(?=\w)", "@", text)
-    text = re.sub(r"(?<=\w)\s*\.\s*(?=\w)", ".", text)
     return text
 
 
@@ -54,10 +53,17 @@ def extract_email(text: str) -> str:
     normalized = normalize_email_text(text)
     pattern = r"\b[A-Za-z0-9][A-Za-z0-9._%+\-]{0,63}@[A-Za-z0-9][A-Za-z0-9.\-]{1,250}\.[A-Za-z]{2,24}\b"
     candidates = []
+    THROWAWAY_DOMAINS = {"example.com", "test.com", "email.com", "mail.com"}
     for match in re.finditer(pattern, normalized):
         email = match.group(0).strip(".,;:()[]{}<>").lower()
         local, domain = email.split("@", 1)
         if ".." in email or domain.startswith(".") or domain.endswith("."):
+            continue
+        if domain in THROWAWAY_DOMAINS:
+            continue
+        if len(local) < 3:
+            continue
+        if local.isdigit():
             continue
         if local in GENERIC_EMAIL_PREFIXES:
             penalty = 20
@@ -475,7 +481,7 @@ SECTION_BREAK_HEADERS = [
     "achievements", "summary", "objective", "personal details", "declaration",
 ]
 
-BAD_NAME_WORDS = {BAD_NAME_WORDS = {
+BAD_NAME_WORDS = {
     # document words
     "resume", "curriculum", "vitae", "cv", "summary", "profile",
     "professional", "experience", "education", "skills", "projects",
