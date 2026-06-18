@@ -275,8 +275,8 @@ with email_tab:
                 st.session_state.company_name,
                 questions,
                 extra_note,
+                template_mode=True,
             )
-
 
         if not st.session_state.selected_candidates.empty:
 
