@@ -308,7 +308,12 @@ def show_results_summary(df: pd.DataFrame) -> None:
         ]
         if col in df.columns
     ]
-    st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
+    
+    display_df = df[display_cols].copy()
+    if "Name" in display_df.columns:
+        display_df["Name"] = display_df["Name"].astype(str).str.title()
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
     st.download_button(
         "Download screening CSV",
         df.to_csv(index=False).encode("utf-8"),
