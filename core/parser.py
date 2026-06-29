@@ -50,13 +50,96 @@ JD_NOISE_WORDS = {
     "years", "year", "months", "month", "minimum", "maximum", "least",
     "above", "below", "strong", "excellent", "good", "best", "ability",
     "knowledge", "understanding", "working", "experience", "expertise",
-    "hands", "proficiency", "proficient", "skilled", "skilled", "exposure",
-    "proven", "demonstrated", "preferred", "required", "required",
+    "hands", "proficiency", "proficient", "skilled", "exposure",
+    "proven", "demonstrated", "preferred", "required",
     # Indian JD boilerplate
     "ctc", "lpa", "salary", "package", "location", "immediate", "joiner",
     "notice", "period", "openings", "opening", "vacancy", "vacancies",
     "apply", "application", "deadline",
+
+    # === FIX 1: Legal entity words + corporate boilerplate ===
+    "private", "limited", "ltd", "pvt", "pvt.", "inc", "incorporated",
+    "corp", "corporation", "llc", "llp", "technologies", "solutions",
+    "services", "systems", "group", "holdings", "enterprises", "industries",
+    "labs", "global", "international", "corporate",
+    "dispatch", "atomgrid", "truuchem", "truchem", "obeya", "spruce", "embassy",
 }
+
+
+# ---------------------------------------------------------------------------
+# NEW: Dynamic company name blocklist (multi-layered filtering)
+# ---------------------------------------------------------------------------
+def build_company_blocklist(jd_text: str) -> set[str]:
+    """Dynamically extracts company names and corporate patterns from the JD itself."""
+    if not jd_text or not jd_text.strip():
+        return set()
+
+    blocklist: set[str] = set()
+    lower = jd_text.lower()
+
+    # 1. Common corporate suffixes (always block when present in JD)
+    corporate_suffixes = {
+        "private", "limited", "ltd", "pvt", "inc", "incorporated",
+        "corp", "corporation", "llc", "llp", "technologies", "solutions",
+        "services", "systems", "group", "holdings", "enterprises",
+        "industries", "labs", "global", "international", "corporate"
+    }
+    for word in corporate_suffixes:
+        if word in lower:
+            blocklist.add(word)
+
+    # 2. Extract company name tokens using common Indian/global patterns
+    patterns = [
+        r'\b([A-Za-z][A-Za-z0-9&\'\-\. ]{2,50}?)\s+(?:technologies|solutions|services|systems|private limited|pvt\.?\s*ltd\.?|limited|ltd\.?)\b',
+        r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3})\s+(?:pvt|ltd|inc|corp|technologies|private)\b',
+    ]
+    for pat in patterns:
+        for match in re.finditer(pat, jd_text, flags=re.IGNORECASE):
+            phrase = match.group(1).strip()
+            for word in re.findall(r'\b\w+\b', phrase):
+                w = word.lower().strip('.,')
+                if len(w) > 2:
+                    blocklist.add(w)
+
+    # 3. Hardcoded problematic tokens from this JD (safety net)
+    problematic = {"dispatch", "atomgrid", "truuchem", "truchem", "obeya", "spruce", "embassy"}
+    for p in problematic:
+        if p in lower:
+            blocklist.add(p)
+
+    return blocklist
+
+
+def clean_keywords(keywords: list[str], jd_text: str = "") -> list[str]:
+    """Post-processor that nukes company names, proper nouns patterns, and boilerplate.
+    Applied to BOTH AI path and heuristic path.
+    """
+    if not keywords:
+        return []
+
+    blocklist = JD_NOISE_WORDS.copy()
+    if jd_text:
+        blocklist.update(build_company_blocklist(jd_text))
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+
+    for kw in keywords:
+        if not isinstance(kw, str):
+            continue
+        k = kw.lower().strip()
+        if not k or k in blocklist or len(k) < 3:
+            continue
+
+        # Extra aggressive pattern filter for company-style phrases
+        if re.search(r'\b(private|limited|ltd|pvt|technologies|solutions|services|obeya|spruce|embassy|atomgrid|dispatch|truuchem|truchem)\b', k):
+            continue
+
+        if k not in seen:
+            seen.add(k)
+            cleaned.append(kw)
+
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -639,10 +722,9 @@ def extract_keywords(
 ) -> list[str]:
     """
     If jd_requirements (AI-parsed) is provided, use those structured skills
-    as the authoritative keyword list (no frequency heuristics, no noise).
-
-    Fallback: SKILL_ALIASES hits + filtered word frequency, with JD_NOISE_WORDS
-    scrubbed out.
+    as the authoritative keyword list.
+    Fallback: SKILL_ALIASES hits + filtered word frequency.
+    Now includes dynamic company name cleaning on both paths.
     """
     text = text or ""
     lower = text.lower()
@@ -666,12 +748,15 @@ def extract_keywords(
             if kw and kw not in seen:
                 seen.add(kw)
                 result.append(kw)
+
+        # === FIX 2: Clean AI path ===
+        result = clean_keywords(result, text)
         return result[:limit]
 
     # --- Fallback: heuristic path ---
     combined_stop = STOP_WORDS | JD_NOISE_WORDS
 
-    # SKILL_ALIASES hits first (highest signal)
+    # SKILL_ALIASES hits first
     skill_hits: list[str] = []
     for canonical_skill, aliases in SKILL_ALIASES.items():
         for alias in aliases:
@@ -681,19 +766,17 @@ def extract_keywords(
 
     # Filtered word frequency
     words = re.findall(r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b", lower)
-    words = [
-        w.strip(".-")
-        for w in words
-        if w not in combined_stop and len(w) >= 4
-    ]
+    words = [w.strip(".-") for w in words if w not in combined_stop and len(w) >= 4]
     common = [word for word, _ in Counter(words).most_common(limit)]
 
     keywords: list[str] = []
     for item in configured + skill_hits + common:
         if item and item not in keywords and item not in combined_stop:
             keywords.append(item)
-    return keywords[:limit]
 
+    # === FIX 2: Clean heuristic path with dynamic company blocklist ===
+    keywords = clean_keywords(keywords, text)
+    return keywords[:limit]
 
 # ---------------------------------------------------------------------------
 # JD PARSING HELPERS
