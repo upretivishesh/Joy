@@ -1,192 +1,154 @@
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Optional
+from pathlib import Path
 
-import pandas as pd
-import streamlit as st
-
-from .history import mark_batch_duplicates, save_history
-from .ocr import read_uploaded_file
 from .parser import (
-    detect_role_title,
     extract_jd_requirements_ai,
-    extract_keywords,
     parse_min_experience,
-    parse_min_experience_from_requirements,
-    parse_required_education_level,
+    detect_role_title,
+    extract_keywords_from_jd,
 )
+from .llm_extractor import extract_keywords_llm
 from .scoring import score_resume
+from .semantic import semantic_similarity_score
 
 
-def process_resume_worker(
-    upload,
+def process_jd_and_resumes(
     jd_text: str,
-    role: str,
-    keywords: list[str],
-    min_exp: float,
+    resume_files: List[str],           # List of resume file paths
     api_key: str,
-    model: str,
-    jd_requirements: dict,
-    required_edu: str,
-    required_edu_level: int,
-):
-    if not upload:
-        return None
+    model: str = "gpt-4o-mini",
+    output_dir: Optional[str] = None,
+    use_llm_keywords: bool = True,
+    use_semantic: bool = True,
+) -> List[Dict]:
+    """
+    Main pipeline: Process one JD against multiple resumes.
+    Returns list of scoring results sorted by Final Score (descending).
+    """
 
-    text, error = read_uploaded_file(upload.name, upload.getvalue())
+    if not jd_text or not resume_files:
+        return []
 
-    if error or not text.strip():
-        return {
-            "Send": False,
-            "Duplicate": False,
-            "Profile Key": "",
-            "Name": upload.name,
-            "Email": "",
-            "Phone": "",
-            "Experience": 0.0,
-            "Education": "Not detected",
-            "Keyword Score": 0,
-            "Final Score": 0.0,
-            "Verdict": "Low Fit",
-            "Matched Keywords": "",
-            "Missing Keywords": ", ".join(keywords[:10]),
-            "Skills": "",
-            "Reason": error or "No readable text found.",
-            "Source File": upload.name,
-            "AI Used": False,
-        }
+    print(f"\n[Pipeline] Processing JD against {len(resume_files)} resumes...")
 
-    return score_resume(
-        jd_text=jd_text,
-        role=role,
-        resume_text=text,
-        filename=upload.name,
-        keywords=keywords,
-        min_exp=min_exp,
-        api_key=api_key,
-        model=model,
-        jd_requirements=jd_requirements,
-        required_edu=required_edu,
-        required_edu_level=required_edu_level,
-    )
+    # === 1. Extract structured info from JD ===
+    jd_requirements = extract_jd_requirements_ai(jd_text, api_key, model) if api_key else {}
+    role = detect_role_title(jd_text, "", api_key, model) or "Open Role"
+    min_exp = parse_min_experience(jd_text)
 
+    # === 2. Get best keywords (LLM preferred) ===
+    keywords = []
+    if use_llm_keywords and api_key:
+        keywords = extract_keywords_llm(jd_text, api_key, model)
+        print(f"[Pipeline] LLM extracted {len(keywords)} keywords")
 
-def run_screening(
-    uploads,
-    jd_text: str,
-    role_input: str,
-    extra_keywords: str,
-    api_key: str,
-    model: str,
-    user_key: str,
-) -> tuple[pd.DataFrame, list[str]]:
-    errors = []
+    if not keywords:
+        # Fallback to traditional extraction + cleaning
+        keywords = extract_keywords_from_jd(jd_text, limit=30)
+        print(f"[Pipeline] Using fallback keywords: {len(keywords)}")
 
-    # -----------------------------------------------------------------------
-    # STEP 1: Parse role title
-    # -----------------------------------------------------------------------
-    role = detect_role_title(jd_text, role_input, api_key, model)
+    results = []
 
-    # -----------------------------------------------------------------------
-    # STEP 2: AI-powered structured JD requirements extraction
-    #         This is the single biggest quality improvement — Joy now
-    #         understands the JD instead of counting word frequencies.
-    # -----------------------------------------------------------------------
-    jd_requirements: dict = {}
-    if api_key:
-        with st.spinner("Analysing job description requirements..."):
-            jd_requirements = extract_jd_requirements_ai(jd_text, api_key, model)
+    # === 3. Score each resume ===
+    for idx, resume_path in enumerate(resume_files, 1):
+        filename = os.path.basename(resume_path)
+        print(f"[{idx}/{len(resume_files)}] Scoring: {filename}")
 
-    # -----------------------------------------------------------------------
-    # STEP 3: Derive screening parameters from structured requirements
-    # -----------------------------------------------------------------------
+        try:
+            with open(resume_path, "r", encoding="utf-8", errors="ignore") as f:
+                resume_text = f.read()
 
-    # Keywords — use AI-extracted skills, NOT word frequency
-    keywords = extract_keywords(
-        f"{role}\n{jd_text}",
-        extra_keywords,
-        limit=30,
-        jd_requirements=jd_requirements or None,
-    )
+            result = score_resume(
+                jd_text=jd_text,
+                role=role,
+                resume_text=resume_text,
+                filename=filename,
+                keywords=keywords,
+                min_exp=min_exp,
+                api_key=api_key,
+                model=model,
+                jd_requirements=jd_requirements,
+                use_semantic=use_semantic,
+                use_llm_keywords=False,   # Already extracted above
+            )
 
-    # Min experience — prefer AI-parsed value, fallback to regex
-    if jd_requirements and jd_requirements.get("min_experience_years"):
-        min_exp = parse_min_experience_from_requirements(jd_requirements)
-    else:
-        min_exp = parse_min_experience(jd_text)
+            # Add extra useful fields
+            result["Resume File"] = filename
+            result["Role"] = role
 
-    # Education requirement
-    required_edu: str = jd_requirements.get("required_education", "") if jd_requirements else ""
-    required_edu_level: int = parse_required_education_level(required_edu)
+            results.append(result)
 
-    # Show what Joy understood about the JD (debug / transparency)
-    if jd_requirements:
-        with st.expander("Joy understood the JD as:", expanded=False):
-            st.json({
-                "Role": role,
-                "Min Experience (years)": min_exp,
-                "Core Skills": jd_requirements.get("core_skills", []),
-                "Tools / Tech": jd_requirements.get("tools_technologies", []),
-                "Required Education": required_edu or "Not specified",
-                "Industry": jd_requirements.get("industry", "Not specified"),
+        except Exception as e:
+            print(f"  Error processing {filename}: {e}")
+            results.append({
+                "Resume File": filename,
+                "Final Score": 0,
+                "Verdict": "Error",
+                "Reason": str(e),
             })
 
-    # -----------------------------------------------------------------------
-    # STEP 4: Screen resumes in parallel
-    # -----------------------------------------------------------------------
-    rows: list[dict] = []
-    progress = st.progress(0)
-    status = st.empty()
+    # === 4. Sort by Final Score (highest first) ===
+    results.sort(key=lambda x: x.get("Final Score", 0), reverse=True)
 
-    max_workers = min(4, os.cpu_count() or 4, max(1, len(uploads)))
+    print(f"\n[Pipeline] Completed. Top score: {results[0]['Final Score'] if results else 0}")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(
-                process_resume_worker,
-                upload,
-                jd_text,
-                role,
-                keywords,
-                min_exp,
-                api_key,
-                model,
-                jd_requirements,
-                required_edu,
-                required_edu_level,
-            ): upload
-            for upload in uploads
-        }
+    # Optional: Save results
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        # You can add export logic here (CSV/Excel) using your exports.py
 
-        completed = 0
-        for future in as_completed(futures):
-            upload = futures[future]
-            try:
-                result = future.result()
-                if result is not None:
-                    rows.append(result)
-            except Exception as exc:
-                errors.append(f"{upload.name}: {exc}")
-            completed += 1
-            status.write(f"Processed {completed}/{len(uploads)} resumes")
-            progress.progress(completed / len(uploads))
+    return results
 
-    progress.empty()
-    status.empty()
 
-    # -----------------------------------------------------------------------
-    # STEP 5: Deduplicate, sort, persist
-    # -----------------------------------------------------------------------
-    rows = mark_batch_duplicates(rows)
-    df = pd.DataFrame(rows)
+def run_pipeline_from_folder(
+    jd_path: str,
+    resumes_folder: str,
+    api_key: str,
+    model: str = "gpt-4o-mini",
+    output_dir: Optional[str] = "output",
+) -> List[Dict]:
+    """
+    Convenience function: Run pipeline using file paths.
+    """
+    # Load JD
+    with open(jd_path, "r", encoding="utf-8", errors="ignore") as f:
+        jd_text = f.read()
 
-    if not df.empty:
-        df = df.sort_values("Final Score", ascending=False).reset_index(drop=True)
-        df.insert(0, "Rank", range(1, len(df) + 1))
+    # Get all resume files
+    resume_files = [
+        str(p) for p in Path(resumes_folder).glob("*")
+        if p.suffix.lower() in [".pdf", ".docx", ".doc", ".txt"]
+    ]
 
-    st.session_state.last_role = role
-    st.session_state.last_jd = jd_text
-    st.session_state.last_keywords = keywords
-    st.session_state.results_df = df
+    if not resume_files:
+        print("No resume files found!")
+        return []
 
-    save_history(df, role, user_key, jd_text)
-    return df, errors
+    return process_jd_and_resumes(
+        jd_text=jd_text,
+        resume_files=resume_files,
+        api_key=api_key,
+        model=model,
+        output_dir=output_dir,
+    )
+
+
+# Example usage (for testing in VS Code)
+if __name__ == "__main__":
+    # Example - replace with your actual paths and key
+    API_KEY = "sk-your-openai-key-here"
+
+    jd_file = "data/sample_jd.txt"
+    resumes_dir = "data/resumes"
+
+    results = run_pipeline_from_folder(
+        jd_path=jd_file,
+        resumes_folder=resumes_dir,
+        api_key=API_KEY,
+        model="gpt-4o-mini",
+        output_dir="output"
+    )
+
+    for r in results[:5]:  # Show top 5
+        print(f"{r['Final Score']:5.1f} | {r['Verdict']:12} | {r['Resume File']}")
