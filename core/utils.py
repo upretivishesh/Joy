@@ -79,20 +79,40 @@ def logout_user() -> None:
     st.rerun()
 
 
+def reset_jd_library_form() -> None:
+    """
+    Clear only the JD Library save-form fields (Role title, JD text, Tags).
+    Used by the JD Library tab's 'New screening' button — deliberately does
+    NOT touch Screen tab state (results_df, typed_jd_text, role_input,
+    extra_keywords) or Email tab state, so screening in progress on other
+    tabs is left alone.
+    """
+    for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
+        st.session_state[key] = ""
+
+
 def reset_screening_session() -> None:
+    """Fully reset the screening session (used by the Screen tab's 'New' button)."""
     st.session_state.results_df = pd.DataFrame()
     st.session_state.email_results = []
     st.session_state.last_role = ""
     st.session_state.last_jd = ""
     st.session_state.last_keywords = []
     st.session_state.upload_session += 1
-    st.session_state["_reset_done"] = True
+
+    # Clear pending JD from history
     st.session_state["_pending_jd_text"] = ""
     st.session_state["_pending_role_input"] = ""
-    # remove widget keys so they reinitialize fresh on next render
+
+    # Clear Screen tab widget keys
     for key in ["typed_jd_text", "role_input", "extra_keywords"]:
         if key in st.session_state:
             del st.session_state[key]
+
+    # Clear JD Library save form widget keys — set directly (not delete) so
+    # clearing is deterministic regardless of widget render order
+    for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
+        st.session_state[key] = ""
 
 
 def questions_from_text(text: str) -> list[str]:
