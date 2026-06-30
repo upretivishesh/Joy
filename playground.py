@@ -16,6 +16,7 @@ from core.utils import (
     mask_email,
     questions_from_text,
     render_css,
+    reset_jd_library_form,
     reset_screening_session,
     show_results_summary,
 )
@@ -110,6 +111,11 @@ st.markdown(
 
 screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "History", "JD Library"])
 
+# If a 'New' / 'New screening' button just ran reset_screening_session(),
+# this flag is set so we can force the UI back to the Screen tab — fixes
+# the JD Library 'New screening' button silently resetting state while
+# leaving the user stranded on JD Library with no visible change.
+
 with screen_tab:
 
     pending_jd = st.session_state.pop("_pending_jd_text", None)
@@ -126,21 +132,11 @@ with screen_tab:
 
     with button_col:
         st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
-
-        new_search = st.button(
-            "New",
-            key="new_search_btn",
-            use_container_width=True,
-        )
+        new_search = st.button("New", key="new_search_btn", use_container_width=True)
 
     if new_search:
-
         reset_screening_session()
-
-        if not st.session_state.get("_reset_done"):
-            st.rerun()
-
-        st.session_state["_reset_done"] = False
+        st.rerun()
 
     jd_upload = st.file_uploader(
         "Upload JD",
@@ -604,41 +600,45 @@ with history_tab:
                 )
 
 with jd_tab:
-    st.subheader("JD Library")
- 
+    col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
+
+    with col1:
+        st.subheader("JD Library")
+
+    with col2:
+        st.markdown("<div style='height: 8px'></div>", unsafe_allow_html=True)
+        if st.button("New screening", key="jd_new_btn", use_container_width=True):
+            reset_jd_library_form()    
+            st.rerun()
+
     jd_lib = load_jd_library(user_key)
 
-    col_title, col_new = st.columns([8, 2])
-    with col_title:
-        st.markdown("**Save a JD**")
-    with col_new:
-        if st.button("New screening", key="jd_new_btn", use_container_width=True):
-            reset_screening_session()
-            st.rerun()
- 
-    # ── Save current JD ──────────────────────────────────────────────────────
- 
+    # ── Save JD Form ─────────────────────────────────────────────────────────
+    if "jd_save_role" not in st.session_state:
+        st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
+
     save_role = st.text_input(
         "Role title",
-        value=st.session_state.get("last_role", ""),
         placeholder="e.g. Assistant Manager Supply",
         key="jd_save_role",
     )
- 
+
+    if "jd_save_text" not in st.session_state:
+        st.session_state["jd_save_text"] = st.session_state.get("last_jd", "")
+
     save_jd_text = st.text_area(
         "JD text",
-        value=st.session_state.get("last_jd", ""),
         height=200,
         placeholder="Paste JD here or it auto-fills from your last screening.",
         key="jd_save_text",
     )
- 
+
     save_tags = st.text_input(
         "Tags (optional)",
         placeholder="e.g. agrochemicals, bangalore, urgent",
         key="jd_save_tags",
     )
- 
+
     if st.button("Save to JD Library", type="primary", use_container_width=False):
         if not save_role.strip():
             st.error("Add a role title before saving.")
@@ -651,31 +651,30 @@ with jd_tab:
                 st.rerun()
             else:
                 st.error("Could not save. Check role title and JD text.")
- 
+
     st.divider()
- 
-    # ── Browse and load saved JDs ─────────────────────────────────────────────
+
+    # ── Saved JDs ────────────────────────────────────────────────────────────
     st.markdown("**Saved JDs**")
- 
+
     if jd_lib.empty:
         st.info("No JDs saved yet. Run a screening or paste a JD above to save it.")
     else:
-        # search/filter
         search_query = st.text_input(
             "Search",
             placeholder="Filter by role or tags",
             key="jd_search",
         )
- 
+
         display_df = jd_lib.copy()
- 
+
         if search_query.strip():
             mask = (
                 display_df["Role"].astype(str).str.lower().str.contains(search_query.lower(), na=False)
                 | display_df.get("Tags", pd.Series(dtype=str)).astype(str).str.lower().str.contains(search_query.lower(), na=False)
             )
             display_df = display_df[mask]
- 
+
         if display_df.empty:
             st.info("No JDs match that search.")
         else:
@@ -684,31 +683,22 @@ with jd_tab:
                 saved_at = str(row.get("Saved At", ""))
                 tags = str(row.get("Tags", ""))
                 jd_preview = str(row.get("JD Text", ""))[:180].replace("\n", " ")
- 
+
                 with st.expander(f"{role_label}  ·  {saved_at[:10]}" + (f"  ·  {tags}" if tags and tags != "nan" else "")):
                     st.caption(jd_preview + ("..." if len(str(row.get("JD Text", ""))) > 180 else ""))
- 
-                    col1, col2 = st.columns([1, 1])
- 
-                    with col1:
-                        if st.button(
-                            "Load into screener",
-                            key=f"load_jd_{role_label}",
-                            use_container_width=True,
-                        ):
+
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        if st.button("Load into screener", key=f"load_jd_{role_label}", use_container_width=True):
                             st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
                             st.session_state["_pending_role_input"] = role_label
                             st.rerun()
- 
-                    with col2:
-                        if st.button(
-                            "Delete",
-                            key=f"delete_jd_{role_label}",
-                            use_container_width=True,
-                        ):
+
+                    with c2:
+                        if st.button("Delete", key=f"delete_jd_{role_label}", use_container_width=True):
                             delete_jd(user_key, role_label)
                             st.success(f"Deleted: {role_label}")
                             st.rerun()
- 
+
     st.divider()
     st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
