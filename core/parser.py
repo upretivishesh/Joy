@@ -20,7 +20,7 @@ from .constants import (
 # NOISE FILTER — words that appear in JDs but have zero resume-matching value
 # ---------------------------------------------------------------------------
 JD_NOISE_WORDS = {
-    # Soft skills (judged on call, not on paper)
+    # Soft skills
     "communication", "communications", "interpersonal", "teamwork", "leadership",
     "collaboration", "collaborative", "initiative", "proactive", "problem",
     "solving", "critical", "thinking", "adaptable", "adaptability",
@@ -28,7 +28,16 @@ JD_NOISE_WORDS = {
     "passionate", "enthusiastic", "detail", "oriented", "hardworking",
     "dedicated", "innovative", "creative", "dynamic", "results", "focused",
     "organised", "organized", "punctual", "diligent", "energetic",
-    # Generic JD verbs (every JD has these)
+
+    # Generic JD verbs
+    "pioneering", "innovation", "market", "intelligence", "reliable",
+    "operate", "sectors", "day-to-day", "share", "mission", "creating",
+    "drive", "driving", "lead", "leading", "grow", "growth", "build", "building",
+    "deliver", "delivering", "support", "supporting", "ensure", "ensuring",
+    "daily", "basis", "track", "revolutionize", "new-age", "asset-light",
+    "driven", "brand", "combines",
+    "email", "quality", "sites", "standards", "confidentiality", 
+    "partners", "transfer", "capa", "agrochemicals",
     "across", "within", "between", "through", "along", "around", "including",
     "regarding", "ensure", "ensuring", "maintain", "maintaining", "coordinate",
     "coordinating", "handle", "handling", "assist", "assisting", "perform",
@@ -38,7 +47,8 @@ JD_NOISE_WORDS = {
     "monitoring", "execute", "executing", "deliver", "delivering", "drive",
     "driving", "build", "building", "conduct", "conducting", "prepare",
     "preparing", "review", "reviewing", "analyse", "analyzing", "report",
-    # Generic nouns used as filler
+
+    # Generic nouns
     "business", "organization", "organisation", "role", "position", "candidate",
     "applicant", "professional", "individual", "person", "employee", "join",
     "joining", "department", "division", "member", "company", "firm",
@@ -46,93 +56,124 @@ JD_NOISE_WORDS = {
     "function", "functions", "activities", "activity", "process", "processes",
     "strategy", "strategic", "objective", "objectives", "goal", "goals",
     "target", "targets", "plan", "planning",
+
     # Quantity / descriptor words
     "years", "year", "months", "month", "minimum", "maximum", "least",
     "above", "below", "strong", "excellent", "good", "best", "ability",
     "knowledge", "understanding", "working", "experience", "expertise",
     "hands", "proficiency", "proficient", "skilled", "exposure",
     "proven", "demonstrated", "preferred", "required",
+
     # Indian JD boilerplate
     "ctc", "lpa", "salary", "package", "location", "immediate", "joiner",
     "notice", "period", "openings", "opening", "vacancy", "vacancies",
     "apply", "application", "deadline",
 
-    # === FIX 1: Legal entity words + corporate boilerplate ===
+    # Location / Address
+    "bengaluru", "bangalore", "karnataka", "kadubeesanahalli", "layout",
+    "kaverappa", "main", "square", "road", "sector", "phase", "block",
+    "near", "opposite", "behind", "based", "onsite", "hybrid", "remote",
+
+    # Document / process words
+    "documentation", "contract", "contracts", "reports", "reporting",
+    "relationships", "info", "information", "on-ground", "onground",
+    "ground", "field", "visit", "visits",
+
+    # Corporate / Legal
     "private", "limited", "ltd", "pvt", "pvt.", "inc", "incorporated",
     "corp", "corporation", "llc", "llp", "technologies", "solutions",
     "services", "systems", "group", "holdings", "enterprises", "industries",
     "labs", "global", "international", "corporate",
-    "dispatch", "atomgrid", "truuchem", "truchem", "obeya", "spruce", "embassy",
-}
 
+    # === NEW ADDITIONS (Fix for current leaking words) ===
+    "industry", "travel", "related", "highly", "serve", "primary",
+    "representative", "integrity", "atomgrid", "atomgrid.in",
+    "work", "working", "duties", "task", "tasks", "responsibility",
+}
 
 # ---------------------------------------------------------------------------
 # NEW: Dynamic company name blocklist (multi-layered filtering)
 # ---------------------------------------------------------------------------
-def build_company_blocklist(jd_text: str) -> set[str]:
-    """Dynamically extracts company names and corporate patterns from the JD itself."""
+def build_jd_blocklist(jd_text: str) -> set[str]:
+    """Dynamically builds blocklist for company names + locations from the JD."""
     if not jd_text or not jd_text.strip():
         return set()
 
     blocklist: set[str] = set()
     lower = jd_text.lower()
 
-    # 1. Common corporate suffixes (always block when present in JD)
-    corporate_suffixes = {
+    # Corporate suffixes
+    corporate = {
         "private", "limited", "ltd", "pvt", "inc", "incorporated",
         "corp", "corporation", "llc", "llp", "technologies", "solutions",
         "services", "systems", "group", "holdings", "enterprises",
         "industries", "labs", "global", "international", "corporate"
     }
-    for word in corporate_suffixes:
+    for word in corporate:
         if word in lower:
             blocklist.add(word)
 
-    # 2. Extract company name tokens using common Indian/global patterns
+    # Location / Address words
+    location_words = {
+        "bengaluru", "bangalore", "karnataka", "kadubeesanahalli",
+        "layout", "kaverappa", "main", "square", "road", "sector",
+        "phase", "block", "near", "opposite", "behind", "location"
+    }
+    for word in location_words:
+        if word in lower:
+            blocklist.add(word)
+
+    # Extract potential company/location phrases
     patterns = [
-        r'\b([A-Za-z][A-Za-z0-9&\'\-\. ]{2,50}?)\s+(?:technologies|solutions|services|systems|private limited|pvt\.?\s*ltd\.?|limited|ltd\.?)\b',
-        r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3})\s+(?:pvt|ltd|inc|corp|technologies|private)\b',
+        r'\b([A-Za-z][A-Za-z0-9&\'\-\. ]{2,50}?)\s+(?:technologies|solutions|services|private limited|pvt\.?\s*ltd\.?|limited|ltd)\b',
+        r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})\s+(?:layout|square|main|road|sector)\b',
     ]
     for pat in patterns:
         for match in re.finditer(pat, jd_text, flags=re.IGNORECASE):
-            phrase = match.group(1).strip()
-            for word in re.findall(r'\b\w+\b', phrase):
+            for word in re.findall(r'\b\w+\b', match.group(0)):
                 w = word.lower().strip('.,')
                 if len(w) > 2:
                     blocklist.add(w)
 
-    # 3. Hardcoded problematic tokens from this JD (safety net)
-    problematic = {"dispatch", "atomgrid", "truuchem", "truchem", "obeya", "spruce", "embassy"}
-    for p in problematic:
-        if p in lower:
-            blocklist.add(p)
+    # Hardcoded problematic tokens
+    bad_tokens = {
+        "dispatch", "atomgrid", "truuchem", "truchem", "obeya", "spruce", "embassy",
+        "documentation", "contract", "reports", "relationships", "on-ground"
+    }
+    for token in bad_tokens:
+        if token in lower:
+            blocklist.add(token)
 
     return blocklist
 
 
 def clean_keywords(keywords: list[str], jd_text: str = "") -> list[str]:
-    """Post-processor that nukes company names, proper nouns patterns, and boilerplate.
-    Applied to BOTH AI path and heuristic path.
-    """
     if not keywords:
         return []
 
     blocklist = JD_NOISE_WORDS.copy()
     if jd_text:
-        blocklist.update(build_company_blocklist(jd_text))
+        blocklist.update(build_jd_blocklist(jd_text))
 
-    cleaned: list[str] = []
-    seen: set[str] = set()
+    # Extra aggressive generic words filter
+    extra_generic = {
+        "pioneering", "innovation", "market", "intelligence", "reliable",
+        "operate", "sectors", "day-to-day", "share", "mission", "creating",
+        "daily", "basis", "track", "revolutionize", "email", "quality",
+        "sites", "standards", "confidentiality", "partners", "transfer"
+    }
+
+    cleaned = []
+    seen = set()
 
     for kw in keywords:
         if not isinstance(kw, str):
             continue
         k = kw.lower().strip()
-        if not k or k in blocklist or len(k) < 3:
-            continue
 
-        # Extra aggressive pattern filter for company-style phrases
-        if re.search(r'\b(private|limited|ltd|pvt|technologies|solutions|services|obeya|spruce|embassy|atomgrid|dispatch|truuchem|truchem)\b', k):
+        if len(k) < 4:
+            continue
+        if k in blocklist or k in extra_generic:
             continue
 
         if k not in seen:
@@ -256,40 +297,37 @@ JD:
 # BETTER EXPERIENCE EXTRACTION
 # ---------------------------------------------------------------------------
 def extract_year_ranges_simple(text: str) -> float:
-    """
-    Fallback: extract experience from year-only date ranges like
-    '2015 to 2020', '2015 - Present', '2010 – 2015'.
-    """
     current_year = datetime.now().year
-    pattern = (
-        r"\b((?:19|20)\d{2})\s*(?:to|[-–])\s*"
-        r"((?:19|20)\d{2}|present|current|till\s*date|now)\b"
-    )
+    patterns = [
+        r'(\d{4})\s*[-–—to]+\s*(\d{4}|present|current|now|till date)',
+        r'(\d{4})\s*[-–—]+\s*(present|current|now)',
+        r'from\s+(\d{4})\s+to\s+(\d{4}|present)',
+    ]
     ranges = []
-    for match in re.finditer(pattern, text or "", flags=re.I):
-        try:
-            start = int(match.group(1))
-            end_raw = match.group(2).strip().lower()
-            if end_raw in ("present", "current", "now") or "till" in end_raw:
-                end = current_year
-            else:
-                end = int(end_raw)
-            if 1970 <= start <= current_year and start < end <= current_year + 1:
-                ranges.append((start * 12, end * 12))
-        except (ValueError, IndexError):
-            continue
+    for pattern in patterns:
+        for match in re.finditer(pattern, text or "", flags=re.I):
+            try:
+                start = int(match.group(1))
+                end_str = match.group(2).lower() if len(match.groups()) > 1 else ""
+                end = current_year if end_str in ("present", "current", "now", "till date") else int(end_str)
+                if 2000 <= start < end <= current_year + 1:
+                    ranges.append((start, end))
+            except:
+                continue
 
     if not ranges:
         return 0.0
-    ranges.sort()
-    merged: list[list[int]] = []
-    for s, e in ranges:
-        if not merged or s > merged[-1][1]:
-            merged.append([s, e])
+
+    ranges = sorted(set(ranges))
+    total = 0
+    prev_end = 0
+    for start, end in ranges:
+        if start > prev_end:
+            total += end - start
         else:
-            merged[-1][1] = max(merged[-1][1], e)
-    total_months = sum(e - s for s, e in merged)
-    return round(total_months / 12, 1)
+            total += max(0, end - prev_end)
+        prev_end = max(prev_end, end)
+    return round(total, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -375,17 +413,42 @@ def extract_phone(text: str) -> str:
 
 
 def clean_name_candidate(value: str) -> str:
+    if not value:
+        return ""
+
     value = normalize_email_text(value)
+
+    # Remove email, phone, urls
     value = re.sub(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b", " ", value)
     value = re.sub(r"(?:\+91)?[6-9]\d{9}", " ", value)
     value = re.sub(r"https?://\S+|www\.\S+", " ", value, flags=re.I)
+
+    # Remove common prefixes that appear in resumes
+    value = re.sub(r"^(id|name|candidate|applicant)\s*[:\-]?\s*", "", value, flags=re.I)
+
+    # Remove common header words
     value = re.sub(
         r"\b(?:email|e-mail|mail|mobile|phone|contact|tel|telephone|linkedin|github|portfolio|address|location)\b",
         " ", value, flags=re.I,
     )
+
+    # Keep only letters, spaces, dots, apostrophes, hyphens
     value = re.sub(r"[^A-Za-z .'-]", " ", value)
     value = normalize_whitespace(value)
-    return value.title().strip(" .'-") if value.isupper() else value.strip(" .'-")
+
+    if not value:
+        return ""
+
+    # === STRONG Title Case Conversion ===
+    value = value.title()
+
+    # Fix common surname issues (McDonald, O'Brien, etc.)
+    value = re.sub(r"\b(Mc|O'|Mac)([A-Z])", lambda m: m.group(1) + m.group(2).lower(), value)
+
+    # Final cleanup
+    value = value.strip(" .'-")
+
+    return value
 
 
 def filename_name_candidate(filename: str) -> str:
@@ -572,7 +635,10 @@ def extract_name(text: str, filename: str = "") -> str:
         candidates.sort(reverse=True, key=lambda x: x[0])
         best_score, best_name = candidates[0]
         if best_score >= 50:
-            return best_name
+            best_name = clean_name_candidate(best_name)   # ← Force proper casing
+            if best_name:
+                return best_name
+
     return "Unknown Candidate"
 
 
@@ -683,31 +749,63 @@ def explicit_years_of_experience(text: str) -> float:
 
 def extract_experience(text: str) -> float:
     """
-    Three-pass experience extraction:
-    1. Explicitly stated total ("10 years of experience")
-    2. Parsed from date ranges with month names (via DATE_RANGE_REGEX)
-    3. Parsed from year-only ranges ("2015 – Present")
-    Returns the highest credible value.
+    More robust experience extraction.
     """
+    if not text:
+        return 0.0
+
+    text = text.lower()
+
+    # 1. Try explicit statements first
     explicit = explicit_years_of_experience(text)
+    if explicit > 0:
+        return explicit
 
-    section = extract_experience_section(text)
-    search_text = section or text
+    # 2. Try date range parsing (improved)
+    ranges = parse_date_ranges(text)
+    if ranges:
+        return calculate_total_experience(ranges)
 
-    ranges = parse_date_ranges(search_text)
-    range_years = calculate_total_experience(ranges)
+    # 3. Fallback year-only parsing (very important)
+    year_only = extract_year_ranges_simple(text)
+    if year_only > 0:
+        return year_only
 
-    # Fallback: year-only ranges (catches "2015 - Present" patterns)
-    year_only = extract_year_ranges_simple(search_text)
-    if not range_years and year_only:
-        range_years = year_only
-    elif year_only > range_years:
-        # Take the larger of the two (both are real data points)
-        range_years = max(range_years, year_only)
+    return 0.0
 
-    if explicit and range_years:
-        return round(max(explicit, range_years), 1)
-    return explicit or range_years
+
+def extract_year_ranges_simple(text: str) -> float:
+    """Improved year range parser"""
+    current_year = datetime.now().year
+    patterns = [
+        r'(\d{4})\s*[-–—to]+\s*(\d{4}|present|current|now|till date)',
+        r'(\d{4})\s*[-–—]+\s*(present|current|now)',
+        r'from\s+(\d{4})\s+to\s+(\d{4}|present)',
+        r'(\d{4})\s*[-–—]\s*present',
+    ]
+
+    total_months = 0
+    seen_years = set()
+
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.I):
+            try:
+                start = int(match.group(1))
+                end_str = match.group(2).lower() if len(match.groups()) > 1 else ""
+
+                if end_str in ["present", "current", "now", "till date"]:
+                    end = current_year
+                else:
+                    end = int(end_str)
+
+                if 2005 <= start < end <= current_year + 1:
+                    if start not in seen_years:
+                        total_months += (end - start) * 12
+                        seen_years.add(start)
+            except:
+                continue
+
+    return round(total_months / 12, 1) if total_months > 0 else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -721,19 +819,15 @@ def extract_keywords(
     jd_requirements: dict | None = None,
 ) -> list[str]:
     """
-    If jd_requirements (AI-parsed) is provided, use those structured skills
-    as the authoritative keyword list.
-    Fallback: SKILL_ALIASES hits + filtered word frequency.
-    Now includes dynamic company name cleaning on both paths.
+    Extracts keywords with cleaning applied to both AI and heuristic paths.
     """
     text = text or ""
     lower = text.lower()
-
     configured = [kw.strip().lower() for kw in (extra_keywords or "").split(",") if kw.strip()]
 
-    # --- AI-structured path (preferred) ---
+    # --- AI path ---
     if jd_requirements:
-        ai_keywords: list[str] = []
+        ai_keywords = []
         for skill in jd_requirements.get("core_skills") or []:
             if isinstance(skill, str) and skill.strip():
                 ai_keywords.append(skill.lower().strip())
@@ -742,41 +836,35 @@ def extract_keywords(
                 ai_keywords.append(tool.lower().strip())
 
         combined = configured + ai_keywords
-        seen: set[str] = set()
-        result: list[str] = []
+        seen = set()
+        result = []
         for kw in combined:
             if kw and kw not in seen:
                 seen.add(kw)
                 result.append(kw)
 
-        # === FIX 2: Clean AI path ===
-        result = clean_keywords(result, text)
-        return result[:limit]
+        return clean_keywords(result, text)[:limit]
 
-    # --- Fallback: heuristic path ---
+    # --- Heuristic fallback path ---
     combined_stop = STOP_WORDS | JD_NOISE_WORDS
 
-    # SKILL_ALIASES hits first
-    skill_hits: list[str] = []
+    skill_hits = []
     for canonical_skill, aliases in SKILL_ALIASES.items():
         for alias in aliases:
             if re.search(rf"\b{re.escape(alias.lower())}\b", lower):
                 skill_hits.append(canonical_skill)
                 break
 
-    # Filtered word frequency
     words = re.findall(r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b", lower)
     words = [w.strip(".-") for w in words if w not in combined_stop and len(w) >= 4]
     common = [word for word, _ in Counter(words).most_common(limit)]
 
-    keywords: list[str] = []
+    keywords_list = []
     for item in configured + skill_hits + common:
-        if item and item not in keywords and item not in combined_stop:
-            keywords.append(item)
+        if item and item not in keywords_list and item not in combined_stop:
+            keywords_list.append(item)
 
-    # === FIX 2: Clean heuristic path with dynamic company blocklist ===
-    keywords = clean_keywords(keywords, text)
-    return keywords[:limit]
+    return clean_keywords(keywords_list, text)[:limit]
 
 # ---------------------------------------------------------------------------
 # JD PARSING HELPERS
