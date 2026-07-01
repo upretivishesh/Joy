@@ -201,7 +201,6 @@ def clear_history(user_key: str) -> None:
         if path.exists():
             path.unlink()
 
-
 def clear_role_history(user_key: str, role: str) -> None:
     if supabase:
         try:
@@ -335,7 +334,6 @@ def delete_jd(user_key: str, role: str) -> None:
         except Exception as e:
             print(f"Supabase delete_jd error: {e}")
 
-    # Local fallback
     path = jd_library_path(user_key)
     if not path.exists():
         return
