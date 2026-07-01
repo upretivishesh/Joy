@@ -3,7 +3,17 @@ import streamlit as st
 
 from core.constants import APP_NAME, DEFAULT_COMPANY
 from core.emailer import build_email_body, send_bulk_emails
-from core.history import clear_history, clear_role_history, load_history, load_jd_library, save_jd, delete_jd
+from core.history import (
+    clear_history,
+    clear_role_history,
+    load_history,
+    load_jd_library,
+    save_jd,
+    delete_jd,
+    confirm_delete_role_history,
+    confirm_delete_all_history,
+    confirm_delete_jd,
+)
 from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd
 from core.screening import run_screening
@@ -381,7 +391,20 @@ with history_tab:
         if "Role" in hist.columns:
             roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
+
+            # ── Performance: User-controlled limit ─────────────────────────
+            show_limit = st.slider(
+                "Show last records",
+                min_value=50,
+                max_value=500,
+                value=150,
+                step=50,
+                help="Reduce this number if the History tab feels slow with lots of data"
+            )
+
             shown = hist if selected_role == "all" else hist[hist["Role"] == selected_role]
+            shown = shown.tail(show_limit) if len(shown) > show_limit else shown
+
             if selected_role != "all" and "JD" in shown.columns:
                 saved_jds = shown["JD"].dropna().astype(str)
                 saved_jds = saved_jds[saved_jds.str.strip() != ""]
@@ -397,89 +420,65 @@ with history_tab:
                         st.session_state["_history_loaded_role"] = selected_role
                         st.session_state["_history_loaded_jd"] = latest_jd
                         st.rerun()
+
+            # ── Delete Buttons with Confirmation Dialogs ───────────────────
             delete_col1, delete_col2 = st.columns(2)
 
             with delete_col1:
-
                 if selected_role != "all":
-
-                    if st.button(
-                        f"Delete {selected_role} history",
-                        use_container_width=True,
-                    ):
-
-                        clear_role_history(user_key, selected_role)
-
-                        st.success(f"Deleted history for {selected_role}")
-
-                        st.rerun()
+                    if st.button(f"Delete {selected_role} history", use_container_width=True, type="secondary"):
+                        @st.dialog(f"Delete history for '{selected_role}'?")
+                        def delete_role_dialog():
+                            st.warning(f"This will permanently delete **all screenings** for the role **{selected_role}**.")
+                            st.write("This action cannot be undone.")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("Cancel", use_container_width=True):
+                                    st.rerun()
+                            with col2:
+                                if st.button("Yes, Delete", type="primary", use_container_width=True):
+                                    confirm_delete_role_history(user_key, selected_role)
+                        delete_role_dialog()
 
             with delete_col2:
-
-                if st.button(
-                    "Delete all history",
-                    use_container_width=True,
-                ):
-
-                    clear_history(user_key)
-
-                    st.success("All history deleted")
-
-                    st.rerun()
+                if st.button("Delete all history", use_container_width=True, type="secondary"):
+                    @st.dialog("Delete ALL history?")
+                    def delete_all_dialog():
+                        st.error("**Warning:** This will permanently delete **all** screening history.")
+                        st.write("This action cannot be undone.")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Cancel", use_container_width=True):
+                                st.rerun()
+                        with col2:
+                            if st.button("Yes, Delete Everything", type="primary", use_container_width=True):
+                                confirm_delete_all_history(user_key)
+                    delete_all_dialog()
         else:
             shown = hist
 
+        # ── Data Display ───────────────────────────────────────────────────
         history_editable = shown.copy()
-
-        # limit huge history rendering slowdown
-        history_editable = history_editable.tail(300)
 
         # ensure Send column exists
         if "Send" not in history_editable.columns:
-
             history_editable.insert(0, "Send", False)
 
-        # sanitize checkbox column
-        history_editable["Send"] = (
-            history_editable["Send"]
-            .fillna(False)
-            .astype(bool)
-        )
+        # sanitize columns
+        history_editable["Send"] = history_editable["Send"].fillna(False).astype(bool)
 
-        # sanitize numeric columns
-        numeric_columns = [
-            "Experience",
-            "Keyword Score",
-            "Final Score",
-        ]
-
-        for col in numeric_columns:
-
+        for col in ["Experience", "Keyword Score", "Final Score"]:
             if col in history_editable.columns:
+                history_editable[col] = pd.to_numeric(history_editable[col], errors="coerce")
 
-                history_editable[col] = pd.to_numeric(
-                    history_editable[col],
-                    errors="coerce"
-                )
-
-        # sanitize text columns
         for col in history_editable.columns:
+            if col not in ["Send", "Experience", "Keyword Score", "Final Score"]:
+                history_editable[col] = history_editable[col].fillna("").astype(str)
 
-            if col not in numeric_columns + ["Send"]:
-
-                history_editable[col] = (
-                    history_editable[col]
-                    .fillna("")
-                    .astype(str)
-                )
         if "Name" in history_editable.columns:
             history_editable["Name"] = history_editable["Name"].str.title()
-        
-        # remove duplicate columns if any
-        history_editable = history_editable.loc[
-            :,
-            ~history_editable.columns.duplicated()
-        ]
+
+        history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
 
         history_edited = st.data_editor(
             history_editable,
@@ -496,44 +495,22 @@ with history_tab:
 
         st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
 
+        # (rest of the email sending from history remains the same)
         if not st.session_state.selected_history.empty:
-
             st.divider()
             st.subheader("Send email from history")
 
-            history_role = st.session_state.selected_history.iloc[0].get(
-                "Role",
-                st.session_state.last_role or "the role",
-            )
+            history_role = st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
 
-            history_subject = st.text_input(
-                "Subject",
-                value=f"Details required for {history_role} opportunity",
-                key="history_subject",
-            )
-
-            history_questions = st.text_area(
-                "Questions to collect",
-                value=st.session_state.questions_text,
-                height=180,
-                key="history_questions",
-            )
-
-            history_note = st.text_area(
-                "Extra note",
-                placeholder="Optional context for candidates",
-                height=100,
-                key="history_note",
-            )
+            history_subject = st.text_input("Subject", value=f"Details required for {history_role} opportunity", key="history_subject")
+            history_questions = st.text_area("Questions to collect", value=st.session_state.questions_text, height=180, key="history_questions")
+            history_note = st.text_area("Extra note", placeholder="Optional context for candidates", height=100, key="history_note")
 
             parsed_questions = questions_from_text(history_questions)
 
             preview_body = build_email_body(
                 st.session_state.selected_history.iloc[0],
-                st.session_state.selected_history.iloc[0].get(
-                    "Role",
-                    st.session_state.last_role
-                ),
+                st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role),
                 st.session_state.sender_name,
                 st.session_state.company_name,
                 parsed_questions,
@@ -541,40 +518,17 @@ with history_tab:
                 template_mode=True,
             )
 
-            edited_history_body = st.text_area(
-                "Edit email before sending",
-                value=preview_body,
-                height=380,
-                key="history_email_preview",
-            )
+            edited_history_body = st.text_area("Edit email before sending", value=preview_body, height=380, key="history_email_preview")
+            history_confirm = st.checkbox("History recipient list reviewed", key="history_confirm")
 
-            history_confirm = st.checkbox(
-                "History recipient list reviewed",
-                key="history_confirm",
-            )
-
-            send_history = st.button(
-                f"Send {len(st.session_state.selected_history)} email(s)",
-                type="primary",
-                disabled=not history_confirm,
-                key="send_history_btn",
-            )
+            send_history = st.button(f"Send {len(st.session_state.selected_history)} email(s)", type="primary", disabled=not history_confirm, key="send_history_btn")
 
             if send_history:
-
-                custom_body = st.session_state.get(
-                    "history_email_preview",
-                    "",
-                ).strip()
-
+                custom_body = st.session_state.get("history_email_preview", "").strip()
                 with st.spinner("Sending emails from history..."):
-
                     history_results = send_bulk_emails(
                         selected_df=st.session_state.selected_history,
-                        role=st.session_state.selected_history.iloc[0].get(
-                            "Role",
-                            st.session_state.last_role,
-                        ),
+                        role=st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role),
                         sender_email=st.session_state.sender_email,
                         sender_password=st.session_state.sender_password,
                         sender_name=st.session_state.sender_name,
@@ -584,20 +538,9 @@ with history_tab:
                         extra_note=history_note,
                         custom_body=custom_body,
                     )
-
-                sent_count = sum(
-                    1 for item in history_results if item["Success"]
-                )
-
-                st.success(
-                    f"Sent {sent_count} of {len(history_results)} email(s)."
-                )
-
-                st.dataframe(
-                    pd.DataFrame(history_results),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                sent_count = sum(1 for item in history_results if item["Success"])
+                st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
+                st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
 
 with jd_tab:
     col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
@@ -696,9 +639,18 @@ with jd_tab:
 
                     with c2:
                         if st.button("Delete", key=f"delete_jd_{role_label}", use_container_width=True):
-                            delete_jd(user_key, role_label)
-                            st.success(f"Deleted: {role_label}")
-                            st.rerun()
+                            @st.dialog(f"Delete JD: '{role_label}'?")
+                            def delete_jd_dialog():
+                                st.warning(f"This will permanently delete the saved JD **{role_label}** from your library.")
+                                st.write("This action cannot be undone.")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("Cancel", use_container_width=True):
+                                        st.rerun()
+                                with col2:
+                                    if st.button("Yes, Delete JD", type="primary", use_container_width=True):
+                                        confirm_delete_jd(user_key, role_label)
+                            delete_jd_dialog()
 
     st.divider()
     st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
