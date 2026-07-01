@@ -6,3 +6,4 @@ openai
 openpyxl
 pdf2image
 pytesseract
+supabase
