@@ -109,6 +109,12 @@ def reset_screening_session() -> None:
         if key in st.session_state:
             del st.session_state[key]
 
+    # Clear Email tab widget keys and fingerprint so a fresh screening never
+    # shows the previous screening's Subject/body text
+    for key in ["email_subject", "edited_email_preview", "_email_fingerprint"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
     # Clear JD Library save form widget keys — set directly (not delete) so
     # clearing is deterministic regardless of widget render order
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
