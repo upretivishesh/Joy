@@ -266,10 +266,21 @@ with email_tab:
             height=90,
         )
 
-        subject = st.text_input(
-            "Subject",
-            value=f"Details required for {st.session_state.last_role} opportunity",
+        # Fingerprint the current role + selection. Streamlit only honors
+        # value= the first time a keyed widget is created — on every later
+        # rerun it silently keeps whatever is already in session_state. So
+        # instead of passing value= alongside key=, we seed session_state
+        # directly, and only when the role/selection actually changed.
+        email_fingerprint = (
+            st.session_state.last_role,
+            tuple(st.session_state.selected_candidates.index.tolist()),
         )
+        if st.session_state.get("_email_fingerprint") != email_fingerprint:
+            st.session_state["_email_fingerprint"] = email_fingerprint
+            st.session_state["email_subject"] = f"Details required for {st.session_state.last_role} opportunity"
+            st.session_state.pop("edited_email_preview", None)
+
+        subject = st.text_input("Subject", key="email_subject")
 
         questions = questions_from_text(st.session_state.questions_text)
         
@@ -284,6 +295,9 @@ with email_tab:
                 template_mode=True,
             )
 
+            if "edited_email_preview" not in st.session_state:
+                st.session_state["edited_email_preview"] = preview_body
+
         if not st.session_state.selected_candidates.empty:
 
             with st.expander(
@@ -293,7 +307,6 @@ with email_tab:
 
                 edited_preview_body = st.text_area(
                     "Edit email before sending",
-                    value=preview_body,
                     height=380,
                     key="edited_email_preview",
                 )
@@ -502,7 +515,19 @@ with history_tab:
 
             history_role = st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
 
-            history_subject = st.text_input("Subject", value=f"Details required for {history_role} opportunity", key="history_subject")
+            # Same fingerprint fix as the Email tab: force-refresh the Subject
+            # and body defaults only when the selected candidate/role actually
+            # changes, since value= is ignored once these keys already exist.
+            history_fingerprint = (
+                history_role,
+                tuple(st.session_state.selected_history.index.tolist()),
+            )
+            if st.session_state.get("_history_fingerprint") != history_fingerprint:
+                st.session_state["_history_fingerprint"] = history_fingerprint
+                st.session_state["history_subject"] = f"Details required for {history_role} opportunity"
+                st.session_state.pop("history_email_preview", None)
+
+            history_subject = st.text_input("Subject", key="history_subject")
             history_questions = st.text_area("Questions to collect", value=st.session_state.questions_text, height=180, key="history_questions")
             history_note = st.text_area("Extra note", placeholder="Optional context for candidates", height=100, key="history_note")
 
@@ -510,7 +535,7 @@ with history_tab:
 
             preview_body = build_email_body(
                 st.session_state.selected_history.iloc[0],
-                st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role),
+                history_role,
                 st.session_state.sender_name,
                 st.session_state.company_name,
                 parsed_questions,
@@ -518,7 +543,10 @@ with history_tab:
                 template_mode=True,
             )
 
-            edited_history_body = st.text_area("Edit email before sending", value=preview_body, height=380, key="history_email_preview")
+            if "history_email_preview" not in st.session_state:
+                st.session_state["history_email_preview"] = preview_body
+
+            edited_history_body = st.text_area("Edit email before sending", height=380, key="history_email_preview")
             history_confirm = st.checkbox("History recipient list reviewed", key="history_confirm")
 
             send_history = st.button(f"Send {len(st.session_state.selected_history)} email(s)", type="primary", disabled=not history_confirm, key="send_history_btn")
@@ -528,7 +556,7 @@ with history_tab:
                 with st.spinner("Sending emails from history..."):
                     history_results = send_bulk_emails(
                         selected_df=st.session_state.selected_history,
-                        role=st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role),
+                        role=history_role,
                         sender_email=st.session_state.sender_email,
                         sender_password=st.session_state.sender_password,
                         sender_name=st.session_state.sender_name,
