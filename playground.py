@@ -234,6 +234,7 @@ with email_tab:
     else:
         editable = st.session_state.results_df.copy()
         editable["Send"] = editable["Send"].astype(bool)
+        editable = editable.drop(columns=["Reason"], errors="ignore")
 
         edited = st.data_editor(
             editable,
@@ -243,7 +244,7 @@ with email_tab:
             disabled=[
                 "Rank", "Phone", "Experience", "Keyword Score", "Final Score",
                 "Verdict", "Matched Keywords", "Missing Keywords", "Skills",
-                "Reason", "Source File", "AI Used",
+                "Source File", "AI Used",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
@@ -401,6 +402,7 @@ with history_tab:
         c2.metric("Strong Fit", int((hist["Verdict"] == "Strong Fit").sum()) if "Verdict" in hist.columns else 0)
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
+        selected_role = "all"
         if "Role" in hist.columns:
             roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
@@ -493,6 +495,19 @@ with history_tab:
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
 
+        # Hide internal/noise columns the user never needs to see or edit.
+        # (JD/Profile Key/Reason still live in `hist`/`shown` underneath —
+        # this only trims what's rendered in the table.)
+        history_editable = history_editable.drop(
+            columns=["Reason", "JD", "Profile Key"], errors="ignore"
+        )
+
+        # Role is only redundant once you've filtered down to one role —
+        # every row already shares it. Under "all" it's the only thing
+        # telling rows apart, so keep it there.
+        if selected_role != "all":
+            history_editable = history_editable.drop(columns=["Role"], errors="ignore")
+
         history_edited = st.data_editor(
             history_editable,
             height=500,
@@ -513,7 +528,11 @@ with history_tab:
             st.divider()
             st.subheader("Send email from history")
 
-            history_role = st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
+            history_role = (
+                selected_role
+                if selected_role != "all"
+                else st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
+            )
 
             # Same fingerprint fix as the Email tab: force-refresh the Subject
             # and body defaults only when the selected candidate/role actually
