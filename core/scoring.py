@@ -14,7 +14,7 @@ from .parser import (
 )
 
 from .semantic import semantic_similarity_score
-from .llm_extractor import extract_keywords_llm   # ← New LLM keyword extractor
+from .llm_extractor import extract_keywords_llm, extract_candidate_name_llm
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +211,21 @@ def score_resume(
             final_keywords = llm_kws
 
     # === 2. Extract candidate data ===
-    name = extract_name(resume_text, filename)
     email = extract_email(resume_text)
     phone = extract_phone(resume_text)
     exp = extract_experience(resume_text)
     skills = extract_skills(resume_text)
+
+    # Name: LLM first (reads the whole doc in context, so it doesn't get
+    # fooled by section headers, a father's/reference's name, a place
+    # name, or a stray filename the way pure regex scoring can). Falls
+    # back to the heuristic extractor when there's no API key, the call
+    # fails, or the model isn't confident enough to return a name.
+    name = ""
+    if api_key:
+        name = extract_candidate_name_llm(resume_text, api_key, model, contact_email=email)
+    if not name:
+        name = extract_name(resume_text, filename)
 
     resume_edu_level, resume_edu_qual = extract_education_level(resume_text)
     edu_sc, edu_reason = education_score(resume_edu_level, required_edu, required_edu_level)
