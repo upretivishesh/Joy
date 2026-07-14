@@ -426,6 +426,14 @@ def clean_name_candidate(value: str) -> str:
     # Remove common prefixes that appear in resumes
     value = re.sub(r"^(id|name|candidate|applicant)\s*[:\-]?\s*", "", value, flags=re.I)
 
+    # Strip honorifics — "Mr. Tarak Biswas" should score as "Tarak Biswas",
+    # and stripping these consistently also stops "Mr" alone from ever
+    # being counted as a name word.
+    value = re.sub(
+        r"^(mr|mrs|ms|miss|mx|dr|shri|smt|er|eng|prof|capt|col)\.?\s+",
+        "", value, flags=re.I,
+    )
+
     # Remove common header words
     value = re.sub(
         r"\b(?:email|e-mail|mail|mobile|phone|contact|tel|telephone|linkedin|github|portfolio|address|location)\b",
@@ -508,10 +516,34 @@ BAD_NAME_WORDS = {
     "march", "april", "june", "july", "august", "september", "october",
     "november", "december",
     "dear", "regards", "sincerely", "thank", "please", "hereby",
+    # Resume section headers / boilerplate that read like a two-word
+    # "name" (title case, near the top) but aren't one. This is what was
+    # letting things like "Personal Details" get scored above real names.
+    "personal", "details", "detail", "particulars", "information", "info",
+    "general", "bio", "biodata", "data", "background", "overview",
+    "qualification", "qualifications", "career", "key", "technical",
+    "additional", "extra", "curricular", "co-curricular", "annexure",
+    "enclosure", "attached", "herewith", "undersigned", "below",
+    "mentioned", "table", "content", "contents", "index", "page",
+    "father", "mother", "husband", "wife", "spouse", "guardian",
+    "date", "birth", "dob", "gender", "male", "female", "marital",
+    "status", "single", "married", "nationality", "religion",
+    "category", "caste", "blood", "group", "passport", "aadhar",
+    "aadhaar", "pan", "voter", "signature", "place", "declare",
+    "declaring", "true", "correct", "belief", "knowledge",
+    "sir", "madam", "whomsoever", "concerned", "no", "sr",
+    # New failures from live data: table headers like "Company Designation
+    # Production Chemist" and two-word state names like "Tamil Nadu".
+    "designation", "company", "employer", "organization", "organisation",
+    "job", "post", "type", "nature", "duty", "duties",
+    "tamil", "nadu", "andhra", "west", "bengal", "madhya", "himachal",
+    "jammu", "kashmir", "odisha", "orissa", "assam", "bihar", "punjab",
+    "goa", "sikkim", "tripura", "manipur", "meghalaya", "mizoram",
+    "nagaland", "arunachal", "uttarakhand", "chhattisgarh", "jharkhand",
 }
 
 
-def score_name_candidate(candidate: str, position: int, email_tokens: set[str]) -> int:
+def score_name_candidate(candidate: str, position: int, email_tokens: set[str], email_local: str = "") -> int:
     candidate = clean_name_candidate(candidate)
     if not candidate:
         return -999
@@ -563,6 +595,17 @@ def score_name_candidate(candidate: str, position: int, email_tokens: set[str]) 
     score += overlaps * 35
     if overlaps >= 2:
         score += 25
+    elif overlaps == 0 and email_local:
+        # No token-level match — e.g. "vidhanbiswas@gmail.com" has no
+        # separator, so it never splits into ["vidhan", "biswas"]. Fall
+        # back to checking whether the candidate's words show up as
+        # substrings of the raw local-part, which is exactly what lets
+        # "Vidhan Biswas" outscore an unrelated "Tarak Biswas" mentioned
+        # elsewhere on the page (a reference, manager, etc).
+        substring_hits = sum(1 for word in words if len(word) >= 3 and word.lower() in email_local)
+        score += substring_hits * 20
+        if substring_hits >= 2:
+            score += 15
     avg_len = sum(len(w) for w in words) / len(words)
     if avg_len >= 4:
         score += 10
@@ -602,35 +645,50 @@ def extract_name(text: str, filename: str = "") -> str:
     ]
     email_name = extract_name_from_email(text)
     email_tokens = {token.lower() for token in email_name.split()}
+    detected_email = extract_email(text)
+    email_local = detected_email.split("@", 1)[0].lower() if detected_email else ""
     candidates = []
+
+    # "Name:" matches too eagerly on its own — it also fires inside lines
+    # like "Father's Name: Suresh Kumar" or "Emergency Contact Name: ...",
+    # which used to silently hijack the real candidate's name. Any match
+    # whose immediate left context contains one of these words gets skipped.
+    NON_CANDIDATE_NAME_CONTEXT = (
+        "father", "mother", "husband", "wife", "spouse", "guardian",
+        "parent", "reference", "referee", "employer", "company",
+        "manager", "supervisor", "reporting", "emergency", "contact person",
+    )
     patterns = [
-        r"(?:name|candidate\s*name|applicant)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{3,60})",
+        r"(?:full\s*name|candidate\s*name|applicant\s*name|employee\s*name|name)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{3,60})",
         r"(?:i\s+am|my\s+name\s+is)\s+([A-Za-z][A-Za-z .'-]{3,60})",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.I)
-        if match:
+        for match in re.finditer(pattern, text, flags=re.I):
+            context_before = text[max(0, match.start() - 25):match.start()].lower()
+            if any(bad in context_before for bad in NON_CANDIDATE_NAME_CONTEXT):
+                continue
             name = match.group(1)
-            candidates.append((score_name_candidate(name, 0, email_tokens) + 50, name))
+            candidates.append((score_name_candidate(name, 0, email_tokens, email_local) + 50, name))
+            break  # first clean hit for this pattern is enough
     ner_name = extract_name_ner(text)
     if ner_name:
-        candidates.append((score_name_candidate(ner_name, 1, email_tokens) + 40, ner_name))
+        candidates.append((score_name_candidate(ner_name, 1, email_tokens, email_local) + 40, ner_name))
     for idx, line in enumerate(lines[:25]):
-        score = score_name_candidate(line, idx, email_tokens)
+        score = score_name_candidate(line, idx, email_tokens, email_local)
         if score > 0:
             candidates.append((score, line))
     for idx in range(min(len(lines) - 1, 10)):
         for combo_size in [2, 3]:
             if idx + combo_size <= len(lines):
                 combined = " ".join(lines[idx : idx + combo_size])
-                score = score_name_candidate(combined, idx, email_tokens)
+                score = score_name_candidate(combined, idx, email_tokens, email_local)
                 if score > 0:
                     candidates.append((score, combined))
     if email_name:
-        candidates.append((score_name_candidate(email_name, 5, email_tokens) + 10, email_name))
+        candidates.append((score_name_candidate(email_name, 5, email_tokens, email_local) + 10, email_name))
     file_name = filename_name_candidate(filename)
     if file_name:
-        candidates.append((score_name_candidate(file_name, 10, email_tokens), file_name))
+        candidates.append((score_name_candidate(file_name, 10, email_tokens, email_local), file_name))
     if candidates:
         candidates.sort(reverse=True, key=lambda x: x[0])
         best_score, best_name = candidates[0]
