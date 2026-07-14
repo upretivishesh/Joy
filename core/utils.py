@@ -333,7 +333,7 @@ def show_results_summary(df: pd.DataFrame) -> None:
         col for col in [
             "Send", "Duplicate", "Name", "Email", "Phone", "Experience",
             "Final Score", "Verdict", "Matched Keywords", "Missing Keywords",
-            "Reason", "Source File",
+            "Source File",
         ]
         if col in df.columns
     ]
