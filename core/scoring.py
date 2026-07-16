@@ -283,11 +283,15 @@ def score_resume(
             (structure_score * 0.03)
         )
 
-    # === 6. AI Scoring (for borderline+ candidates) ===
+    # === 6. AI Scoring (every candidate gets a real AI read when a key is
+    # present — not just ones that already scored well on cheap keyword
+    # overlap. A candidate can be genuinely industry-relevant while using
+    # different vocabulary than the JD, which is exactly the case a
+    # keyword-only heuristic misses and Industry Match is meant to catch.)
     ai_score = None
     ai_reason = ""
     industry_match = "N/A"
-    if heuristic >= 50 and api_key:
+    if api_key:
         ai_score, ai_reason, industry_match = ai_score_resume(
             jd_text, resume_text, role, api_key, model, jd_requirements, client_company
         )
