@@ -18,6 +18,7 @@ def process_resume_worker(
     min_exp,
     api_key,
     model,
+    client_company="",
 ):
     if not upload:
         return None
@@ -35,6 +36,7 @@ def process_resume_worker(
             "Keyword Score": 0,
             "Final Score": 0.0,
             "Verdict": "Low Fit",
+            "Industry Match": "N/A",
             "Matched Keywords": "",
             "Missing Keywords": ", ".join(keywords[:10]),
             "Skills": "",
@@ -52,6 +54,7 @@ def process_resume_worker(
         min_exp=min_exp,
         api_key=api_key,
         model=model,
+        client_company=client_company,
     )
 
 
@@ -63,6 +66,7 @@ def run_screening(
     api_key: str,
     model: str,
     user_key: str,
+    client_company: str = "",
 ) -> tuple[pd.DataFrame, list[str]]:
     errors = []
     role = detect_role_title(jd_text, role_input, api_key, model)
@@ -85,6 +89,7 @@ def run_screening(
                 min_exp,
                 api_key,
                 model,
+                client_company,
             ): upload
             for upload in uploads
         }
@@ -113,6 +118,7 @@ def run_screening(
     st.session_state.last_role = role
     st.session_state.last_jd = jd_text
     st.session_state.last_keywords = keywords
+    st.session_state.last_client_company = client_company
     st.session_state.results_df = df
     save_history(df, role, user_key, jd_text)
     return df, errors
