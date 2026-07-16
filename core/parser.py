@@ -540,6 +540,20 @@ BAD_NAME_WORDS = {
     "jammu", "kashmir", "odisha", "orissa", "assam", "bihar", "punjab",
     "goa", "sikkim", "tripura", "manipur", "meghalaya", "mizoram",
     "nagaland", "arunachal", "uttarakhand", "chhattisgarh", "jharkhand",
+    # "Proactive Safety Mindset" and its cousins — resume "strengths" /
+    # "key highlights" taglines. Structurally these look exactly like a
+    # name (2-3 capitalized words, sit near the top of the page), so
+    # only a word blocklist stops them; scoring alone can't tell them
+    # apart from a real name.
+    "mindset", "attitude", "outlook", "approach", "spirit", "safety",
+    "quality", "player", "oriented", "focused", "driven", "passionate",
+    "dedicated", "motivated", "dynamic", "innovative", "reliable",
+    "adaptable", "flexible", "committed", "enthusiastic", "resourceful",
+    "meticulous", "diligent", "punctual", "hardworking", "energetic",
+    "positive", "proactive", "conscious", "vigilant", "keen",
+    "compliance", "strengths", "highlights", "expertise", "core",
+    "areas", "attributes", "traits", "values", "philosophy",
+    "methodology", "commitment", "excellence", "standards",
 }
 
 
@@ -579,6 +593,8 @@ def score_name_candidate(candidate: str, position: int, email_tokens: set[str], 
         score += 15
     elif position <= 25:
         score += 5
+    elif position <= 40:
+        score -= 5
     else:
         score -= 20
     if len(words) == 2:
@@ -673,11 +689,11 @@ def extract_name(text: str, filename: str = "") -> str:
     ner_name = extract_name_ner(text)
     if ner_name:
         candidates.append((score_name_candidate(ner_name, 1, email_tokens, email_local) + 40, ner_name))
-    for idx, line in enumerate(lines[:25]):
+    for idx, line in enumerate(lines[:40]):
         score = score_name_candidate(line, idx, email_tokens, email_local)
         if score > 0:
             candidates.append((score, line))
-    for idx in range(min(len(lines) - 1, 10)):
+    for idx in range(min(len(lines) - 1, 18)):
         for combo_size in [2, 3]:
             if idx + combo_size <= len(lines):
                 combined = " ".join(lines[idx : idx + combo_size])
@@ -692,7 +708,7 @@ def extract_name(text: str, filename: str = "") -> str:
     if candidates:
         candidates.sort(reverse=True, key=lambda x: x[0])
         best_score, best_name = candidates[0]
-        if best_score >= 50:
+        if best_score >= 40:
             best_name = clean_name_candidate(best_name)   # ← Force proper casing
             if best_name:
                 return best_name
