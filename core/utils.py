@@ -36,6 +36,43 @@ def mask_email(email: str) -> str:
     return f"{masked_local}@{domain}"
 
 
+def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
+    """
+    Move `first` columns to the front, in exactly the given order (only the
+    ones actually present in df). Everything else keeps its existing
+    relative order and trails after — this only reorders, it never adds
+    or drops columns.
+    """
+    cols = list(df.columns)
+    first_present = [c for c in first if c in cols]
+    remaining = [c for c in cols if c not in first_present]
+    return df[first_present + remaining]
+
+
+def reorder_columns(df: pd.DataFrame, priority: list[str]) -> pd.DataFrame:
+    """
+    Put `priority` columns first, in exactly the given order (skipping any
+    that aren't present in this particular view), then leave every other
+    column trailing behind in whatever relative order it was already in.
+    Display-only — doesn't add or drop anything.
+    """
+    cols = list(df.columns)
+    priority_present = [c for c in priority if c in cols]
+    remaining = [c for c in cols if c not in priority_present]
+    return df[priority_present + remaining]
+
+
+def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
+    """Display-only: '5.5' -> '5.5 Years'. Underlying numeric data is untouched
+    (call this last, on a display copy, after any numeric sorting/filtering)."""
+    if "Experience" not in df.columns:
+        return df
+    df = df.copy()
+    numeric = pd.to_numeric(df["Experience"], errors="coerce").fillna(0)
+    df["Experience"] = numeric.apply(lambda v: f"{v:g} Years")
+    return df
+
+
 def safe_filename_part(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", value or "user")
     return clean.strip("_")[:80] or "user"
@@ -48,6 +85,7 @@ def init_state() -> None:
         "last_role": "",
         "last_jd": "",
         "last_keywords": [],
+        "last_client_company": "",
         "email_results": [],
         "questions_text": "\n".join(DEFAULT_QUESTIONS),
         "sender_email": "",
@@ -105,7 +143,7 @@ def reset_screening_session() -> None:
     st.session_state["_pending_role_input"] = ""
 
     # Clear Screen tab widget keys
-    for key in ["typed_jd_text", "role_input", "extra_keywords"]:
+    for key in ["typed_jd_text", "role_input", "extra_keywords", "client_company_input"]:
         if key in st.session_state:
             del st.session_state[key]
 
@@ -153,6 +191,7 @@ def render_css() -> None:
             --warn: #f6c267;
             --bad: #fb8b8b;
             --shadow: 0 18px 55px rgba(0, 0, 0, 0.55);
+            --ease: cubic-bezier(0.16, 1, 0.3, 1);
         }
         html, body, [class*="css"], .stApp {
             font-family: 'Instrument Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -292,6 +331,100 @@ def render_css() -> None:
             box-shadow: var(--shadow);
         }
         .stAlert { border-radius: 12px; }
+
+        /* ── Premium motion ──────────────────────────────────────────── */
+
+        .stButton button,
+        .stDownloadButton button,
+        [data-testid="stFormSubmitButton"] button {
+            transition: background-color 0.22s var(--ease), border-color 0.22s var(--ease),
+                        color 0.22s var(--ease), box-shadow 0.22s var(--ease),
+                        transform 0.15s var(--ease);
+        }
+        .stButton button:hover,
+        .stDownloadButton button:hover,
+        [data-testid="stFormSubmitButton"] button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+        }
+        .stButton button:active,
+        .stDownloadButton button:active,
+        [data-testid="stFormSubmitButton"] button:active {
+            transform: translateY(0) scale(0.98);
+            transition-duration: 0.08s;
+        }
+
+        [data-baseweb="tab"] {
+            transition: color 0.25s var(--ease);
+        }
+        [data-baseweb="tab-highlight"] {
+            transition: left 0.28s var(--ease), width 0.28s var(--ease) !important;
+        }
+        [data-baseweb="tab-border"] {
+            transition: none !important;
+        }
+
+        textarea, input, [data-baseweb="select"] > div {
+            transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease),
+                        background-color 0.2s var(--ease);
+        }
+
+        [data-testid="stFileUploaderDropzone"] {
+            transition: border-color 0.22s var(--ease), background-color 0.22s var(--ease);
+        }
+        [data-testid="stFileUploaderDropzone"]:hover {
+            border-color: var(--accent);
+            background: #0d1015;
+        }
+
+        [data-testid="stMetric"], .joy-card {
+            transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease),
+                        border-color 0.25s var(--ease);
+        }
+        [data-testid="stMetric"]:hover, .joy-card:hover {
+            transform: translateY(-2px);
+            border-color: #2c3444;
+        }
+
+        [data-testid="stExpander"] {
+            transition: border-color 0.2s var(--ease);
+        }
+        [data-testid="stExpander"] summary {
+            transition: color 0.2s var(--ease);
+        }
+
+        [data-testid="stCheckbox"] label span:first-child {
+            transition: background-color 0.18s var(--ease), border-color 0.18s var(--ease),
+                        box-shadow 0.18s var(--ease);
+        }
+
+        [data-testid="stSidebar"] .stButton button {
+            transition: background-color 0.2s var(--ease), color 0.2s var(--ease),
+                        border-color 0.2s var(--ease);
+        }
+
+        [data-testid="stDialog"] > div {
+            animation: joy-dialog-in 0.28s var(--ease);
+        }
+        @keyframes joy-dialog-in {
+            from { opacity: 0; transform: scale(0.97) translateY(6px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .stAlert {
+            animation: joy-fade-in 0.3s var(--ease);
+        }
+        @keyframes joy-fade-in {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                transition-duration: 0.001ms !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -331,9 +464,9 @@ def show_results_summary(df: pd.DataFrame) -> None:
 
     display_cols = [
         col for col in [
-            "Send", "Duplicate", "Name", "Email", "Phone", "Experience",
-            "Final Score", "Verdict", "Matched Keywords", "Missing Keywords",
-            "Source File",
+            "Send", "Name", "Email", "Phone", "Experience",
+            "Final Score", "Verdict", "Industry Match", "Matched Keywords",
+            "Missing Keywords", "Source File",
         ]
         if col in df.columns
     ]
@@ -341,6 +474,7 @@ def show_results_summary(df: pd.DataFrame) -> None:
     display_df = df[display_cols].copy()
     if "Name" in display_df.columns:
         display_df["Name"] = display_df["Name"].astype(str).str.title()
+    display_df = format_experience_years(display_df)
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     st.download_button(
