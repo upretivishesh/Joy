@@ -110,6 +110,9 @@ Rules:
   applicant/candidate themselves.
 - Do NOT return a section heading like "Personal Details", "Bio Data",
   "Curriculum Vitae", "Career Objective" etc. Those are not names.
+- Do NOT return a skill, trait, or strength statement such as
+  "Proactive Safety Mindset" or "Strong Team Player" — those are resume
+  taglines, not names, even when capitalized like one.
 - Do NOT return the name of anyone else mentioned in the document —
   not a father's/mother's/spouse's name, not a reference, not a
   reporting manager, not a previous employer's name.
