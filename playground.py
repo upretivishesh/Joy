@@ -182,7 +182,7 @@ with screen_tab:
             key="role_input",
         )
         client_company_input = st.text_input(
-            "Client company",
+            "Client",
             placeholder="e.g. Atomgrid — used to judge candidates' industry fit",
             key="client_company_input",
         )
