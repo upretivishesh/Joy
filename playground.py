@@ -18,12 +18,14 @@ from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd
 from core.screening import run_screening
 from core.utils import (
+    format_experience_years,
     get_secret,
     init_state,
     inject_keepalive,
     login_user,
     logout_user,
     mask_email,
+    order_columns_first,
     questions_from_text,
     render_css,
     reset_jd_library_form,
@@ -179,6 +181,11 @@ with screen_tab:
             placeholder="Leave blank. Joy will detect it from the JD.",
             key="role_input",
         )
+        client_company_input = st.text_input(
+            "Client company",
+            placeholder="e.g. Atomgrid — used to judge candidates' industry fit",
+            key="client_company_input",
+        )
         extra_keywords = st.text_input(
             "Must-have keywords",
             placeholder="HPLC, distributor management, SAP",
@@ -215,6 +222,7 @@ with screen_tab:
                     api_key=openai_api_key,
                     model=openai_model,
                     user_key=user_key,
+                    client_company=client_company_input,
                 )
             st.success(f"Screened {len(results)} resume(s) for {st.session_state.last_role}.")
             for error in read_errors:
@@ -234,7 +242,11 @@ with email_tab:
     else:
         editable = st.session_state.results_df.copy()
         editable["Send"] = editable["Send"].astype(bool)
-        editable = editable.drop(columns=["Reason"], errors="ignore")
+        editable = editable.drop(columns=["Reason", "Duplicate", "Profile Key"], errors="ignore")
+        editable = order_columns_first(
+            editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
+        )
+        editable = format_experience_years(editable)
 
         edited = st.data_editor(
             editable,
@@ -243,8 +255,8 @@ with email_tab:
             num_rows="fixed",
             disabled=[
                 "Rank", "Phone", "Experience", "Keyword Score", "Final Score",
-                "Verdict", "Matched Keywords", "Missing Keywords", "Skills",
-                "Source File", "AI Used",
+                "Verdict", "Industry Match", "Matched Keywords", "Missing Keywords",
+                "Skills", "Source File", "AI Used",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
@@ -451,7 +463,7 @@ with history_tab:
                                 if st.button("Cancel", use_container_width=True):
                                     st.rerun()
                             with col2:
-                                if st.button("Yes, Delete", type="primary", use_container_width=True):
+                                if st.button("Yes", type="primary", use_container_width=True):
                                     confirm_delete_role_history(user_key, selected_role)
                         delete_role_dialog()
 
@@ -496,10 +508,11 @@ with history_tab:
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
 
         # Hide internal/noise columns the user never needs to see or edit.
-        # (JD/Profile Key/Reason still live in `hist`/`shown` underneath —
-        # this only trims what's rendered in the table.)
+        # (JD/Profile Key/Reason/Duplicate still live in `hist`/`shown`
+        # underneath — Profile Key still drives dedup, Duplicate still
+        # flags repeats internally. This only trims what's rendered.)
         history_editable = history_editable.drop(
-            columns=["Reason", "JD", "Profile Key"], errors="ignore"
+            columns=["Reason", "JD", "Profile Key", "Duplicate"], errors="ignore"
         )
 
         # Role is only redundant once you've filtered down to one role —
@@ -507,6 +520,11 @@ with history_tab:
         # telling rows apart, so keep it there.
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
+
+        history_editable = order_columns_first(
+            history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
+        )
+        history_editable = format_experience_years(history_editable)
 
         history_edited = st.data_editor(
             history_editable,
