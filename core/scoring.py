@@ -111,9 +111,9 @@ def section_presence_score(resume_text: str) -> int:
 # AI SCORING (unchanged)
 # ---------------------------------------------------------------------------
 def ai_score_resume(jd_text: str, resume_text: str, role: str, api_key: str, model: str,
-                    jd_requirements: dict | None = None) -> tuple[int | None, str]:
+                    jd_requirements: dict | None = None, client_company: str = "") -> tuple[int | None, str, str]:
     if not api_key:
-        return None, ""
+        return None, "", "N/A"
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
@@ -129,15 +129,29 @@ Structured requirements extracted from JD:
 - Industry: {jd_requirements.get('industry', 'not stated')}
 """
 
+        client_context = (
+            f"\nThe hiring client is: {client_company}. Weigh industry fit against "
+            f"what this company actually does (infer its industry/sector from its "
+            f"name and the JD if you're not directly familiar with it), not just "
+            f"the JD's stated industry line.\n"
+            if client_company.strip() else ""
+        )
+
         prompt = f"""You are a strict senior recruiter evaluating a resume for a specific role.
 
 Score from 0 to 100 based on how well the resume matches the job requirements.
 
+Also judge the candidate's INDUSTRY fit: has this candidate actually worked
+in the same or a closely adjacent industry to the one in the JD{" and/or the hiring client's own industry" if client_company.strip() else ""}?
+- "Yes" — candidate's work history is in the same or a directly comparable industry.
+- "Partial" — adjacent/transferable industry (e.g. FMCG vs D2C, general chemicals vs agrochemicals), not an exact match but relevant.
+- "No" — candidate's background is in an unrelated industry with no meaningful overlap.
+
 Return ONLY valid JSON:
-{{"score": 0, "reason": "2-3 sentence specific reason"}}
+{{"score": 0, "reason": "2-3 sentence specific reason", "industry_match": "Yes|Partial|No", "candidate_industry": "1-4 word label for the industry/sector this candidate has actually worked in"}}
 
 Role: {role}
-{requirements_context}
+{requirements_context}{client_context}
 Job Description:
 {jd_text[:2000]}
 
@@ -147,20 +161,23 @@ Resume:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a strict recruiter. Be specific and objective."},
+                {"role": "system", "content": "You are a strict recruiter. Be specific and objective, including about industry fit."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0,
-            max_tokens=200,
+            max_tokens=260,
             timeout=20,
         )
         raw = re.sub(r"```json|```", "", response.choices[0].message.content or "{}").strip()
         data = json.loads(raw)
         score = int(float(data.get("score", 0)))
         reason = str(data.get("reason", "")).strip()
-        return max(0, min(100, score)), reason
+        industry_match = str(data.get("industry_match", "")).strip().title()
+        if industry_match not in {"Yes", "Partial", "No"}:
+            industry_match = "N/A"
+        return max(0, min(100, score)), reason, industry_match
     except Exception as exc:
-        return None, f"AI scoring skipped: {exc}"
+        return None, f"AI scoring skipped: {exc}", "N/A"
 
 
 def make_reason(matched, missing, exp, min_exp, edu_reason=""):
@@ -201,6 +218,7 @@ def score_resume(
     required_edu_level: int = -1,
     use_semantic: bool = True,
     use_llm_keywords: bool = True,
+    client_company: str = "",
 ) -> dict:
 
     # === 1. LLM Keyword Extraction (Best Quality) ===
@@ -268,9 +286,10 @@ def score_resume(
     # === 6. AI Scoring (for borderline+ candidates) ===
     ai_score = None
     ai_reason = ""
+    industry_match = "N/A"
     if heuristic >= 50 and api_key:
-        ai_score, ai_reason = ai_score_resume(
-            jd_text, resume_text, role, api_key, model, jd_requirements
+        ai_score, ai_reason, industry_match = ai_score_resume(
+            jd_text, resume_text, role, api_key, model, jd_requirements, client_company
         )
 
     if ai_score is None:
@@ -298,6 +317,7 @@ def score_resume(
         "Semantic Score": round(semantic_sc, 1),
         "Final Score": final_score,
         "Verdict": verdict,
+        "Industry Match": industry_match,
         "Matched Keywords": ", ".join(matched[:12]),
         "Missing Keywords": ", ".join(missing[:10]),
         "Skills": ", ".join(skills[:12]),
