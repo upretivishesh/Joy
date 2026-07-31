@@ -353,6 +353,38 @@ def get_jd(user_key: str, role: str) -> str:
         return ""
     return str(match.iloc[-1].get("JD Text", ""))
 
+def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
+    """
+    Tag a specific candidate history record with outcome feedback (Good Hire /
+    Bad Hire / Not Selected / Pending). This is step one of Joy learning from
+    real outcomes over time — it just captures the signal for now. Stored
+    inside the existing JSONB 'data' blob each history row already uses, so
+    it needs no new Supabase columns or migration.
+    """
+    if not supabase:
+        return False
+    if not profile_key_value:
+        return False
+    try:
+        response = (
+            supabase.table("candidate_history")
+            .select("id, data")
+            .eq("user_key", user_key)
+            .eq("role", role)
+            .execute()
+        )
+        for row in response.data or []:
+            data = row.get("data", {}) or {}
+            if str(data.get("Profile Key", "")) == str(profile_key_value):
+                data["Feedback"] = feedback
+                supabase.table("candidate_history").update({"data": data}).eq("id", row["id"]).execute()
+                return True
+        return False
+    except Exception as e:
+        print(f"❌ Supabase update_feedback error: {e}")
+        return False
+
+
 def confirm_delete_role_history(user_key: str, role: str):
     clear_role_history(user_key, role)
     st.success(f"Deleted all history for role: {role}")
