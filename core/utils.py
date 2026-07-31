@@ -556,11 +556,41 @@ def inject_premium_persona_css() -> None:
     )
 
 
+def _inject_html(html_string: str, height: int = 1, width: int = 1) -> None:
+    """
+    Shared by every inject_* function below. Streamlit deprecated
+    components.v1.html in 1.56.0 — its own docs point two different
+    directions depending on use case:
+      - st.html: for plain HTML snippets. Does NOT execute <script> tags
+        at all (confirmed via Streamlit's own GitHub issue tracker), so
+        it can't replace what these functions do.
+      - st.iframe: explicitly documented as preserving "JavaScript
+        execution and same-origin access to the Streamlit app" — the
+        same behavior components.html had, which is what every
+        window.parent.document trick below depends on.
+    So st.iframe is the correct target here, not st.html, even though
+    st.html is the more commonly cited replacement for the general case.
+
+    One real behavior difference verified against a live install: the
+    old API happily took height=0/width=0 for an invisible element; the
+    new st.iframe explicitly rejects 0 ("must be a positive integer, or
+    'stretch'/'content'") and raises ValueError. 1x1 is the smallest
+    valid size and is visually indistinguishable from invisible against
+    this app's dark background, so that's the new default.
+
+    Falls back to the legacy API on Streamlit < 1.56.0 (no st.iframe at
+    all) so this doesn't break on older installs.
+    """
+    try:
+        st.iframe(html_string, height=height, width=width)
+    except AttributeError:
+        import streamlit.components.v1 as components
+        components.html(html_string, height=height, width=width)
+
+
 def inject_multiselect_chip_fix() -> None:
     try:
-        import streamlit.components.v1 as components
-
-        components.html(
+        _inject_html(
             """
             <script>
             (function() {
@@ -589,8 +619,6 @@ def inject_multiselect_chip_fix() -> None:
             })();
             </script>
             """,
-            height=0,
-            width=0,
         )
     except Exception:
         pass
@@ -605,9 +633,7 @@ def inject_clear_icon_fix() -> None:
     nothing if the CSS already holds, fixes it if it doesn't.
     """
     try:
-        import streamlit.components.v1 as components
-
-        components.html(
+        _inject_html(
             """
             <script>
             (function() {
@@ -637,8 +663,6 @@ def inject_clear_icon_fix() -> None:
             })();
             </script>
             """,
-            height=0,
-            width=0,
         )
     except Exception:
         pass
@@ -646,9 +670,7 @@ def inject_clear_icon_fix() -> None:
 
 def inject_keepalive() -> None:
     try:
-        import streamlit.components.v1 as components
-
-        components.html(
+        _inject_html(
             """
             <script>
             const ping = () => {
@@ -659,11 +681,10 @@ def inject_keepalive() -> None:
             setInterval(ping, 240000);
             </script>
             """,
-            height=0,
-            width=0,
         )
     except Exception:
         pass
+
 
 
 def show_results_summary(df: pd.DataFrame) -> None:
