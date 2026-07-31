@@ -1,10 +1,9 @@
-import json
-from openai import OpenAI
+from .ai_client import chat_json
 
 
 def extract_keywords_llm(
-    jd_text: str, 
-    api_key: str, 
+    jd_text: str,
+    api_key: str,
     model: str = "gpt-4o-mini",
     max_keywords: int = 25
 ) -> list[str]:
@@ -16,8 +15,6 @@ def extract_keywords_llm(
         return []
 
     try:
-        client = OpenAI(api_key=api_key)
-
         prompt = f"""You are an expert technical recruiter.
 
 Extract ONLY the most important **hard technical skills, tools, technologies, and domain-specific keywords** from this job description.
@@ -35,23 +32,14 @@ Output format example:
 Job Description:
 {jd_text[:4500]}"""
 
-        response = client.chat.completions.create(
+        keywords = chat_json(
+            system="You are a precise technical recruiter. Extract only hard skills and tools. Return valid JSON array only.",
+            user=prompt,
+            api_key=api_key,
             model=model,
-            messages=[
-                {
-                    "role": "system", 
-                    "content": "You are a precise technical recruiter. Extract only hard skills and tools. Return valid JSON array only."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0,
             max_tokens=500,
+            temperature=0,
         )
-
-        raw = response.choices[0].message.content.strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-
-        keywords = json.loads(raw)
 
         if isinstance(keywords, list):
             cleaned = []
@@ -93,8 +81,6 @@ def extract_candidate_name_llm(
         return ""
 
     try:
-        client = OpenAI(api_key=api_key)
-
         email_hint = (
             f'\nThe candidate\'s contact email on this resume is: {contact_email}\n'
             if contact_email else ""
@@ -126,27 +112,18 @@ Rules:
 Resume text:
 {resume_text[:4000]}"""
 
-        response = client.chat.completions.create(
+        data = chat_json(
+            system=(
+                "You extract the resume owner's own name only. "
+                "Never a heading, relative, reference, or company. "
+                "Return valid JSON only."
+            ),
+            user=prompt,
+            api_key=api_key,
             model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You extract the resume owner's own name only. "
-                        "Never a heading, relative, reference, or company. "
-                        "Return valid JSON only."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0,
             max_tokens=60,
-            timeout=15,
+            temperature=0,
         )
-
-        raw = (response.choices[0].message.content or "").strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw)
 
         name = str(data.get("name", "")).strip()
         if not name:
