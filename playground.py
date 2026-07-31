@@ -1,7 +1,10 @@
+import json
+import re
 import pandas as pd
 import streamlit as st
 
-from core.constants import APP_NAME, DEFAULT_COMPANY
+from core.constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
+from core.client_profile import load_client_profile, save_client_profile, list_client_companies
 from core.emailer import build_email_body, send_bulk_emails
 from core.history import (
     clear_history,
@@ -13,15 +16,20 @@ from core.history import (
     confirm_delete_role_history,
     confirm_delete_all_history,
     confirm_delete_jd,
+    update_feedback,
 )
 from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd
 from core.screening import run_screening
 from core.utils import (
+    filter_history_by_search,
     format_experience_years,
     get_secret,
     init_state,
+    inject_clear_icon_fix,
     inject_keepalive,
+    inject_multiselect_chip_fix,
+    inject_premium_persona_css,
     login_user,
     logout_user,
     mask_email,
@@ -35,6 +43,9 @@ from core.utils import (
 
 st.set_page_config(page_title=f"{APP_NAME} AI Recruiter", page_icon="J", layout="wide")
 render_css()
+inject_premium_persona_css()
+inject_multiselect_chip_fix()
+inject_clear_icon_fix()
 inject_keepalive()
 init_state()
 
@@ -94,10 +105,38 @@ with st.sidebar:
         logout_user()
 
     st.divider()
-    openai_api_key = get_secret("OPENAI_API_KEY")
-    openai_model = get_secret("OPENAI_MODEL", "gpt-4o-mini")
-    ai_status = "AI scoring enabled" if openai_api_key else "Heuristic scoring active"
+
+    # ====================== AI PROVIDER ======================
+    # Set AI_PROVIDER = "anthropic" in secrets to run Joy's scoring on
+    # Claude instead of OpenAI. Everything downstream (score_resume,
+    # ai_score_resume, keyword/name extraction) already routes through
+    # core/ai_client.py, which picks the right SDK based on the model
+    # name — no other code needs to change when this toggle flips.
+    #
+    # Cost reality check (verify current rates before quoting a client):
+    #   gpt-4o-mini        $0.15 / $0.60  per million tokens — cheaper
+    #                      than Claude Haiku on raw per-token price.
+    #   claude-haiku-4-5   $1.00 / $5.00  per million tokens
+    #   gpt-4o             $2.50 / $10.00 per million tokens — this is
+    #                      where Claude Haiku actually wins on price.
+    # If you're currently on gpt-4o-mini, switching to Claude Haiku alone
+    # won't cut costs — it'll raise the per-token rate but may need fewer
+    # retries. Worth A/B testing on real Joy data before deciding.
+    ai_provider = get_secret("AI_PROVIDER", "openai").strip().lower()
+    if ai_provider == "anthropic":
+        ai_api_key = get_secret("ANTHROPIC_API_KEY")
+        ai_model = get_secret("AI_MODEL", "claude-haiku-4-5-20251001")
+        provider_label = "Claude"
+    else:
+        ai_api_key = get_secret("OPENAI_API_KEY")
+        ai_model = get_secret("AI_MODEL") or get_secret("OPENAI_MODEL", "gpt-4o-mini")
+        provider_label = "OpenAI"
+
+    ai_status = f"{provider_label} scoring enabled ({ai_model})" if ai_api_key else "Heuristic scoring active"
     st.caption(ai_status)
+    # Kept for any code path still referencing the old names.
+    openai_api_key = ai_api_key
+    openai_model = ai_model
 
     st.divider()
     user_key = st.session_state.sender_email or "local"
@@ -122,11 +161,6 @@ st.markdown(
 )
 
 screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "History", "JD Library"])
-
-# If a 'New' / 'New screening' button just ran reset_screening_session(),
-# this flag is set so we can force the UI back to the Screen tab — fixes
-# the JD Library 'New screening' button silently resetting state while
-# leaving the user stranded on JD Library with no visible change.
 
 with screen_tab:
 
@@ -175,22 +209,133 @@ with screen_tab:
             jd_text = uploaded_jd_text
             st.caption(f"Using uploaded JD: {jd_upload.name}")
 
-    with st.expander("Optional screening controls", expanded=False):
+    with st.expander("Optional screening controls + Persona", expanded=False):
         role_input = st.text_input(
             "Role title override",
             placeholder="Leave blank. Joy will detect it from the JD.",
             key="role_input",
         )
-        client_company_input = st.text_input(
-            "Client",
-            placeholder="e.g. Atomgrid — used to judge candidates' industry fit",
-            key="client_company_input",
-        )
+
+        if "_known_clients" not in st.session_state:
+            st.session_state["_known_clients"] = list_client_companies(user_key)
+        known_clients = st.session_state["_known_clients"]
+
+        NEW_CLIENT_LABEL = "+ New client"
+        client_pick_options = [NEW_CLIENT_LABEL] + known_clients
+        current_value = st.session_state.get("client_company_input", "").strip()
+        try:
+            default_index = client_pick_options.index(current_value) if current_value in known_clients else 0
+        except ValueError:
+            default_index = 0
+
+        if known_clients:
+            picked = st.selectbox(
+                "Client",
+                options=client_pick_options,
+                index=default_index,
+                key="client_picker",
+                help="Pick a client Joy already has a persona for, or add a new one.",
+            )
+        else:
+            picked = NEW_CLIENT_LABEL
+
+        if picked == NEW_CLIENT_LABEL:
+            client_company_input = st.text_input(
+                "Client name",
+                placeholder="e.g. Atomgrid",
+                key="client_company_input",
+            )
+        else:
+            client_company_input = picked
+            st.session_state["client_company_input"] = picked
+
         extra_keywords = st.text_input(
             "Must-have keywords",
             placeholder="HPLC, distributor management, SAP",
             key="extra_keywords",
         )
+
+        if client_company_input.strip():
+            company_key = client_company_input.strip().lower()
+
+            if st.session_state.get("_persona_company_key") != company_key:
+                st.session_state["_persona_profile"] = load_client_profile(user_key, client_company_input)
+                st.session_state["_persona_company_key"] = company_key
+            profile = st.session_state["_persona_profile"]
+
+            st.markdown("**Persona**")
+            if profile.get("last_updated"):
+                st.caption(f"Joy remembers these preferences for this client · last updated {str(profile['last_updated'])[:10]}")
+            else:
+                st.caption("Joy remembers these preferences for this client")
+
+            col1, col2 = st.columns([1.1, 1])
+            with col1:
+                industries_text = st.text_input(
+                    "Preferred industries",
+                    value=", ".join(profile.get("preferred_industries", [])),
+                    placeholder="D2C, Agrochemicals, Organic Farming",
+                    key=f"persona_industries_{company_key}",
+                )
+                profile["preferred_industries"] = [
+                    i.strip() for i in industries_text.split(",") if i.strip()
+                ]
+            with col2:
+                languages_text = st.text_input(
+                    "Language preference",
+                    value=", ".join(profile.get("language_preferences", [])),
+                    placeholder="English, Hindi, Punjabi",
+                    key=f"persona_languages_{company_key}",
+                )
+                profile["language_preferences"] = [
+                    l.strip() for l in languages_text.split(",") if l.strip()
+                ]
+
+            profile["preferred_colleges"] = st.text_area(
+                "Preferred colleges / tiers",
+                value=profile.get("preferred_colleges", ""),
+                placeholder="e.g. IITs, NITs, Top B-schools, or specific colleges...",
+                height=110,
+                key=f"persona_colleges_{company_key}",
+            )
+
+            exp_col1, exp_col2 = st.columns(2)
+            with exp_col1:
+                profile["min_experience"] = st.number_input(
+                    "Min experience (years)",
+                    min_value=0,
+                    max_value=30,
+                    value=int(profile.get("min_experience", 0) or 0),
+                    step=1,
+                    key=f"persona_min_exp_{company_key}",
+                )
+            with exp_col2:
+                profile["max_experience"] = st.number_input(
+                    "Max experience (years)",
+                    min_value=0,
+                    max_value=40,
+                    value=int(profile.get("max_experience", 15) or 15),
+                    step=1,
+                    key=f"persona_max_exp_{company_key}",
+                )
+            st.caption("Candidates outside this range take a small score penalty for this client.")
+
+            profile["culture_notes"] = st.text_area(
+                "Culture / soft-fit notes",
+                value=profile.get("culture_notes", ""),
+                placeholder="e.g. Strong ownership, comfortable with ambiguity, fast-paced environment...",
+                height=130,
+                key=f"persona_notes_{company_key}",
+            )
+
+            if st.button("Save Persona", type="secondary", use_container_width=True):
+                if save_client_profile(user_key, client_company_input, profile):
+                    st.session_state["_persona_profile"] = profile
+                    if client_company_input.strip() not in st.session_state["_known_clients"]:
+                        st.session_state["_known_clients"].insert(0, client_company_input.strip())
+                    st.success("Persona saved successfully!")
+                else:
+                    st.error("Failed to save persona.")
 
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
     if detected_preview and detected_preview != "Open Role":
@@ -219,14 +364,21 @@ with screen_tab:
                     jd_text=jd_text,
                     role_input=role_input,
                     extra_keywords=extra_keywords,
-                    api_key=openai_api_key,
-                    model=openai_model,
+                    api_key=ai_api_key,
+                    model=ai_model,
                     user_key=user_key,
                     client_company=client_company_input,
                 )
             st.success(f"Screened {len(results)} resume(s) for {st.session_state.last_role}.")
             for error in read_errors:
                 st.warning(error)
+
+            if ai_api_key and results and not any(r.get("AI Used") for r in results):
+                st.warning(
+                    f"A {provider_label} key is set, but AI scoring failed for every resume in this batch "
+                    "(Industry Match will show N/A). Check the key and model in your secrets, "
+                    "or open the Reason column in the downloaded CSV to see the exact error."
+                )
 
     if not st.session_state.results_df.empty:
         st.divider()
@@ -255,8 +407,8 @@ with email_tab:
             num_rows="fixed",
             disabled=[
                 "Rank", "Phone", "Experience", "Keyword Score", "Final Score",
-                "Verdict", "Industry Match", "Matched Keywords", "Missing Keywords",
-                "Skills", "Source File", "AI Used",
+                "Verdict", "Industry Match", "Candidate Industry", "Matched Keywords",
+                "Missing Keywords", "Skills", "Source File", "AI Used",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
@@ -279,11 +431,6 @@ with email_tab:
             height=90,
         )
 
-        # Fingerprint the current role + selection. Streamlit only honors
-        # value= the first time a keyed widget is created — on every later
-        # rerun it silently keeps whatever is already in session_state. So
-        # instead of passing value= alongside key=, we seed session_state
-        # directly, and only when the role/selection actually changed.
         email_fingerprint = (
             st.session_state.last_role,
             tuple(st.session_state.selected_candidates.index.tolist()),
@@ -296,7 +443,7 @@ with email_tab:
         subject = st.text_input("Subject", key="email_subject")
 
         questions = questions_from_text(st.session_state.questions_text)
-        
+
         if not st.session_state.selected_candidates.empty:
             preview_body = build_email_body(
                 st.session_state.selected_candidates.iloc[0],
@@ -400,7 +547,6 @@ with email_tab:
                         hide_index=True,
                     )
 
-                    
 
 with history_tab:
     st.subheader("History")
@@ -414,12 +560,27 @@ with history_tab:
         c2.metric("Strong Fit", int((hist["Verdict"] == "Strong Fit").sum()) if "Verdict" in hist.columns else 0)
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
+        # ====================== GLOBAL CANDIDATE SEARCH ======================
+        # Searches across every role, every screening batch, ever saved —
+        # not just whatever role happens to be selected in the filter below.
+        # Matches Name, Email, Phone, Skills, Matched Keywords, Role, and
+        # Candidate Industry, case-insensitive substring, so "priya" or
+        # "9876" or "SAP MM" or "atomgrid" all work without needing the
+        # exact field the candidate lives in.
+        search_query = st.text_input(
+            "Search all candidates",
+            placeholder="Name, email, phone, skill, or role — searches your entire history at once",
+            key="candidate_search",
+        )
+
         selected_role = "all"
-        if "Role" in hist.columns:
+        if search_query.strip():
+            shown = filter_history_by_search(hist, search_query)
+            st.caption(f"{len(shown)} match(es) across all roles for \"{search_query.strip()}\"")
+        elif "Role" in hist.columns:
             roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
 
-            # ── Performance: User-controlled limit ─────────────────────────
             show_limit = st.slider(
                 "Show last records",
                 min_value=50,
@@ -448,7 +609,6 @@ with history_tab:
                         st.session_state["_history_loaded_jd"] = latest_jd
                         st.rerun()
 
-            # ── Delete Buttons with Confirmation Dialogs ───────────────────
             delete_col1, delete_col2 = st.columns(2)
 
             with delete_col1:
@@ -484,14 +644,11 @@ with history_tab:
         else:
             shown = hist
 
-        # ── Data Display ───────────────────────────────────────────────────
         history_editable = shown.copy()
 
-        # ensure Send column exists
         if "Send" not in history_editable.columns:
             history_editable.insert(0, "Send", False)
 
-        # sanitize columns
         history_editable["Send"] = history_editable["Send"].fillna(False).astype(bool)
 
         for col in ["Experience", "Keyword Score", "Final Score"]:
@@ -507,17 +664,10 @@ with history_tab:
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
 
-        # Hide internal/noise columns the user never needs to see or edit.
-        # (JD/Profile Key/Reason/Duplicate still live in `hist`/`shown`
-        # underneath — Profile Key still drives dedup, Duplicate still
-        # flags repeats internally. This only trims what's rendered.)
         history_editable = history_editable.drop(
-            columns=["Reason", "JD", "Profile Key", "Duplicate"], errors="ignore"
+            columns=["Reason", "JD", "Duplicate"], errors="ignore"
         )
 
-        # Role is only redundant once you've filtered down to one role —
-        # every row already shares it. Under "all" it's the only thing
-        # telling rows apart, so keep it there.
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
 
@@ -525,6 +675,10 @@ with history_tab:
             history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
         )
         history_editable = format_experience_years(history_editable)
+
+        if "Feedback" not in history_editable.columns:
+            history_editable["Feedback"] = "Pending"
+        history_editable["Feedback"] = history_editable["Feedback"].replace("", "Pending")
 
         history_edited = st.data_editor(
             history_editable,
@@ -536,12 +690,27 @@ with history_tab:
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
                 "Email": st.column_config.TextColumn("Email"),
+                "Profile Key": None,
+                "Feedback": st.column_config.SelectboxColumn(
+                    "Feedback", options=["Pending", "Good Hire", "Bad Hire", "Not Selected"]
+                ),
             },
         )
 
+        if st.button("Save feedback", use_container_width=False):
+            changed = history_edited[history_edited["Feedback"] != history_editable["Feedback"]]
+            saved_count = 0
+            for _, row in changed.iterrows():
+                row_role = row.get("Role", selected_role if selected_role != "all" else "")
+                if update_feedback(user_key, row.get("Profile Key", ""), row_role, row["Feedback"]):
+                    saved_count += 1
+            if saved_count:
+                st.success(f"Saved feedback for {saved_count} candidate(s).")
+            else:
+                st.info("No feedback changes to save.")
+
         st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
 
-        # (rest of the email sending from history remains the same)
         if not st.session_state.selected_history.empty:
             st.divider()
             st.subheader("Send email from history")
@@ -552,9 +721,6 @@ with history_tab:
                 else st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
             )
 
-            # Same fingerprint fix as the Email tab: force-refresh the Subject
-            # and body defaults only when the selected candidate/role actually
-            # changes, since value= is ignored once these keys already exist.
             history_fingerprint = (
                 history_role,
                 tuple(st.session_state.selected_history.index.tolist()),
@@ -607,6 +773,7 @@ with history_tab:
                 st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
                 st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
 
+
 with jd_tab:
     col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
 
@@ -621,7 +788,6 @@ with jd_tab:
 
     jd_lib = load_jd_library(user_key)
 
-    # ── Save JD Form ─────────────────────────────────────────────────────────
     if "jd_save_role" not in st.session_state:
         st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
 
@@ -662,7 +828,6 @@ with jd_tab:
 
     st.divider()
 
-    # ── Saved JDs ────────────────────────────────────────────────────────────
     st.markdown("**Saved JDs**")
 
     if jd_lib.empty:
