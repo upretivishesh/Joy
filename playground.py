@@ -373,7 +373,13 @@ with screen_tab:
             for error in read_errors:
                 st.warning(error)
 
-            if ai_api_key and results and not any(r.get("AI Used") for r in results):
+            if (
+                ai_api_key
+                and results is not None
+                and not results.empty
+                and "AI Used" in results.columns
+                and not results["AI Used"].any()
+            ):
                 st.warning(
                     f"A {provider_label} key is set, but AI scoring failed for every resume in this batch "
                     "(Industry Match will show N/A). Check the key and model in your secrets, "
