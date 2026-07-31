@@ -37,12 +37,6 @@ def mask_email(email: str) -> str:
 
 
 def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
-    """
-    Move `first` columns to the front, in exactly the given order (only the
-    ones actually present in df). Everything else keeps its existing
-    relative order and trails after — this only reorders, it never adds
-    or drops columns.
-    """
     cols = list(df.columns)
     first_present = [c for c in first if c in cols]
     remaining = [c for c in cols if c not in first_present]
@@ -50,12 +44,6 @@ def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
 
 
 def reorder_columns(df: pd.DataFrame, priority: list[str]) -> pd.DataFrame:
-    """
-    Put `priority` columns first, in exactly the given order (skipping any
-    that aren't present in this particular view), then leave every other
-    column trailing behind in whatever relative order it was already in.
-    Display-only — doesn't add or drop anything.
-    """
     cols = list(df.columns)
     priority_present = [c for c in priority if c in cols]
     remaining = [c for c in cols if c not in priority_present]
@@ -63,14 +51,79 @@ def reorder_columns(df: pd.DataFrame, priority: list[str]) -> pd.DataFrame:
 
 
 def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
-    """Display-only: '5.5' -> '5.5 Years'. Underlying numeric data is untouched
-    (call this last, on a display copy, after any numeric sorting/filtering)."""
     if "Experience" not in df.columns:
         return df
     df = df.copy()
     numeric = pd.to_numeric(df["Experience"], errors="coerce").fillna(0)
     df["Experience"] = numeric.apply(lambda v: f"{v:g} Years")
     return df
+
+
+def format_industry_fit(df: pd.DataFrame) -> pd.DataFrame:
+    if "Industry Match" not in df.columns:
+        return df
+    df = df.copy()
+    badge = {"Yes": "✅ Yes", "Partial": "⚠️ Partial", "No": "❌ No", "N/A": "— N/A"}
+    df["Industry Match"] = df["Industry Match"].astype(str).map(lambda v: badge.get(v, "— N/A"))
+    return df
+
+
+def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    """
+    Case-insensitive substring search across the ENTIRE candidate history,
+    regardless of which role or client they were originally screened
+    against — this is what powers the History tab's global search box.
+
+    Matches whichever of these columns actually exist on the dataframe
+    (schemas drift over time as fields get added), so a query like "priya",
+    "9876", "SAP MM", or "atomgrid" all work without the caller needing to
+    know which exact field the match lives in.
+    """
+    query = (query or "").strip()
+    if not query or df.empty:
+        return df
+
+    search_cols = [
+        c for c in [
+            "Name", "Email", "Phone", "Skills", "Matched Keywords",
+            "Role", "Candidate Industry", "Source File",
+        ]
+        if c in df.columns
+    ]
+    if not search_cols:
+        return df.iloc[0:0]
+
+    mask = pd.Series(False, index=df.index)
+    for col in search_cols:
+        mask = mask | df[col].astype(str).str.contains(query, case=False, na=False, regex=False)
+    return df[mask]
+
+
+def smart_multiselect(label, options, default, key, placeholder="", max_selections=None):
+    """
+    st.multiselect with accept_new_options=True (type straight into the
+    dropdown to add something that isn't in the curated list — this is
+    what actually fixes 'not many industries/languages to choose from')
+    on Streamlit versions that support it; falls back to a companion
+    'add custom' text input on older versions so an unpinned environment
+    never hard-crashes on this call. Requires Streamlit >= 1.42 for the
+    native path — `pip install -U streamlit` if the fallback keeps firing.
+    """
+    kwargs = dict(default=default, key=key, placeholder=placeholder)
+    if max_selections:
+        kwargs["max_selections"] = max_selections
+    try:
+        return st.multiselect(label, options=options, accept_new_options=True, **kwargs)
+    except TypeError:
+        selected = st.multiselect(label, options=options, **kwargs)
+        custom = st.text_input(
+            f"Add a custom {label.lower()} (press Enter)",
+            key=f"{key}_custom",
+            placeholder="Not in the list? Type it here.",
+        )
+        if custom.strip():
+            selected = list(dict.fromkeys(selected + [custom.strip()]))
+        return selected
 
 
 def safe_filename_part(value: str) -> str:
@@ -118,13 +171,6 @@ def logout_user() -> None:
 
 
 def reset_jd_library_form() -> None:
-    """
-    Clear only the JD Library save-form fields (Role title, JD text, Tags).
-    Used by the JD Library tab's 'New screening' button — deliberately does
-    NOT touch Screen tab state (results_df, typed_jd_text, role_input,
-    extra_keywords) or Email tab state, so screening in progress on other
-    tabs is left alone.
-    """
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
         st.session_state[key] = ""
 
@@ -138,23 +184,21 @@ def reset_screening_session() -> None:
     st.session_state.last_keywords = []
     st.session_state.upload_session += 1
 
-    # Clear pending JD from history
     st.session_state["_pending_jd_text"] = ""
     st.session_state["_pending_role_input"] = ""
 
-    # Clear Screen tab widget keys
-    for key in ["typed_jd_text", "role_input", "extra_keywords", "client_company_input"]:
+    for key in ["typed_jd_text", "role_input", "extra_keywords", "client_company_input", "client_picker"]:
         if key in st.session_state:
             del st.session_state[key]
 
-    # Clear Email tab widget keys and fingerprint so a fresh screening never
-    # shows the previous screening's Subject/body text
+    for key in ["_persona_company_key", "_persona_profile"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
     for key in ["email_subject", "edited_email_preview", "_email_fingerprint"]:
         if key in st.session_state:
             del st.session_state[key]
 
-    # Clear JD Library save form widget keys — set directly (not delete) so
-    # clearing is deterministic regardless of widget render order
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
         st.session_state[key] = ""
 
@@ -332,8 +376,6 @@ def render_css() -> None:
         }
         .stAlert { border-radius: 12px; }
 
-        /* ── Premium motion ──────────────────────────────────────────── */
-
         .stButton button,
         .stDownloadButton button,
         [data-testid="stFormSubmitButton"] button {
@@ -431,6 +473,177 @@ def render_css() -> None:
     )
 
 
+def inject_premium_persona_css() -> None:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stExpander"] textarea {
+            min-height: 110px !important;
+            line-height: 1.55 !important;
+            padding: 12px 14px !important;
+            resize: vertical !important;
+        }
+
+        [data-baseweb="tag"] {
+            background: rgba(84, 214, 182, 0.14) !important;
+            border: 1px solid rgba(84, 214, 182, 0.35) !important;
+            border-radius: 8px !important;
+            color: var(--ink) !important;
+            transition: background-color 0.18s var(--ease), border-color 0.18s var(--ease),
+                        transform 0.15s var(--ease);
+        }
+        [data-baseweb="tag"]:hover {
+            background: rgba(84, 214, 182, 0.22) !important;
+            transform: translateY(-1px);
+        }
+
+        div[data-baseweb="select"] > div {
+            border-radius: 10px !important;
+            background: #0b0d11 !important;
+            overflow: visible !important;
+            padding-left: 10px !important;
+            box-sizing: border-box !important;
+        }
+        div[data-baseweb="select"]:focus-within > div {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 3px rgba(84, 214, 182, 0.14) !important;
+        }
+        [data-baseweb="select"] [data-baseweb="tag"] {
+            margin: 3px 4px 3px 0 !important;
+        }
+        div[data-baseweb="select"] input {
+            position: relative !important;
+        }
+        [data-baseweb="select"] [data-baseweb="tag"]:first-child {
+            margin-left: 2px !important;
+        }
+
+        div[data-baseweb="select"] svg {
+            fill: var(--muted) !important;
+            opacity: 0.7 !important;
+            transition: opacity 0.18s var(--ease), fill 0.18s var(--ease);
+        }
+        div[data-baseweb="select"] svg:hover {
+            fill: var(--ink) !important;
+            opacity: 1 !important;
+        }
+        div[data-baseweb="select"] [role="button"] {
+            background: transparent !important;
+            border-radius: 999px !important;
+        }
+
+        [data-baseweb="popover"] {
+            animation: joy-dropdown-in 0.16s var(--ease);
+        }
+        @keyframes joy-dropdown-in {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        [data-baseweb="menu"] li {
+            transition: background-color 0.12s var(--ease);
+        }
+
+        [data-testid="stExpander"] [data-testid="stNumberInput"] input {
+            border-radius: 10px !important;
+        }
+
+        [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+            transition: opacity 0.2s var(--ease);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_multiselect_chip_fix() -> None:
+    try:
+        import streamlit.components.v1 as components
+
+        components.html(
+            """
+            <script>
+            (function() {
+                const doc = window.parent.document;
+
+                function fixChipPadding() {
+                    const controls = doc.querySelectorAll('div[data-baseweb="select"]');
+                    controls.forEach((control) => {
+                        const tag = control.querySelector('[data-baseweb="tag"]');
+                        if (!tag || !tag.parentElement) return;
+                        const row = tag.parentElement;
+                        if (row.dataset.joyPadded !== "1") {
+                            row.style.paddingLeft = "10px";
+                            row.style.boxSizing = "border-box";
+                            row.dataset.joyPadded = "1";
+                        }
+                        if (control.style.overflow !== "visible") {
+                            control.style.overflow = "visible";
+                        }
+                    });
+                }
+
+                fixChipPadding();
+                const observer = new MutationObserver(fixChipPadding);
+                observer.observe(doc.body, { childList: true, subtree: true });
+            })();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+    except Exception:
+        pass
+
+
+def inject_clear_icon_fix() -> None:
+    """
+    JS-level fallback for the multiselect 'clear all' button — same
+    runtime-discovery pattern as inject_multiselect_chip_fix(), since we
+    can't rely on a fixed DOM depth from BaseWeb's internals. Belt-and-
+    braces alongside the CSS rule in inject_premium_persona_css(); costs
+    nothing if the CSS already holds, fixes it if it doesn't.
+    """
+    try:
+        import streamlit.components.v1 as components
+
+        components.html(
+            """
+            <script>
+            (function() {
+                const doc = window.parent.document;
+
+                function fixClearIcon() {
+                    const controls = doc.querySelectorAll('div[data-baseweb="select"]');
+                    controls.forEach((control) => {
+                        const buttons = control.querySelectorAll('[role="button"]');
+                        buttons.forEach((btn) => {
+                            if (btn.dataset.joyCleared !== "1") {
+                                btn.style.background = "transparent";
+                                btn.style.borderRadius = "999px";
+                                btn.dataset.joyCleared = "1";
+                            }
+                        });
+                        const svgs = control.querySelectorAll('svg');
+                        svgs.forEach((svg) => {
+                            svg.style.opacity = "0.7";
+                        });
+                    });
+                }
+
+                fixClearIcon();
+                const observer = new MutationObserver(fixClearIcon);
+                observer.observe(doc.body, { childList: true, subtree: true });
+            })();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+    except Exception:
+        pass
+
+
 def inject_keepalive() -> None:
     try:
         import streamlit.components.v1 as components
@@ -465,16 +678,17 @@ def show_results_summary(df: pd.DataFrame) -> None:
     display_cols = [
         col for col in [
             "Send", "Name", "Email", "Phone", "Experience",
-            "Final Score", "Verdict", "Industry Match", "Matched Keywords",
-            "Missing Keywords", "Source File",
+            "Final Score", "Verdict", "Industry Match", "Candidate Industry",
+            "Matched Keywords", "Missing Keywords", "Source File",
         ]
         if col in df.columns
     ]
-    
+
     display_df = df[display_cols].copy()
     if "Name" in display_df.columns:
         display_df["Name"] = display_df["Name"].astype(str).str.title()
     display_df = format_experience_years(display_df)
+    display_df = format_industry_fit(display_df)
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     st.download_button(
