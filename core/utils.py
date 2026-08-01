@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
@@ -7,6 +8,9 @@ import streamlit as st
 from .constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
 
 
+# ============================================================
+# Secrets helper
+# ============================================================
 def get_secret(name: str, default: str = "") -> str:
     try:
         value = st.secrets.get(name, "")
@@ -15,6 +19,9 @@ def get_secret(name: str, default: str = "") -> str:
     return value or os.getenv(name, default)
 
 
+# ============================================================
+# Basic helpers
+# ============================================================
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
@@ -43,13 +50,6 @@ def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
     return df[first_present + remaining]
 
 
-def reorder_columns(df: pd.DataFrame, priority: list[str]) -> pd.DataFrame:
-    cols = list(df.columns)
-    priority_present = [c for c in priority if c in cols]
-    remaining = [c for c in cols if c not in priority_present]
-    return df[priority_present + remaining]
-
-
 def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
     if "Experience" not in df.columns:
         return df
@@ -69,16 +69,6 @@ def format_industry_fit(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
-    """
-    Case-insensitive substring search across the ENTIRE candidate history,
-    regardless of which role or client they were originally screened
-    against — this is what powers the History tab's global search box.
-
-    Matches whichever of these columns actually exist on the dataframe
-    (schemas drift over time as fields get added), so a query like "priya",
-    "9876", "SAP MM", or "atomgrid" all work without the caller needing to
-    know which exact field the match lives in.
-    """
     query = (query or "").strip()
     if not query or df.empty:
         return df
@@ -99,38 +89,29 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     return df[mask]
 
 
-def smart_multiselect(label, options, default, key, placeholder="", max_selections=None):
-    """
-    st.multiselect with accept_new_options=True (type straight into the
-    dropdown to add something that isn't in the curated list — this is
-    what actually fixes 'not many industries/languages to choose from')
-    on Streamlit versions that support it; falls back to a companion
-    'add custom' text input on older versions so an unpinned environment
-    never hard-crashes on this call. Requires Streamlit >= 1.42 for the
-    native path — `pip install -U streamlit` if the fallback keeps firing.
-    """
-    kwargs = dict(default=default, key=key, placeholder=placeholder)
-    if max_selections:
-        kwargs["max_selections"] = max_selections
-    try:
-        return st.multiselect(label, options=options, accept_new_options=True, **kwargs)
-    except TypeError:
-        selected = st.multiselect(label, options=options, **kwargs)
-        custom = st.text_input(
-            f"Add a custom {label.lower()} (press Enter)",
-            key=f"{key}_custom",
-            placeholder="Not in the list? Type it here.",
-        )
-        if custom.strip():
-            selected = list(dict.fromkeys(selected + [custom.strip()]))
-        return selected
-
-
 def safe_filename_part(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", value or "user")
     return clean.strip("_")[:80] or "user"
 
 
+def questions_from_text(text: str) -> list[str]:
+    questions = []
+    for line in (text or "").splitlines():
+        clean = re.sub(r"^\s*[-*0-9.)]+\s*", "", line).strip()
+        if clean:
+            questions.append(clean)
+    return questions or DEFAULT_QUESTIONS
+
+
+def first_name(full_name: str) -> str:
+    if not full_name or full_name == "Unknown Candidate":
+        return "there"
+    return str(full_name).split()[0].strip(",")
+
+
+# ============================================================
+# Session state
+# ============================================================
 def init_state() -> None:
     defaults = {
         "gmail_authenticated": False,
@@ -153,50 +134,6 @@ def init_state() -> None:
         if key not in st.session_state:
             st.session_state[key] = value
 
-def get_allowed_emails() -> set[str]:
-    raw = get_secret("ALLOWED_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
-
-
-def is_user_allowed(email: str) -> bool:
-    if not email:
-        return False
-    allowed = get_allowed_emails()
-    # Empty ALLOWED_EMAILS = allow everyone (handy for local testing).
-    # Delete the next two lines when you want strict paid-only mode.
-    if not allowed:
-        return True
-    return email.strip().lower() in allowed
-
-
-def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
-    """Called after successful Google OAuth + whitelist check."""
-    clean_email = (email or "").strip().lower()
-    st.session_state.gmail_authenticated = True
-    st.session_state.sender_email = clean_email
-    st.session_state.sender_name = (name or "").strip() or name_from_email_address(clean_email)
-    st.session_state.company_name = (company or "").strip() or DEFAULT_COMPANY
-    # sender_password is deliberately left empty → the expander will ask for App Password
-
-def login_user(email: str, app_password: str, sender_name: str, company_name: str) -> None:
-    clean_email = email.strip().lower()
-    st.session_state.gmail_authenticated = True
-    st.session_state.sender_email = clean_email
-    st.session_state.sender_password = re.sub(r"\s+", "", app_password or "")
-    st.session_state.sender_name = sender_name.strip() or name_from_email_address(clean_email)
-    st.session_state.company_name = company_name.strip() or DEFAULT_COMPANY
-
-
-def logout_user() -> None:
-    for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name", "company_name"]:
-        st.session_state[key] = False if key == "gmail_authenticated" else ""
-    st.session_state.email_results = []
-    try:
-        st.logout()
-    except Exception:
-        pass
-    st.rerun()
-
 
 def reset_jd_library_form() -> None:
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
@@ -204,7 +141,6 @@ def reset_jd_library_form() -> None:
 
 
 def reset_screening_session() -> None:
-    """Fully reset the screening session (used by the Screen tab's 'New' button)."""
     st.session_state.results_df = pd.DataFrame()
     st.session_state.email_results = []
     st.session_state.last_role = ""
@@ -231,51 +167,69 @@ def reset_screening_session() -> None:
         st.session_state[key] = ""
 
 
-def questions_from_text(text: str) -> list[str]:
-    questions = []
-    for line in text.splitlines():
-        clean = re.sub(r"^\s*[-*0-9.)]+\s*", "", line).strip()
-        if clean:
-            questions.append(clean)
-    return questions or DEFAULT_QUESTIONS
-
-
-def first_name(full_name: str) -> str:
-    if not full_name or full_name == "Unknown Candidate":
-        return "there"
-    return str(full_name).split()[0].strip(",")
-
-def get_allowed_emails() -> set[str]:
-    raw = get_secret("ALLOWED_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+# ============================================================
+# Authentication (Google OAuth + Manual Whitelist)
+# ============================================================
+def is_auth_configured() -> bool:
+    """Return True only if all required Google OAuth secrets are present."""
+    try:
+        if "auth" not in st.secrets:
+            return False
+        auth = st.secrets["auth"]
+        required = ["redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url"]
+        return all(bool(auth.get(key)) for key in required)
+    except Exception:
+        return False
 
 
 def is_user_allowed(email: str) -> bool:
+    """
+    Simple whitelist check.
+    Looks at ADMIN_EMAILS and ALLOWED_EMAILS from secrets.
+    """
     if not email:
         return False
-    allowed = get_allowed_emails()
-    # Empty list = allow everyone (useful for local testing). Remove this line for strict mode.
-    if not allowed:
-        return True
-    return email.strip().lower() in allowed
+    email = email.strip().lower()
+
+    try:
+        admin_raw = st.secrets.get("ADMIN_EMAILS", "") or ""
+        allowed_raw = st.secrets.get("ALLOWED_EMAILS", "") or ""
+    except Exception:
+        admin_raw = ""
+        allowed_raw = ""
+
+    admins = {e.strip().lower() for e in admin_raw.split(",") if e.strip()}
+    allowed = {e.strip().lower() for e in allowed_raw.split(",") if e.strip()}
+
+    return email in admins or email in allowed
 
 
 def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
-    """Called after successful Google OAuth + whitelist check."""
+    """Called after successful Google login + whitelist check."""
     clean_email = (email or "").strip().lower()
     st.session_state.gmail_authenticated = True
     st.session_state.sender_email = clean_email
     st.session_state.sender_name = (name or "").strip() or name_from_email_address(clean_email)
     st.session_state.company_name = (company or "").strip() or DEFAULT_COMPANY
-    # sender_password is set later via the App Password form (still required for SMTP)
+    if "sender_password" not in st.session_state:
+        st.session_state.sender_password = ""
+
+
+def login_user(email: str, app_password: str, sender_name: str, company_name: str) -> None:
+    """Legacy function (kept for compatibility)."""
+    clean_email = email.strip().lower()
+    st.session_state.gmail_authenticated = True
+    st.session_state.sender_email = clean_email
+    st.session_state.sender_password = re.sub(r"\s+", "", app_password or "")
+    st.session_state.sender_name = sender_name.strip() or name_from_email_address(clean_email)
+    st.session_state.company_name = company_name.strip() or DEFAULT_COMPANY
 
 
 def logout_user() -> None:
-    # Clear app session state
+    """Fully sign out (clear session state + Google identity cookie)."""
     for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name", "company_name"]:
         st.session_state[key] = False if key == "gmail_authenticated" else ""
     st.session_state.email_results = []
-    # Also clear Streamlit’s OIDC cookie
     try:
         st.logout()
     except Exception:
@@ -283,6 +237,9 @@ def logout_user() -> None:
     st.rerun()
 
 
+# ============================================================
+# CSS & UI helpers
+# ============================================================
 def render_css() -> None:
     st.markdown(
         """
@@ -383,16 +340,6 @@ def render_css() -> None:
             letter-spacing: 0.08em;
             margin-bottom: 0.35rem;
         }
-        .success-pill, .warn-pill, .bad-pill {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            border: 1px solid var(--line);
-        }
-        .success-pill { color: var(--accent); }
-        .warn-pill { color: var(--warn); }
-        .bad-pill { color: var(--bad); }
         [data-baseweb="tab-list"] {
             gap: 8px;
             border-bottom: 1px solid var(--line);
@@ -425,7 +372,6 @@ def render_css() -> None:
         [data-testid="stFormSubmitButton"] button {
             border-radius: 10px !important;
             font-weight: 700 !important;
-            letter-spacing: 0 !important;
         }
         .stButton button[kind="primary"],
         .stDownloadButton button[kind="primary"] {
@@ -440,98 +386,6 @@ def render_css() -> None:
             box-shadow: var(--shadow);
         }
         .stAlert { border-radius: 12px; }
-
-        .stButton button,
-        .stDownloadButton button,
-        [data-testid="stFormSubmitButton"] button {
-            transition: background-color 0.22s var(--ease), border-color 0.22s var(--ease),
-                        color 0.22s var(--ease), box-shadow 0.22s var(--ease),
-                        transform 0.15s var(--ease);
-        }
-        .stButton button:hover,
-        .stDownloadButton button:hover,
-        [data-testid="stFormSubmitButton"] button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-        }
-        .stButton button:active,
-        .stDownloadButton button:active,
-        [data-testid="stFormSubmitButton"] button:active {
-            transform: translateY(0) scale(0.98);
-            transition-duration: 0.08s;
-        }
-
-        [data-baseweb="tab"] {
-            transition: color 0.25s var(--ease);
-        }
-        [data-baseweb="tab-highlight"] {
-            transition: left 0.28s var(--ease), width 0.28s var(--ease) !important;
-        }
-        [data-baseweb="tab-border"] {
-            transition: none !important;
-        }
-
-        textarea, input, [data-baseweb="select"] > div {
-            transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease),
-                        background-color 0.2s var(--ease);
-        }
-
-        [data-testid="stFileUploaderDropzone"] {
-            transition: border-color 0.22s var(--ease), background-color 0.22s var(--ease);
-        }
-        [data-testid="stFileUploaderDropzone"]:hover {
-            border-color: var(--accent);
-            background: #0d1015;
-        }
-
-        [data-testid="stMetric"], .joy-card {
-            transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease),
-                        border-color 0.25s var(--ease);
-        }
-        [data-testid="stMetric"]:hover, .joy-card:hover {
-            transform: translateY(-2px);
-            border-color: #2c3444;
-        }
-
-        [data-testid="stExpander"] {
-            transition: border-color 0.2s var(--ease);
-        }
-        [data-testid="stExpander"] summary {
-            transition: color 0.2s var(--ease);
-        }
-
-        [data-testid="stCheckbox"] label span:first-child {
-            transition: background-color 0.18s var(--ease), border-color 0.18s var(--ease),
-                        box-shadow 0.18s var(--ease);
-        }
-
-        [data-testid="stSidebar"] .stButton button {
-            transition: background-color 0.2s var(--ease), color 0.2s var(--ease),
-                        border-color 0.2s var(--ease);
-        }
-
-        [data-testid="stDialog"] > div {
-            animation: joy-dialog-in 0.28s var(--ease);
-        }
-        @keyframes joy-dialog-in {
-            from { opacity: 0; transform: scale(0.97) translateY(6px); }
-            to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-
-        .stAlert {
-            animation: joy-fade-in 0.3s var(--ease);
-        }
-        @keyframes joy-fade-in {
-            from { opacity: 0; transform: translateY(-4px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.001ms !important;
-                transition-duration: 0.001ms !important;
-            }
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -548,72 +402,18 @@ def inject_premium_persona_css() -> None:
             padding: 12px 14px !important;
             resize: vertical !important;
         }
-
         [data-baseweb="tag"] {
             background: rgba(84, 214, 182, 0.14) !important;
             border: 1px solid rgba(84, 214, 182, 0.35) !important;
             border-radius: 8px !important;
             color: var(--ink) !important;
-            transition: background-color 0.18s var(--ease), border-color 0.18s var(--ease),
-                        transform 0.15s var(--ease);
         }
-        [data-baseweb="tag"]:hover {
-            background: rgba(84, 214, 182, 0.22) !important;
-            transform: translateY(-1px);
-        }
-
         div[data-baseweb="select"] > div {
             border-radius: 10px !important;
             background: #0b0d11 !important;
             overflow: visible !important;
             padding-left: 10px !important;
             box-sizing: border-box !important;
-        }
-        div[data-baseweb="select"]:focus-within > div {
-            border-color: var(--accent) !important;
-            box-shadow: 0 0 0 3px rgba(84, 214, 182, 0.14) !important;
-        }
-        [data-baseweb="select"] [data-baseweb="tag"] {
-            margin: 3px 4px 3px 0 !important;
-        }
-        div[data-baseweb="select"] input {
-            position: relative !important;
-        }
-        [data-baseweb="select"] [data-baseweb="tag"]:first-child {
-            margin-left: 2px !important;
-        }
-
-        div[data-baseweb="select"] svg {
-            fill: var(--muted) !important;
-            opacity: 0.7 !important;
-            transition: opacity 0.18s var(--ease), fill 0.18s var(--ease);
-        }
-        div[data-baseweb="select"] svg:hover {
-            fill: var(--ink) !important;
-            opacity: 1 !important;
-        }
-        div[data-baseweb="select"] [role="button"] {
-            background: transparent !important;
-            border-radius: 999px !important;
-        }
-
-        [data-baseweb="popover"] {
-            animation: joy-dropdown-in 0.16s var(--ease);
-        }
-        @keyframes joy-dropdown-in {
-            from { opacity: 0; transform: translateY(-4px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        [data-baseweb="menu"] li {
-            transition: background-color 0.12s var(--ease);
-        }
-
-        [data-testid="stExpander"] [data-testid="stNumberInput"] input {
-            border-radius: 10px !important;
-        }
-
-        [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
-            transition: opacity 0.2s var(--ease);
         }
         </style>
         """,
@@ -622,30 +422,6 @@ def inject_premium_persona_css() -> None:
 
 
 def _inject_html(html_string: str, height: int = 1, width: int = 1) -> None:
-    """
-    Shared by every inject_* function below. Streamlit deprecated
-    components.v1.html in 1.56.0 — its own docs point two different
-    directions depending on use case:
-      - st.html: for plain HTML snippets. Does NOT execute <script> tags
-        at all (confirmed via Streamlit's own GitHub issue tracker), so
-        it can't replace what these functions do.
-      - st.iframe: explicitly documented as preserving "JavaScript
-        execution and same-origin access to the Streamlit app" — the
-        same behavior components.html had, which is what every
-        window.parent.document trick below depends on.
-    So st.iframe is the correct target here, not st.html, even though
-    st.html is the more commonly cited replacement for the general case.
-
-    One real behavior difference verified against a live install: the
-    old API happily took height=0/width=0 for an invisible element; the
-    new st.iframe explicitly rejects 0 ("must be a positive integer, or
-    'stretch'/'content'") and raises ValueError. 1x1 is the smallest
-    valid size and is visually indistinguishable from invisible against
-    this app's dark background, so that's the new default.
-
-    Falls back to the legacy API on Streamlit < 1.56.0 (no st.iframe at
-    all) so this doesn't break on older installs.
-    """
     try:
         st.iframe(html_string, height=height, width=width)
     except AttributeError:
@@ -660,7 +436,6 @@ def inject_multiselect_chip_fix() -> None:
             <script>
             (function() {
                 const doc = window.parent.document;
-
                 function fixChipPadding() {
                     const controls = doc.querySelectorAll('div[data-baseweb="select"]');
                     controls.forEach((control) => {
@@ -672,12 +447,8 @@ def inject_multiselect_chip_fix() -> None:
                             row.style.boxSizing = "border-box";
                             row.dataset.joyPadded = "1";
                         }
-                        if (control.style.overflow !== "visible") {
-                            control.style.overflow = "visible";
-                        }
                     });
                 }
-
                 fixChipPadding();
                 const observer = new MutationObserver(fixChipPadding);
                 observer.observe(doc.body, { childList: true, subtree: true });
@@ -690,20 +461,12 @@ def inject_multiselect_chip_fix() -> None:
 
 
 def inject_clear_icon_fix() -> None:
-    """
-    JS-level fallback for the multiselect 'clear all' button — same
-    runtime-discovery pattern as inject_multiselect_chip_fix(), since we
-    can't rely on a fixed DOM depth from BaseWeb's internals. Belt-and-
-    braces alongside the CSS rule in inject_premium_persona_css(); costs
-    nothing if the CSS already holds, fixes it if it doesn't.
-    """
     try:
         _inject_html(
             """
             <script>
             (function() {
                 const doc = window.parent.document;
-
                 function fixClearIcon() {
                     const controls = doc.querySelectorAll('div[data-baseweb="select"]');
                     controls.forEach((control) => {
@@ -715,13 +478,8 @@ def inject_clear_icon_fix() -> None:
                                 btn.dataset.joyCleared = "1";
                             }
                         });
-                        const svgs = control.querySelectorAll('svg');
-                        svgs.forEach((svg) => {
-                            svg.style.opacity = "0.7";
-                        });
                     });
                 }
-
                 fixClearIcon();
                 const observer = new MutationObserver(fixClearIcon);
                 observer.observe(doc.body, { childList: true, subtree: true });
@@ -751,15 +509,14 @@ def inject_keepalive() -> None:
         pass
 
 
-
 def show_results_summary(df: pd.DataFrame) -> None:
     if df.empty:
         return
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Screened", len(df))
-    c2.metric("Strong Fit", int((df["Verdict"] == "Strong Fit").sum()))
-    c3.metric("Good Fit", int((df["Verdict"] == "Good Fit").sum()))
-    c4.metric("Average Score", round(float(df["Final Score"].mean()), 1))
+    c2.metric("Strong Fit", int((df["Verdict"] == "Strong Fit").sum()) if "Verdict" in df.columns else 0)
+    c3.metric("Good Fit", int((df["Verdict"] == "Good Fit").sum()) if "Verdict" in df.columns else 0)
+    c4.metric("Average Score", round(float(df["Final Score"].mean()), 1) if "Final Score" in df.columns else 0)
 
     display_cols = [
         col for col in [
@@ -784,167 +541,3 @@ def show_results_summary(df: pd.DataFrame) -> None:
         "text/csv",
         use_container_width=False,
     )
-"""
-ADD THIS TO core/utils.py — not a full file, a drop-in patch.
-
-Three things here:
-  1. is_user_allowed()       — your app.py already imports this, didn't exist yet
-  2. login_user_from_google() — same, already imported, didn't exist yet
-  3. logout_user() — FIXED, not new. Your current version (from earlier in
-     this build) only clears Joy's own session_state and reruns. Under
-     Google OAuth that's not a real sign-out: Google's identity cookie
-     stays valid, so st.user.is_logged_in is still True on the very next
-     rerun and the user appears to silently log back in immediately after
-     clicking "Sign out." Needs to call st.logout() to actually clear the
-     identity cookie. Also added is_auth_configured(), used to guard the
-     raw `st.user.is_logged_in` check in app.py — see note at the bottom.
-"""
-
-import streamlit as st
-
-
-def is_auth_configured() -> bool:
-    """
-    True only if every key Streamlit's OIDC subsystem actually requires is
-    present in secrets: redirect_uri, cookie_secret, client_id,
-    client_secret, server_metadata_url. Checking just client_id (an
-    earlier version of this check) isn't enough — verified directly: a
-    secrets block with only client_id set still leaves st.user.is_logged_in
-    raising AttributeError, same as having no [auth] section at all.
-    Check this BEFORE touching st.user anywhere.
-    """
-    try:
-        if "auth" not in st.secrets:
-            return False
-        auth_block = st.secrets["auth"]
-        required = ["redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url"]
-        return all(bool(auth_block.get(key)) for key in required)
-    except Exception:
-        return False
-
-
-def is_user_allowed(email: str) -> bool:
-    """
-    Whitelist check for the Google OAuth paywall. Checks, in order:
-      1. ADMIN_EMAILS secret — bootstrap access (you, cofounders) that
-         always works even if Supabase is down or paid_users doesn't
-         exist yet.
-      2. The `paid_users` Supabase table — the actual manual-whitelist
-         store, populated by hand after a Razorpay/Stripe payment
-         notification (Supabase table editor UI, no redeploy needed).
-
-    Fails closed: any failure — missing table, network error, bad
-    creds — returns False for non-admin emails. A broken whitelist check
-    should never accidentally become an open door.
-
-    Supabase table this expects:
-        create table if not exists paid_users (
-            email text primary key,
-            whitelisted_at timestamptz default now(),
-            note text
-        );
-    """
-    if not email:
-        return False
-    email = email.strip().lower()
-
-    try:
-        admin_raw = st.secrets.get("ADMIN_EMAILS", "") or ""
-    except Exception:
-        admin_raw = ""
-    admin_emails = {e.strip().lower() for e in admin_raw.split(",") if e.strip()}
-    if email in admin_emails:
-        return True
-
-    supabase = None
-    try:
-        from supabase import create_client
-        url = st.secrets.get("SUPABASE_URL") or ""
-        key = st.secrets.get("SUPABASE_KEY") or ""
-        if url and key:
-            supabase = create_client(url, key)
-    except Exception:
-        supabase = None
-    if not supabase:
-        return False
-
-    try:
-        response = (
-            supabase.table("paid_users")
-            .select("email")
-            .eq("email", email)
-            .limit(1)
-            .execute()
-        )
-        return bool(response.data)
-    except Exception:
-        return False
-
-
-def login_user_from_google(email: str, name: str, company_name: str) -> None:
-    """
-    Finishes wiring a Google-authenticated + whitelisted user into Joy's
-    existing session-state model (gmail_authenticated / sender_email /
-    sender_name / company_name) — the same keys history, JD library, and
-    screening already read via `user_key` elsewhere in the app, so
-    nothing downstream needs to change.
-
-    Deliberately does NOT touch sender_password. Google OAuth proves
-    identity, not SMTP authority — the separate App Password prompt
-    later in app.py is what actually enables sending. This must never
-    overwrite a password already entered this session, even if this
-    function fires again later (e.g. company_name changes).
-
-    Assumes name_from_email_address() already exists elsewhere in this
-    file (it did, prior to this patch) — used as a fallback display name
-    if Google doesn't return one.
-    """
-    st.session_state.gmail_authenticated = True
-    st.session_state.sender_email = email.strip().lower()
-    st.session_state.sender_name = (name or "").strip() or name_from_email_address(email)
-    st.session_state.company_name = (company_name or "").strip() or DEFAULT_COMPANY
-    if "sender_password" not in st.session_state:
-        st.session_state.sender_password = ""
-
-
-def logout_user() -> None:
-    """
-    FIXED from the plain-session-state-clear version. Now actually signs
-    out of Google too (st.logout() clears the identity cookie) — without
-    this, clicking "Sign out" only cleared Joy's own state; the Google
-    cookie stayed valid and the user silently reappeared as logged-in on
-    the next rerun.
-    """
-    for key in ["sender_email", "sender_password", "sender_name", "company_name"]:
-        st.session_state[key] = ""
-    st.session_state.gmail_authenticated = False
-    st.session_state.email_results = []
-    try:
-        st.logout()
-    except Exception:
-        st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# ALSO NEEDED — a one-line change in app.py itself, not in this file:
-#
-# Your app.py currently has, unguarded:
-#
-#     if not st.user.is_logged_in:
-#         ...
-#
-# This crashes with AttributeError if [auth] isn't in secrets yet (proven
-# against a live Streamlit 1.60.0 install). Guard it with is_auth_configured()
-# from this same file:
-#
-#     if not is_auth_configured():
-#         st.error(
-#             "Google Sign-In isn't configured yet. Add an [auth] section to "
-#             "secrets.toml (client_id, client_secret, redirect_uri, "
-#             "cookie_secret) to enable this."
-#         )
-#         st.stop()
-#
-#     if not st.user.is_logged_in:
-#         ...
-# ---------------------------------------------------------------------------
