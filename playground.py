@@ -30,7 +30,8 @@ from core.utils import (
     inject_keepalive,
     inject_multiselect_chip_fix,
     inject_premium_persona_css,
-    login_user,
+    is_user_allowed,          # ← add
+    login_user_from_google,   # ← add
     logout_user,
     mask_email,
     order_columns_first,
