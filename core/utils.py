@@ -784,3 +784,167 @@ def show_results_summary(df: pd.DataFrame) -> None:
         "text/csv",
         use_container_width=False,
     )
+"""
+ADD THIS TO core/utils.py — not a full file, a drop-in patch.
+
+Three things here:
+  1. is_user_allowed()       — your app.py already imports this, didn't exist yet
+  2. login_user_from_google() — same, already imported, didn't exist yet
+  3. logout_user() — FIXED, not new. Your current version (from earlier in
+     this build) only clears Joy's own session_state and reruns. Under
+     Google OAuth that's not a real sign-out: Google's identity cookie
+     stays valid, so st.user.is_logged_in is still True on the very next
+     rerun and the user appears to silently log back in immediately after
+     clicking "Sign out." Needs to call st.logout() to actually clear the
+     identity cookie. Also added is_auth_configured(), used to guard the
+     raw `st.user.is_logged_in` check in app.py — see note at the bottom.
+"""
+
+import streamlit as st
+
+
+def is_auth_configured() -> bool:
+    """
+    True only if every key Streamlit's OIDC subsystem actually requires is
+    present in secrets: redirect_uri, cookie_secret, client_id,
+    client_secret, server_metadata_url. Checking just client_id (an
+    earlier version of this check) isn't enough — verified directly: a
+    secrets block with only client_id set still leaves st.user.is_logged_in
+    raising AttributeError, same as having no [auth] section at all.
+    Check this BEFORE touching st.user anywhere.
+    """
+    try:
+        if "auth" not in st.secrets:
+            return False
+        auth_block = st.secrets["auth"]
+        required = ["redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url"]
+        return all(bool(auth_block.get(key)) for key in required)
+    except Exception:
+        return False
+
+
+def is_user_allowed(email: str) -> bool:
+    """
+    Whitelist check for the Google OAuth paywall. Checks, in order:
+      1. ADMIN_EMAILS secret — bootstrap access (you, cofounders) that
+         always works even if Supabase is down or paid_users doesn't
+         exist yet.
+      2. The `paid_users` Supabase table — the actual manual-whitelist
+         store, populated by hand after a Razorpay/Stripe payment
+         notification (Supabase table editor UI, no redeploy needed).
+
+    Fails closed: any failure — missing table, network error, bad
+    creds — returns False for non-admin emails. A broken whitelist check
+    should never accidentally become an open door.
+
+    Supabase table this expects:
+        create table if not exists paid_users (
+            email text primary key,
+            whitelisted_at timestamptz default now(),
+            note text
+        );
+    """
+    if not email:
+        return False
+    email = email.strip().lower()
+
+    try:
+        admin_raw = st.secrets.get("ADMIN_EMAILS", "") or ""
+    except Exception:
+        admin_raw = ""
+    admin_emails = {e.strip().lower() for e in admin_raw.split(",") if e.strip()}
+    if email in admin_emails:
+        return True
+
+    supabase = None
+    try:
+        from supabase import create_client
+        url = st.secrets.get("SUPABASE_URL") or ""
+        key = st.secrets.get("SUPABASE_KEY") or ""
+        if url and key:
+            supabase = create_client(url, key)
+    except Exception:
+        supabase = None
+    if not supabase:
+        return False
+
+    try:
+        response = (
+            supabase.table("paid_users")
+            .select("email")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+        return bool(response.data)
+    except Exception:
+        return False
+
+
+def login_user_from_google(email: str, name: str, company_name: str) -> None:
+    """
+    Finishes wiring a Google-authenticated + whitelisted user into Joy's
+    existing session-state model (gmail_authenticated / sender_email /
+    sender_name / company_name) — the same keys history, JD library, and
+    screening already read via `user_key` elsewhere in the app, so
+    nothing downstream needs to change.
+
+    Deliberately does NOT touch sender_password. Google OAuth proves
+    identity, not SMTP authority — the separate App Password prompt
+    later in app.py is what actually enables sending. This must never
+    overwrite a password already entered this session, even if this
+    function fires again later (e.g. company_name changes).
+
+    Assumes name_from_email_address() already exists elsewhere in this
+    file (it did, prior to this patch) — used as a fallback display name
+    if Google doesn't return one.
+    """
+    st.session_state.gmail_authenticated = True
+    st.session_state.sender_email = email.strip().lower()
+    st.session_state.sender_name = (name or "").strip() or name_from_email_address(email)
+    st.session_state.company_name = (company_name or "").strip() or DEFAULT_COMPANY
+    if "sender_password" not in st.session_state:
+        st.session_state.sender_password = ""
+
+
+def logout_user() -> None:
+    """
+    FIXED from the plain-session-state-clear version. Now actually signs
+    out of Google too (st.logout() clears the identity cookie) — without
+    this, clicking "Sign out" only cleared Joy's own state; the Google
+    cookie stayed valid and the user silently reappeared as logged-in on
+    the next rerun.
+    """
+    for key in ["sender_email", "sender_password", "sender_name", "company_name"]:
+        st.session_state[key] = ""
+    st.session_state.gmail_authenticated = False
+    st.session_state.email_results = []
+    try:
+        st.logout()
+    except Exception:
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# ALSO NEEDED — a one-line change in app.py itself, not in this file:
+#
+# Your app.py currently has, unguarded:
+#
+#     if not st.user.is_logged_in:
+#         ...
+#
+# This crashes with AttributeError if [auth] isn't in secrets yet (proven
+# against a live Streamlit 1.60.0 install). Guard it with is_auth_configured()
+# from this same file:
+#
+#     if not is_auth_configured():
+#         st.error(
+#             "Google Sign-In isn't configured yet. Add an [auth] section to "
+#             "secrets.toml (client_id, client_secret, redirect_uri, "
+#             "cookie_secret) to enable this."
+#         )
+#         st.stop()
+#
+#     if not st.user.is_logged_in:
+#         ...
+# ---------------------------------------------------------------------------
