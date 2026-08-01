@@ -153,6 +153,30 @@ def init_state() -> None:
         if key not in st.session_state:
             st.session_state[key] = value
 
+def get_allowed_emails() -> set[str]:
+    raw = get_secret("ALLOWED_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def is_user_allowed(email: str) -> bool:
+    if not email:
+        return False
+    allowed = get_allowed_emails()
+    # Empty ALLOWED_EMAILS = allow everyone (handy for local testing).
+    # Delete the next two lines when you want strict paid-only mode.
+    if not allowed:
+        return True
+    return email.strip().lower() in allowed
+
+
+def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
+    """Called after successful Google OAuth + whitelist check."""
+    clean_email = (email or "").strip().lower()
+    st.session_state.gmail_authenticated = True
+    st.session_state.sender_email = clean_email
+    st.session_state.sender_name = (name or "").strip() or name_from_email_address(clean_email)
+    st.session_state.company_name = (company or "").strip() or DEFAULT_COMPANY
+    # sender_password is deliberately left empty → the expander will ask for App Password
 
 def login_user(email: str, app_password: str, sender_name: str, company_name: str) -> None:
     clean_email = email.strip().lower()
