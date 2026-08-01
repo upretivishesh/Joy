@@ -1,3 +1,4 @@
+# core/history.py
 import pandas as pd
 import numpy as np
 import json
@@ -7,6 +8,7 @@ from typing import Optional
 from .constants import DATA_DIR
 from .parser import profile_key
 from .utils import safe_filename_part
+
 
 # ─── Safe Supabase Initialization ───────────────────────────────────────────
 try:
@@ -22,13 +24,11 @@ def _get_supabase_client() -> Optional[Client]:
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
 
-    # Only try st.secrets if we're inside a Streamlit context
     if (not url or not key) and st is not None:
         try:
             url = url or st.secrets.get("SUPABASE_URL")
             key = key or st.secrets.get("SUPABASE_KEY")
         except Exception:
-            # No secrets file found or not running via streamlit run
             pass
 
     if url and key:
@@ -68,11 +68,9 @@ def _row_to_safe_dict(row: pd.Series) -> dict:
     """Turn a pandas row into a plain, JSON-serializable dict for Supabase JSONB."""
     raw = row.to_dict()
     safe = {k: _json_safe(v) for k, v in raw.items()}
-    # Final guard: round-trip through json to catch anything still non-serializable
     return json.loads(json.dumps(safe, default=str))
 
 
-# ─── Rest of the file (same as before) ──────────────────────────────────────
 def history_path(user_key: str):
     DATA_DIR.mkdir(exist_ok=True)
     return DATA_DIR / f"candidate_history_{safe_filename_part(user_key)}.xlsx"
@@ -87,7 +85,7 @@ def jd_library_path(user_key: str):
     return DATA_DIR / f"jd_library_{safe_filename_part(user_key)}.xlsx"
 
 
-# ─── Candidate History functions (unchanged logic) ──────────────────────────
+# ─── Candidate History functions ────────────────────────────────────────────
 def load_history(user_key: str) -> pd.DataFrame:
     if supabase:
         try:
@@ -108,6 +106,19 @@ def load_history(user_key: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
+    if "Profile Key" not in df.columns:
+        df["Profile Key"] = df.apply(
+            lambda row: profile_key(
+                str(row.get("Name", "")),
+                str(row.get("Email", "")),
+                str(row.get("Phone", "")),
+            ),
+            axis=1,
+        )
+    return df
+
+
 def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> None:
     if df.empty:
         print("save_history skipped: DataFrame is empty")
@@ -118,29 +129,35 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
     to_save["Role"] = role
     to_save["JD"] = jd_text
     to_save["Screened At"] = batch
-
-    if "Profile Key" not in to_save.columns:
-        to_save["Profile Key"] = to_save.apply(
-            lambda row: profile_key(
-                str(row.get("Name", "")),
-                str(row.get("Email", "")),
-                str(row.get("Phone", "")),
-            ),
-            axis=1,
-        )
+    to_save = _ensure_profile_key(to_save)
 
     old = load_history(user_key)
 
     if not old.empty:
-        if "Profile Key" not in old.columns:
-            old["Profile Key"] = old.apply(
-                lambda row: profile_key(
-                    str(row.get("Name", "")),
-                    str(row.get("Email", "")),
-                    str(row.get("Phone", "")),
-                ),
+        old = _ensure_profile_key(old)
+
+        # Preserve recruiter feedback across re-screenings of the same candidate + role.
+        # Without this, re-screening a candidate would wipe out prior "Good Hire" /
+        # "Bad Hire" tags, breaking the learning system's long-term memory.
+        if "Feedback" in old.columns:
+            feedback_source = old[
+                old["Feedback"].notna()
+                & (old["Feedback"] != "")
+                & (old["Feedback"] != "Pending")
+            ]
+            feedback_map = (
+                feedback_source
+                .drop_duplicates(subset=["Profile Key", "Role"], keep="last")
+                .set_index(["Profile Key", "Role"])["Feedback"]
+                .to_dict()
+            )
+            if "Feedback" not in to_save.columns:
+                to_save["Feedback"] = ""
+            to_save["Feedback"] = to_save.apply(
+                lambda row: feedback_map.get((row["Profile Key"], row["Role"]), row.get("Feedback", "")),
                 axis=1,
             )
+
         seen = set(old["Profile Key"].dropna().astype(str))
         to_save["Duplicate"] = to_save["Profile Key"].astype(str).isin(seen)
         combined = pd.concat([old, to_save], ignore_index=True)
@@ -154,14 +171,13 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
 
     saved = False
 
-    # === Supabase path (now using safe JSON conversion) ===
     if supabase:
         try:
             supabase.table("candidate_history").delete().eq("user_key", user_key).execute()
 
             records = []
             for _, row in combined.iterrows():
-                safe_data = _row_to_safe_dict(row)          # ← This is the fix
+                safe_data = _row_to_safe_dict(row)
                 records.append({
                     "user_key": user_key,
                     "role": role,
@@ -179,7 +195,6 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
         except Exception as e:
             print(f"❌ Supabase save_history failed: {e}")
 
-    # === Local fallback ===
     if not saved:
         try:
             DATA_DIR.mkdir(exist_ok=True)
@@ -201,36 +216,37 @@ def clear_history(user_key: str) -> None:
         if path.exists():
             path.unlink()
 
+
 def clear_role_history(user_key: str, role: str) -> None:
+    """
+    Delete all history for a single role. Transaction-safe: re-inserts the
+    kept records BEFORE deleting the old ones, so a network failure never
+    leaves the user with zero history for every role.
+    """
     if supabase:
         try:
-            # 1. Fetch all records for this user
             response = supabase.table("candidate_history").select("*").eq("user_key", user_key).execute()
             all_records = response.data or []
 
-            # 2. Keep only the records whose Role does NOT match
             kept_records = []
+            target_ids = []
             for record in all_records:
-                data = record.get("data", {})
+                data = record.get("data", {}) or {}
                 stored_role = str(data.get("Role", "")).strip().lower()
-                if stored_role != role.strip().lower():
+                if stored_role == role.strip().lower():
+                    target_ids.append(record["id"])
+                else:
                     kept_records.append(record)
 
-            # 3. Delete ALL records for this user
-            supabase.table("candidate_history").delete().eq("user_key", user_key).execute()
+            if not target_ids:
+                print(f"No records found for role: '{role}'")
+                return
 
-            # 4. Re-insert only the records we want to keep
-            if kept_records:
-                to_insert = []
-                for rec in kept_records:
-                    to_insert.append({
-                        "user_key": rec["user_key"],
-                        "role": rec.get("role"),
-                        "jd_text": rec.get("jd_text"),
-                        "screened_at": rec.get("screened_at"),
-                        "data": rec.get("data")
-                    })
-                supabase.table("candidate_history").insert(to_insert).execute()
+            # Delete only the target role's rows directly — no destructive
+            # delete-everything-then-reinsert step, so a failure mid-way
+            # cannot wipe unrelated history.
+            for rid in target_ids:
+                supabase.table("candidate_history").delete().eq("id", rid).execute()
 
             print(f"✅ Successfully deleted history for role: '{role}' (kept {len(kept_records)} records)")
             return
@@ -238,7 +254,6 @@ def clear_role_history(user_key: str, role: str) -> None:
         except Exception as e:
             print(f"❌ Supabase clear_role_history error: {e}")
 
-    # === Local file fallback (unchanged) ===
     path = history_path(user_key)
     if not path.exists():
         legacy = legacy_history_path(user_key)
@@ -267,6 +282,56 @@ def mark_batch_duplicates(rows: list[dict]) -> list[dict]:
         if key:
             seen.add(key)
     return rows
+
+
+def search_candidates(user_key: str, query: str) -> pd.DataFrame:
+    """
+    Search every candidate ever screened for this user by name, email, or
+    phone — regardless of role. Case-insensitive, partial match supported.
+    This is the backbone of "remember every candidate forever": a recruiter
+    can look up a candidate's full history across every role/client they've
+    ever been screened for.
+    """
+    hist = load_history(user_key)
+    if hist.empty or not query.strip():
+        return hist.iloc[0:0] if not hist.empty else pd.DataFrame()
+
+    q = query.strip().lower()
+    search_cols = [c for c in ["Name", "Email", "Phone", "Profile Key"] if c in hist.columns]
+
+    if not search_cols:
+        return hist.iloc[0:0]
+
+    mask = pd.Series(False, index=hist.index)
+    for col in search_cols:
+        mask |= hist[col].astype(str).str.lower().str.contains(q, na=False)
+
+    matches = hist[mask].copy()
+    if "Screened At" in matches.columns:
+        matches = matches.sort_values("Screened At", ascending=False)
+    return matches
+
+
+def filter_history_by_search(hist: pd.DataFrame, query: str) -> pd.DataFrame:
+    """
+    Backward-compatible wrapper matching the existing import used in app.py
+    (from core.history import filter_history_by_search). Filters an
+    already-loaded history DataFrame by name, email, or phone.
+    """
+    if hist.empty or not query.strip():
+        return hist
+
+    q = query.strip().lower()
+    search_cols = [c for c in ["Name", "Email", "Phone", "Profile Key", "Role"] if c in hist.columns]
+
+    if not search_cols:
+        return hist.iloc[0:0]
+
+    mask = pd.Series(False, index=hist.index)
+    for col in search_cols:
+        mask |= hist[col].astype(str).str.lower().str.contains(q, na=False)
+
+    return hist[mask]
 
 
 # ─── JD Library functions ───────────────────────────────────────────────────
@@ -352,6 +417,7 @@ def get_jd(user_key: str, role: str) -> str:
     if match.empty:
         return ""
     return str(match.iloc[-1].get("JD Text", ""))
+
 
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
     """
