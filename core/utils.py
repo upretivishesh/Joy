@@ -4,6 +4,7 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from .constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
 
@@ -26,6 +27,7 @@ def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+
 def name_from_email_address(email: str) -> str:
     local = (email or "").split("@")[0]
     local = re.sub(r"\+.*$", "", local)
@@ -35,12 +37,18 @@ def name_from_email_address(email: str) -> str:
     return " ".join(part.capitalize() for part in parts[:3])
 
 
+
 def mask_email(email: str) -> str:
-    if "@" not in email:
+    if not email or "@" not in email:
         return email
     local, domain = email.split("@", 1)
-    masked_local = local[:2] + "*" * min(5, max(len(local) - 2, 1))
+    if len(local) <= 2:
+        masked_local = local[0] + "*" * 3
+    else:
+        visible = local[:2]
+        masked_local = visible + "*" * min(6, max(len(local) - 2, 3))
     return f"{masked_local}@{domain}"
+
 
 
 def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
@@ -50,22 +58,25 @@ def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
     return df[first_present + remaining]
 
 
+
 def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
     if "Experience" not in df.columns:
         return df
     df = df.copy()
     numeric = pd.to_numeric(df["Experience"], errors="coerce").fillna(0)
-    df["Experience"] = numeric.apply(lambda v: f"{v:g} Years")
+    df["Experience"] = numeric.apply(lambda v: f"{v:g} yrs")
     return df
+
 
 
 def format_industry_fit(df: pd.DataFrame) -> pd.DataFrame:
     if "Industry Match" not in df.columns:
         return df
     df = df.copy()
-    badge = {"Yes": "✅ Yes", "Partial": "⚠️ Partial", "No": "❌ No", "N/A": "— N/A"}
-    df["Industry Match"] = df["Industry Match"].astype(str).map(lambda v: badge.get(v, "— N/A"))
+    badge = {"Yes": "Match", "Partial": "Partial", "No": "No Match", "N/A": "—", "NA": "—"}
+    df["Industry Match"] = df["Industry Match"].astype(str).map(lambda v: badge.get(v, "—"))
     return df
+
 
 
 def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
@@ -76,7 +87,7 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     search_cols = [
         c for c in [
             "Name", "Email", "Phone", "Skills", "Matched Keywords",
-            "Role", "Candidate Industry", "Source File",
+            "Role", "Candidate Industry", "Source File", "Profile Key",
         ]
         if c in df.columns
     ]
@@ -89,9 +100,11 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     return df[mask]
 
 
+
 def safe_filename_part(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", value or "user")
     return clean.strip("_")[:80] or "user"
+
 
 
 def questions_from_text(text: str) -> list[str]:
@@ -101,6 +114,7 @@ def questions_from_text(text: str) -> list[str]:
         if clean:
             questions.append(clean)
     return questions or DEFAULT_QUESTIONS
+
 
 
 def first_name(full_name: str) -> str:
@@ -135,9 +149,11 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
+
 def reset_jd_library_form() -> None:
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
         st.session_state[key] = ""
+
 
 
 def reset_screening_session() -> None:
@@ -171,7 +187,6 @@ def reset_screening_session() -> None:
 # Authentication (Google OAuth + Manual Whitelist)
 # ============================================================
 def is_auth_configured() -> bool:
-    """Return True only if all required Google OAuth secrets are present."""
     try:
         if "auth" not in st.secrets:
             return False
@@ -182,11 +197,8 @@ def is_auth_configured() -> bool:
         return False
 
 
+
 def is_user_allowed(email: str) -> bool:
-    """
-    Simple whitelist check.
-    Looks at ADMIN_EMAILS and ALLOWED_EMAILS from secrets.
-    """
     if not email:
         return False
     email = email.strip().lower()
@@ -200,12 +212,11 @@ def is_user_allowed(email: str) -> bool:
 
     admins = {e.strip().lower() for e in admin_raw.split(",") if e.strip()}
     allowed = {e.strip().lower() for e in allowed_raw.split(",") if e.strip()}
-
     return email in admins or email in allowed
 
 
+
 def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
-    """Called after successful Google login + whitelist check."""
     clean_email = (email or "").strip().lower()
     st.session_state.gmail_authenticated = True
     st.session_state.sender_email = clean_email
@@ -215,8 +226,8 @@ def login_user_from_google(email: str, name: str = "", company: str = "") -> Non
         st.session_state.sender_password = ""
 
 
+
 def login_user(email: str, app_password: str, sender_name: str, company_name: str) -> None:
-    """Legacy function (kept for compatibility)."""
     clean_email = email.strip().lower()
     st.session_state.gmail_authenticated = True
     st.session_state.sender_email = clean_email
@@ -225,8 +236,8 @@ def login_user(email: str, app_password: str, sender_name: str, company_name: st
     st.session_state.company_name = company_name.strip() or DEFAULT_COMPANY
 
 
+
 def logout_user() -> None:
-    """Fully sign out (clear session state + Google identity cookie)."""
     for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name", "company_name"]:
         st.session_state[key] = False if key == "gmail_authenticated" else ""
     st.session_state.email_results = []
@@ -238,164 +249,160 @@ def logout_user() -> None:
 
 
 # ============================================================
-# CSS & UI helpers
+# PREMIUM DESIGN SYSTEM
 # ============================================================
-def render_css() -> None:
+def inject_elite_theme() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap');
+
         :root {
-            --bg: #000000;
-            --panel: #0d0f13;
-            --panel-2: #151820;
-            --ink: #f5f7fb;
-            --muted: #8d96a6;
-            --line: #222733;
-            --accent: #54d6b6;
-            --accent-2: #a5b4fc;
-            --warn: #f6c267;
-            --bad: #fb8b8b;
-            --shadow: 0 18px 55px rgba(0, 0, 0, 0.55);
-            --ease: cubic-bezier(0.16, 1, 0.3, 1);
+            --bg: #05060a;
+            --panel: rgba(255,255,255,0.03);
+            --panel-strong: #0d0f14;
+            --line: rgba(255,255,255,0.08);
+            --ink: #f2f4f7;
+            --muted: #9aa1b2;
+            --muted-2: #5c6377;
+            --accent: #35e0c1;
+            --accent-soft: rgba(53,224,193,0.14);
+            --bad: #ff6b6b;
+            --bad-soft: rgba(255,90,90,0.15);
+            --radius: 14px;
+            --radius-sm: 10px;
+            --shadow: 0 8px 30px rgba(0,0,0,0.35);
         }
+
         html, body, [class*="css"], .stApp {
-            font-family: 'Instrument Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             color: var(--ink);
         }
+
         .stApp {
-            background:
-                linear-gradient(180deg, rgba(0,0,0,0.98), rgba(0,0,0,1)),
-                radial-gradient(circle at top left, rgba(84,214,182,0.08), transparent 30%),
-                var(--bg);
+            background: radial-gradient(circle at 15% 0%, #0d1420 0%, var(--bg) 55%);
         }
+
         .block-container {
-            max-width: 1160px;
+            max-width: 1180px;
             padding-top: 2rem;
             padding-bottom: 3rem;
         }
-        h1, h2, h3, .hero-title {
+
+        hr { display: none !important; }
+
+        h1, h2, h3 {
             font-family: 'Newsreader', Georgia, serif !important;
-            letter-spacing: 0 !important;
+            font-weight: 650 !important;
+            letter-spacing: -0.01em;
             color: var(--ink);
         }
-        h2, h3 { font-weight: 650 !important; }
+
         .hero {
-            padding: 30px 0 20px;
-            max-width: 860px;
+            padding: 2.2rem 2.4rem;
+            border-radius: var(--radius);
+            background: linear-gradient(135deg, rgba(53,224,193,0.08), rgba(255,255,255,0.02));
+            border: 1px solid var(--line);
+            margin-bottom: 1.6rem;
         }
         .eyebrow {
-            color: var(--accent);
-            font-size: 0.76rem;
+            display: inline-block;
+            font-size: 0.72rem;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.14em;
             text-transform: uppercase;
-            margin-bottom: 8px;
+            color: var(--accent);
+            background: var(--accent-soft);
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 12px;
         }
         .hero-title {
-            font-size: clamp(2.4rem, 6vw, 5rem);
-            line-height: 0.95;
-            font-weight: 650;
-            margin: 0 0 14px;
+            font-size: clamp(2rem, 5vw, 3rem);
+            line-height: 1.05;
+            margin: 0 0 10px 0;
         }
         .hero-copy {
-            max-width: 680px;
             color: var(--muted);
-            font-size: 1.02rem;
-            line-height: 1.7;
+            font-size: 1rem;
+            line-height: 1.6;
+            max-width: 660px;
             margin: 0;
         }
-        [data-testid="stSidebar"] {
-            background: #050506;
+
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0b0d14 0%, var(--bg) 100%);
             border-right: 1px solid var(--line);
         }
-        [data-testid="stSidebar"] * { color: #eef2f7; }
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] .stCaptionContainer {
-            color: #98a2b3 !important;
+        section[data-testid="stSidebar"] h1 {
+            font-family: 'Inter', sans-serif !important;
+            font-size: 1.3rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--ink);
+            margin-bottom: 2px;
         }
-        [data-testid="stMetric"] {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 15px 16px;
-            box-shadow: var(--shadow);
-        }
-        [data-testid="stMetricLabel"] p {
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] .stCaptionContainer {
             color: var(--muted) !important;
-            font-size: 0.78rem !important;
         }
-        .joy-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: var(--shadow);
-        }
-        .muted { color: var(--muted); }
-        .small-label {
-            color: var(--muted);
-            font-size: 0.78rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            margin-bottom: 0.35rem;
-        }
-        [data-baseweb="tab-list"] {
-            gap: 8px;
+
+        div[data-baseweb="tab-list"] {
+            gap: 6px;
             border-bottom: 1px solid var(--line);
         }
-        [data-baseweb="tab"] {
-            font-weight: 650;
+        button[data-baseweb="tab"] {
+            font-weight: 600;
+            font-size: 0.92rem;
             color: var(--muted);
-            padding-left: 4px;
-            padding-right: 18px;
+            padding: 10px 18px;
         }
-        [aria-selected="true"] { color: var(--ink) !important; }
-        textarea, input {
-            border-radius: 10px !important;
-            border-color: var(--line) !important;
-            background: #0b0d11 !important;
+        button[data-baseweb="tab"][aria-selected="true"] {
+            color: var(--accent) !important;
+        }
+        div[data-baseweb="tab-highlight"] {
+            background-color: var(--accent) !important;
+            height: 2.5px !important;
+        }
+        div[data-baseweb="tab-border"] { display: none; }
+
+        .stButton > button, .stDownloadButton > button,
+        [data-testid="stFormSubmitButton"] button {
+            border-radius: var(--radius-sm) !important;
+            font-weight: 600 !important;
+            border: 1px solid var(--line) !important;
+            transition: all 0.15s ease;
+        }
+        .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {
+            background: var(--ink) !important;
+            color: #05070c !important;
+            border: none !important;
+            box-shadow: 0 4px 14px rgba(255,255,255,0.10);
+        }
+        .stButton > button[kind="primary"]:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(255,255,255,0.18);
+            background: #ffffff !important;
+        }
+        .stButton > button[kind="secondary"] {
+            background: var(--panel) !important;
+            color: var(--ink) !important;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+        }
+
+        textarea, input, div[data-baseweb="select"] > div {
+            background: var(--panel) !important;
+            border: 1px solid var(--line) !important;
+            border-radius: var(--radius-sm) !important;
             color: var(--ink) !important;
         }
         textarea:focus, input:focus {
             border-color: var(--accent) !important;
-            box-shadow: 0 0 0 3px rgba(84,214,182,0.14) !important;
+            box-shadow: 0 0 0 1px var(--accent) !important;
         }
-        [data-testid="stFileUploaderDropzone"] {
-            background: #0b0d11;
-            border: 1px dashed #303746;
-            border-radius: 12px;
-        }
-        [data-testid="stFileUploaderDropzone"] * { color: var(--muted) !important; }
-        .stButton button,
-        .stDownloadButton button,
-        [data-testid="stFormSubmitButton"] button {
-            border-radius: 10px !important;
-            font-weight: 700 !important;
-        }
-        .stButton button[kind="primary"],
-        .stDownloadButton button[kind="primary"] {
-            background: var(--ink) !important;
-            border-color: var(--ink) !important;
-            color: #000 !important;
-        }
-        div[data-testid="stDataFrame"] {
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: var(--shadow);
-        }
-        .stAlert { border-radius: 12px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def inject_premium_persona_css() -> None:
-    st.markdown(
-        """
-        <style>
         [data-testid="stExpander"] textarea {
             min-height: 110px !important;
             line-height: 1.55 !important;
@@ -403,110 +410,194 @@ def inject_premium_persona_css() -> None:
             resize: vertical !important;
         }
         [data-baseweb="tag"] {
-            background: rgba(84, 214, 182, 0.14) !important;
-            border: 1px solid rgba(84, 214, 182, 0.35) !important;
+            background: var(--accent-soft) !important;
+            border: 1px solid rgba(53,224,193,0.35) !important;
             border-radius: 8px !important;
             color: var(--ink) !important;
         }
-        div[data-baseweb="select"] > div {
-            border-radius: 10px !important;
-            background: #0b0d11 !important;
-            overflow: visible !important;
-            padding-left: 10px !important;
-            box-sizing: border-box !important;
+
+        div[data-testid="stTextInput"] > div {
+            background: var(--panel) !important;
+            border: 1px solid var(--line) !important;
+            border-radius: var(--radius-sm) !important;
         }
+        div[data-testid="stTextInput"] [data-baseweb="input"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stTextInput"] input {
+            background: transparent !important;
+            color: var(--ink) !important;
+        }
+        div[data-testid="stTextInput"] button {
+            background: transparent !important;
+            color: var(--muted) !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stTextInput"] > div:focus-within {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 1px var(--accent) !important;
+        }
+
+        [data-testid="stFileUploaderDropzone"] {
+            background: var(--panel);
+            border: 1.5px dashed var(--line);
+            border-radius: var(--radius);
+        }
+        [data-testid="stFileUploaderDropzone"]:hover { border-color: var(--accent); }
+        [data-testid="stFileUploaderDropzone"] * { color: var(--muted) !important; }
+
+        div[data-testid="stExpander"] {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+        }
+        .joy-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 16px;
+            box-shadow: var(--shadow);
+        }
+
+        [data-testid="stMetric"] {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: var(--shadow);
+        }
+        [data-testid="stMetricValue"] { color: var(--ink) !important; font-weight: 800; }
+        [data-testid="stMetricLabel"] p { color: var(--muted) !important; font-size: 0.78rem !important; }
+
+        div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+            border-radius: var(--radius);
+            border: 1px solid var(--line);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        div[data-testid="stAlert"] { border-radius: var(--radius-sm); border: 1px solid var(--line); }
+
+        .timeline-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 10px;
+        }
+        .timeline-card .tc-role { font-weight: 700; color: var(--ink); font-size: 0.98rem; }
+        .timeline-card .tc-meta { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+        .timeline-card .tc-badge {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 9px;
+            border-radius: 6px;
+            margin-top: 6px;
+        }
+        .badge-good { background: var(--accent-soft); color: var(--accent); }
+        .badge-bad { background: var(--bad-soft); color: var(--bad); }
+        .badge-pending { background: rgba(255,255,255,0.06); color: var(--muted); }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _inject_html(html_string: str, height: int = 1, width: int = 1) -> None:
+
+def render_css() -> None:
+    inject_elite_theme()
+
+
+
+def inject_premium_persona_css() -> None:
+    inject_elite_theme()
+
+
+
+def _inject_html(html_string: str, height: int = 0, width: int = 0) -> None:
     try:
-        st.iframe(html_string, height=height, width=width)
-    except AttributeError:
-        import streamlit.components.v1 as components
         components.html(html_string, height=height, width=width)
+    except Exception:
+        pass
+
 
 
 def inject_multiselect_chip_fix() -> None:
-    try:
-        _inject_html(
-            """
-            <script>
-            (function() {
-                const doc = window.parent.document;
-                function fixChipPadding() {
-                    const controls = doc.querySelectorAll('div[data-baseweb="select"]');
-                    controls.forEach((control) => {
-                        const tag = control.querySelector('[data-baseweb="tag"]');
-                        if (!tag || !tag.parentElement) return;
-                        const row = tag.parentElement;
-                        if (row.dataset.joyPadded !== "1") {
-                            row.style.paddingLeft = "10px";
-                            row.style.boxSizing = "border-box";
-                            row.dataset.joyPadded = "1";
-                        }
-                    });
-                }
-                fixChipPadding();
-                const observer = new MutationObserver(fixChipPadding);
-                observer.observe(doc.body, { childList: true, subtree: true });
-            })();
-            </script>
-            """,
-        )
-    except Exception:
-        pass
+    _inject_html(
+        """
+        <script>
+        (function() {
+            const doc = window.parent.document;
+            function fixChipPadding() {
+                const controls = doc.querySelectorAll('div[data-baseweb="select"]');
+                controls.forEach((control) => {
+                    const tag = control.querySelector('[data-baseweb="tag"]');
+                    if (!tag || !tag.parentElement) return;
+                    const row = tag.parentElement;
+                    if (row.dataset.joyPadded !== "1") {
+                        row.style.paddingLeft = "10px";
+                        row.style.boxSizing = "border-box";
+                        row.dataset.joyPadded = "1";
+                    }
+                });
+            }
+            fixChipPadding();
+            const observer = new MutationObserver(fixChipPadding);
+            observer.observe(doc.body, { childList: true, subtree: true });
+        })();
+        </script>
+        """,
+    )
+
 
 
 def inject_clear_icon_fix() -> None:
-    try:
-        _inject_html(
-            """
-            <script>
-            (function() {
-                const doc = window.parent.document;
-                function fixClearIcon() {
-                    const controls = doc.querySelectorAll('div[data-baseweb="select"]');
-                    controls.forEach((control) => {
-                        const buttons = control.querySelectorAll('[role="button"]');
-                        buttons.forEach((btn) => {
-                            if (btn.dataset.joyCleared !== "1") {
-                                btn.style.background = "transparent";
-                                btn.style.borderRadius = "999px";
-                                btn.dataset.joyCleared = "1";
-                            }
-                        });
+    _inject_html(
+        """
+        <script>
+        (function() {
+            const doc = window.parent.document;
+            function fixClearIcon() {
+                const controls = doc.querySelectorAll('div[data-baseweb="select"]');
+                controls.forEach((control) => {
+                    const buttons = control.querySelectorAll('[role="button"]');
+                    buttons.forEach((btn) => {
+                        if (btn.dataset.joyCleared !== "1") {
+                            btn.style.background = "transparent";
+                            btn.style.borderRadius = "999px";
+                            btn.dataset.joyCleared = "1";
+                        }
                     });
-                }
-                fixClearIcon();
-                const observer = new MutationObserver(fixClearIcon);
-                observer.observe(doc.body, { childList: true, subtree: true });
-            })();
-            </script>
-            """,
-        )
-    except Exception:
-        pass
+                });
+            }
+            fixClearIcon();
+            const observer = new MutationObserver(fixClearIcon);
+            observer.observe(doc.body, { childList: true, subtree: true });
+        })();
+        </script>
+        """,
+    )
+
 
 
 def inject_keepalive() -> None:
-    try:
-        _inject_html(
-            """
-            <script>
-            const ping = () => {
-              try {
-                fetch(window.parent.location.href, {cache: "no-store", mode: "no-cors"});
-              } catch (e) {}
-            };
-            setInterval(ping, 240000);
-            </script>
-            """,
-        )
-    except Exception:
-        pass
+    _inject_html(
+        """
+        <script>
+        const ping = () => {
+          try {
+            fetch(window.parent.location.href, {cache: "no-store", mode: "no-cors"});
+          } catch (e) {}
+        };
+        setInterval(ping, 240000);
+        </script>
+        """,
+    )
+
 
 
 def show_results_summary(df: pd.DataFrame) -> None:
@@ -522,7 +613,7 @@ def show_results_summary(df: pd.DataFrame) -> None:
         col for col in [
             "Send", "Name", "Email", "Phone", "Experience",
             "Final Score", "Verdict", "Industry Match", "Candidate Industry",
-            "Matched Keywords", "Missing Keywords", "Source File",
+            "Matched Keywords", "Missing Keywords", "Reason", "Source File",
         ]
         if col in df.columns
     ]
@@ -530,6 +621,20 @@ def show_results_summary(df: pd.DataFrame) -> None:
     display_df = df[display_cols].copy()
     if "Name" in display_df.columns:
         display_df["Name"] = display_df["Name"].astype(str).str.title()
+    if "Candidate Industry" in display_df.columns:
+        display_df["Candidate Industry"] = (
+            display_df["Candidate Industry"]
+            .fillna("")
+            .astype(str)
+            .replace({"": "Others / Not Detected", "nan": "Others / Not Detected"})
+        )
+    if "Industry Match" in display_df.columns:
+        display_df["Industry Match"] = (
+            display_df["Industry Match"]
+            .fillna("NA")
+            .astype(str)
+            .replace({"NA": "N/A", "": "N/A", "nan": "N/A"})
+        )
     display_df = format_experience_years(display_df)
     display_df = format_industry_fit(display_df)
     st.dataframe(display_df, use_container_width=True, hide_index=True)
