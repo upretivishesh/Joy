@@ -1,35 +1,34 @@
-import json
 import re
+
 import pandas as pd
 import streamlit as st
 
-from core.constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
+from core.constants import APP_NAME, DEFAULT_COMPANY
 from core.client_profile import load_client_profile, save_client_profile, list_client_companies
 from core.emailer import build_email_body, send_bulk_emails
 from core.history import (
-    clear_history,
-    clear_role_history,
     load_history,
     load_jd_library,
     save_jd,
-    delete_jd,
     confirm_delete_role_history,
     confirm_delete_all_history,
     confirm_delete_jd,
     update_feedback,
+    filter_history_by_search,
+    search_candidates,
 )
 from core.ocr import read_uploaded_file
-from core.parser import extract_role_from_jd
+from core.parser import extract_role_from_jd, detect_role_title
 from core.screening import run_screening
+from core.persona_options import INDUSTRY_OPTIONS, LANGUAGE_OPTIONS, merge_with_custom
 from core.utils import (
-    filter_history_by_search,
     format_experience_years,
     get_secret,
     init_state,
+    inject_elite_theme,
     inject_clear_icon_fix,
     inject_keepalive,
     inject_multiselect_chip_fix,
-    inject_premium_persona_css,
     is_auth_configured,
     is_user_allowed,
     login_user_from_google,
@@ -37,21 +36,21 @@ from core.utils import (
     mask_email,
     order_columns_first,
     questions_from_text,
-    render_css,
     reset_jd_library_form,
     reset_screening_session,
     show_results_summary,
 )
 
+
 st.set_page_config(page_title=f"{APP_NAME} AI Recruiter", page_icon="J", layout="wide")
-render_css()
-inject_premium_persona_css()
+
+inject_elite_theme()
 inject_multiselect_chip_fix()
 inject_clear_icon_fix()
 inject_keepalive()
 init_state()
 
-# ---------- Google OAuth + Manual Whitelist ----------
+
 if not is_auth_configured():
     st.error(
         "Google Sign-In is not configured yet. "
@@ -63,11 +62,9 @@ if not st.user.is_logged_in:
     st.markdown(
         """
         <section class="hero">
-            <div class="eyebrow">Joy AI Recruiter</div>
+            <div class="eyebrow">JOY AI RECRUITER</div>
             <h1 class="hero-title">Screen once. Ask once.</h1>
-            <p class="hero-copy">
-                Sign in with Google to continue.
-            </p>
+            <p class="hero-copy">Sign in with Google to continue.</p>
         </section>
         """,
         unsafe_allow_html=True,
@@ -76,7 +73,7 @@ if not st.user.is_logged_in:
     st.caption("We only request basic profile + email.")
     st.stop()
 
-# User is logged in with Google
+
 google_email = (getattr(st.user, "email", None) or "").strip().lower()
 google_name = getattr(st.user, "name", "") or ""
 
@@ -84,7 +81,7 @@ if not is_user_allowed(google_email):
     st.markdown(
         """
         <section class="hero">
-            <div class="eyebrow">Joy AI Recruiter</div>
+            <div class="eyebrow">JOY AI RECRUITER</div>
             <h1 class="hero-title">Access required</h1>
             <p class="hero-copy">
                 This is a paid tool.<br><br>
@@ -101,36 +98,64 @@ if not is_user_allowed(google_email):
         logout_user()
     st.stop()
 
-# Whitelisted → set session
 if not st.session_state.gmail_authenticated or st.session_state.sender_email != google_email:
-    login_user_from_google(google_email, google_name, st.session_state.get("company_name", DEFAULT_COMPANY))
+    login_user_from_google(
+        google_email,
+        google_name,
+        st.session_state.get("company_name", DEFAULT_COMPANY),
+    )
 
-# App Password still needed only for sending emails
+st.markdown(
+    """
+    <section class="hero">
+        <div class="eyebrow">JOY AI RECRUITER</div>
+        <h1 class="hero-title">Screen once. Ask once.</h1>
+        <p class="hero-copy">
+            Rank resumes against one role, then send a precise email that collects CTC,
+            notice period, location, availability, and fit details before any call.
+        </p>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
+
 if not st.session_state.sender_password:
-    with st.expander("Gmail App Password required for sending emails", expanded=True):
-        st.caption(
-            "Google blocks regular passwords for SMTP. "
-            "Generate a 16-character App Password: "
-            "Google Account → Security → 2-Step Verification → App Passwords."
-        )
-        app_pw = st.text_input(
-            "App Password for the signed-in Gmail",
-            type="password",
-            placeholder="xxxx xxxx xxxx xxxx"
-        )
-        if st.button("Save App Password", type="primary"):
-            clean_pw = re.sub(r"\s+", "", app_pw or "")
-            if len(clean_pw) < 16:
-                st.error("App Password must be at least 16 characters.")
-            else:
-                st.session_state.sender_password = clean_pw
-                st.success("App Password saved for this session.")
-                st.rerun()
+    st.markdown(
+        """
+        <div class="joy-card" style="margin-bottom: 1.25rem;">
+            <div style="font-weight:700; font-size:1.02rem; margin-bottom:0.45rem; color: var(--ink);">
+                Gmail App Password required for sending emails
+            </div>
+            <div style="color: var(--muted); line-height: 1.6; margin-bottom: 0.9rem;">
+                Google blocks regular passwords for SMTP.
+                Generate a 16-character App Password after enabling 2-Step Verification.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("[Generate Google App Password](https://myaccount.google.com/apppasswords)")
+    st.caption("This is saved only for this session and is cleared on refresh/restart.")
+    app_pw = st.text_input(
+        "App Password for the signed-in Gmail",
+        type="password",
+        placeholder="xxxx xxxx xxxx xxxx",
+        key="gmail_app_password_input",
+    )
+    if st.button("Save App Password", type="primary"):
+        clean_pw = re.sub(r"\s+", "", app_pw or "")
+        if len(clean_pw) < 16:
+            st.error("App Password must be at least 16 characters.")
+        else:
+            st.session_state.sender_password = clean_pw
+            st.success("App Password saved for this session.")
+            st.rerun()
+else:
+    st.success("App Password is already saved for this session.")
 
-# ---------- Sidebar ----------
 with st.sidebar:
     st.title("Joy")
-    st.caption("Screen. Select. Send.")
+    st.caption("AI Recruiter · Screen. Select. Send.")
 
     st.session_state.sender_name = st.text_input(
         "Sender name",
@@ -143,12 +168,9 @@ with st.sidebar:
         placeholder=DEFAULT_COMPANY,
     )
 
-    st.divider()
     st.caption(f"Signed in as {mask_email(st.session_state.sender_email)}")
     if st.button("Sign out", use_container_width=True):
         logout_user()
-
-    st.divider()
 
     ai_provider = get_secret("AI_PROVIDER", "openai").strip().lower()
     if ai_provider == "anthropic":
@@ -163,34 +185,17 @@ with st.sidebar:
     ai_status = f"{provider_label} scoring enabled ({ai_model})" if ai_api_key else "Heuristic scoring active"
     st.caption(ai_status)
 
-    st.divider()
     user_key = st.session_state.sender_email or "local"
     if st.button("Clear current results", use_container_width=True):
         st.session_state.results_df = pd.DataFrame()
         st.session_state.email_results = []
         st.rerun()
 
-
-# ---------- Main Hero ----------
-st.markdown(
-    """
-    <section class="hero">
-        <div class="eyebrow">Joy AI Recruiter</div>
-        <h1 class="hero-title">Screen once. Ask once.</h1>
-        <p class="hero-copy">
-            Rank resumes against one role, then send a precise email that collects CTC,
-            notice period, location, availability, and fit details before any call.
-        </p>
-    </section>
-    """,
-    unsafe_allow_html=True,
+screen_tab, email_tab, history_tab, lookup_tab, jd_tab = st.tabs(
+    ["Screen", "Email", "History", "Candidate Lookup", "JD Library"]
 )
 
-screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "History", "JD Library"])
-
-# ====================== SCREEN TAB ======================
 with screen_tab:
-
     pending_jd = st.session_state.pop("_pending_jd_text", None)
     pending_role = st.session_state.pop("_pending_role_input", None)
     if pending_jd is not None:
@@ -199,12 +204,9 @@ with screen_tab:
         st.session_state["role_input"] = pending_role
 
     title_col, button_col = st.columns([8.5, 1.5], vertical_alignment="center")
-
     with title_col:
         st.subheader("Job")
-
     with button_col:
-        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
         new_search = st.button("New", key="new_search_btn", use_container_width=True)
 
     if new_search:
@@ -226,10 +228,7 @@ with screen_tab:
 
     jd_text = typed_jd_text
     if jd_upload:
-        uploaded_jd_text, jd_error = read_uploaded_file(
-            jd_upload.name,
-            jd_upload.getvalue(),
-        )
+        uploaded_jd_text, jd_error = read_uploaded_file(jd_upload.name, jd_upload.getvalue())
         if jd_error:
             st.warning(f"JD upload: {jd_error}")
         if uploaded_jd_text.strip():
@@ -247,8 +246,8 @@ with screen_tab:
             st.session_state["_known_clients"] = list_client_companies(user_key)
         known_clients = st.session_state["_known_clients"]
 
-        NEW_CLIENT_LABEL = "+ New client"
-        client_pick_options = [NEW_CLIENT_LABEL] + known_clients
+        new_client_label = "+ New client"
+        client_pick_options = [new_client_label] + known_clients
         current_value = st.session_state.get("client_company_input", "").strip()
         try:
             default_index = client_pick_options.index(current_value) if current_value in known_clients else 0
@@ -264,14 +263,10 @@ with screen_tab:
                 help="Pick a client Joy already has a persona for, or add a new one.",
             )
         else:
-            picked = NEW_CLIENT_LABEL
+            picked = new_client_label
 
-        if picked == NEW_CLIENT_LABEL:
-            client_company_input = st.text_input(
-                "Client name",
-                placeholder="e.g. Atomgrid",
-                key="client_company_input",
-            )
+        if picked == new_client_label:
+            client_company_input = st.text_input("Client name", placeholder="e.g. Atomgrid", key="client_company_input")
         else:
             client_company_input = picked
             st.session_state["client_company_input"] = picked
@@ -281,6 +276,10 @@ with screen_tab:
             placeholder="HPLC, distributor management, SAP",
             key="extra_keywords",
         )
+
+        persona_min_exp = 0
+        persona_max_exp = 15
+        persona_industries = []
 
         if client_company_input.strip():
             company_key = client_company_input.strip().lower()
@@ -296,27 +295,28 @@ with screen_tab:
             else:
                 st.caption("Joy remembers these preferences for this client")
 
+            industry_options = merge_with_custom(INDUSTRY_OPTIONS, profile.get("preferred_industries", []))
+            language_options = merge_with_custom(LANGUAGE_OPTIONS, profile.get("language_preferences", []))
+
             col1, col2 = st.columns([1.1, 1])
             with col1:
-                industries_text = st.text_input(
+                profile["preferred_industries"] = st.multiselect(
                     "Preferred industries",
-                    value=", ".join(profile.get("preferred_industries", [])),
-                    placeholder="D2C, Agrochemicals, Organic Farming",
+                    options=industry_options,
+                    default=profile.get("preferred_industries", []),
                     key=f"persona_industries_{company_key}",
+                    help="Select likely-fit industries for this client. You can also add custom values.",
+                    accept_new_options=True,
                 )
-                profile["preferred_industries"] = [
-                    i.strip() for i in industries_text.split(",") if i.strip()
-                ]
             with col2:
-                languages_text = st.text_input(
+                profile["language_preferences"] = st.multiselect(
                     "Language preference",
-                    value=", ".join(profile.get("language_preferences", [])),
-                    placeholder="English, Hindi, Punjabi",
+                    options=language_options,
+                    default=profile.get("language_preferences", []),
                     key=f"persona_languages_{company_key}",
+                    help="Select preferred spoken languages for this client.",
+                    accept_new_options=True,
                 )
-                profile["language_preferences"] = [
-                    l.strip() for l in languages_text.split(",") if l.strip()
-                ]
 
             profile["preferred_colleges"] = st.text_area(
                 "Preferred colleges / tiers",
@@ -364,6 +364,12 @@ with screen_tab:
                 else:
                     st.error("Failed to save persona.")
 
+            persona_min_exp = profile.get("min_experience", 0) or 0
+            persona_max_exp = profile.get("max_experience", 15) or 15
+            persona_industries = profile.get("preferred_industries", [])
+        else:
+            client_company_input = ""
+
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
     if detected_preview and detected_preview != "Open Role":
         st.caption(f"Detected role title: {detected_preview}")
@@ -395,17 +401,59 @@ with screen_tab:
                     model=ai_model,
                     user_key=user_key,
                     client_company=client_company_input,
+                    min_exp=persona_min_exp,
+                    max_exp=persona_max_exp,
+                    preferred_industries=persona_industries,
                 )
-            st.success(f"Screened {len(results)} resume(s) for {st.session_state.last_role}.")
+
+            if results is not None and not results.empty:
+                results = results.reset_index(drop=True)
+                if "Candidate Industry" in results.columns:
+                    results["Candidate Industry"] = (
+                        results["Candidate Industry"]
+                        .fillna("")
+                        .astype(str)
+                        .replace({"": "Others / Not Detected", "nan": "Others / Not Detected"})
+                    )
+                if "Industry Match" in results.columns:
+                    results["Industry Match"] = (
+                        results["Industry Match"]
+                        .fillna("NA")
+                        .astype(str)
+                        .replace({"": "NA", "nan": "NA"})
+                    )
+                if "Reason" in results.columns:
+                    results["Reason"] = (
+                        results["Reason"]
+                        .fillna("")
+                        .astype(str)
+                        .replace({"nan": ""})
+                    )
+                if "Rank" not in results.columns:
+                    results.insert(0, "Rank", range(1, len(results) + 1))
+                if "Send" not in results.columns:
+                    results.insert(1, "Send", False)
+
+                detected_role = (
+                    results["Role"].iloc[0]
+                    if "Role" in results.columns and results["Role"].notna().any()
+                    else (role_input.strip() or detect_role_title(jd_text) or "Open Role")
+                )
+
+                st.session_state.results_df = results
+                st.session_state.last_role = detected_role
+                st.session_state.last_jd = jd_text
+            else:
+                st.session_state.results_df = pd.DataFrame()
+                st.session_state.last_role = role_input.strip() or detect_role_title(jd_text) or "Open Role"
+
+            st.success(f"Screened {len(results) if results is not None else 0} resume(s) for {st.session_state.last_role}.")
             for error in read_errors:
                 st.warning(error)
 
             if (
-                ai_api_key
-                and results is not None
-                and not results.empty
-                and "AI Used" in results.columns
-                and not results["AI Used"].any()
+                ai_api_key and results is not None and not results.empty
+                and "AI Used" in results.columns and not results["AI Used"].any()
             ):
                 st.warning(
                     f"A {provider_label} key is set, but AI scoring failed for every resume in this batch "
@@ -417,8 +465,6 @@ with screen_tab:
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
 
-
-# ====================== EMAIL TAB ======================
 with email_tab:
     st.subheader("Outreach")
 
@@ -428,9 +474,7 @@ with email_tab:
         editable = st.session_state.results_df.copy()
         editable["Send"] = editable["Send"].astype(bool)
         editable = editable.drop(columns=["Reason", "Duplicate", "Profile Key"], errors="ignore")
-        editable = order_columns_first(
-            editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
-        )
+        editable = order_columns_first(editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"])
         editable = format_experience_years(editable)
 
         edited = st.data_editor(
@@ -451,7 +495,9 @@ with email_tab:
         )
 
         st.session_state.selected_candidates = edited[edited["Send"] == True].copy()
-        missing_email = st.session_state.selected_candidates[~st.session_state.selected_candidates["Email"].astype(str).str.contains("@", na=False)]
+        missing_email = st.session_state.selected_candidates[
+            ~st.session_state.selected_candidates["Email"].astype(str).str.contains("@", na=False)
+        ]
 
         st.session_state.questions_text = st.text_area(
             "Questions to collect",
@@ -474,7 +520,6 @@ with email_tab:
             st.session_state.pop("edited_email_preview", None)
 
         subject = st.text_input("Subject", key="email_subject")
-
         questions = questions_from_text(st.session_state.questions_text)
 
         if not st.session_state.selected_candidates.empty:
@@ -487,27 +532,15 @@ with email_tab:
                 extra_note,
                 template_mode=True,
             )
-
             if "edited_email_preview" not in st.session_state:
                 st.session_state["edited_email_preview"] = preview_body
 
-            with st.expander(
-                f"Preview: {st.session_state.selected_candidates.iloc[0]['Name']}",
-                expanded=True
-            ):
-                st.text_area(
-                    "Edit email before sending",
-                    height=380,
-                    key="edited_email_preview",
-                )
+            with st.expander(f"Preview: {st.session_state.selected_candidates.iloc[0]['Name']}", expanded=True):
+                st.text_area("Edit email before sending", height=380, key="edited_email_preview")
                 st.caption("Use {first_name} anywhere for automatic personalization.")
-                st.caption(
-                    "Variables supported: "
-                    "{first_name}, {full_name}, {role}, "
-                    "{experience}, {score}, {verdict}"
-                )
+                st.caption("Variables supported: {first_name}, {full_name}, {role}, {experience}, {score}, {verdict}")
 
-        c1, c2, c3 = st.columns([1.3, 1.5, 3])
+        c1, c2, _ = st.columns([1.3, 1.5, 3])
         with c1:
             confirm = st.checkbox("Recipient list reviewed")
         with c2:
@@ -533,11 +566,9 @@ with email_tab:
                 st.error("Fix missing candidate email addresses first.")
             else:
                 custom_email_body = st.session_state.get("edited_email_preview", "").strip()
-
                 with st.spinner("Sending emails..."):
                     progress = st.progress(0)
                     status = st.empty()
-
                     email_results = send_bulk_emails(
                         selected_df=st.session_state.selected_candidates,
                         role=st.session_state.last_role,
@@ -550,17 +581,13 @@ with email_tab:
                         extra_note=extra_note,
                         custom_body=custom_email_body,
                     )
-
                     progress.progress(1.0)
                     status.write(f"Processed {len(st.session_state.selected_candidates)} email(s)")
-
                     st.session_state.email_results = email_results
                     sent_count = sum(1 for item in email_results if item["Success"])
                     st.success(f"Sent {sent_count} of {len(email_results)} email(s).")
                     st.dataframe(pd.DataFrame(email_results), use_container_width=True, hide_index=True)
 
-
-# ====================== HISTORY TAB ======================
 with history_tab:
     st.subheader("History")
     hist = load_history(user_key)
@@ -587,13 +614,7 @@ with history_tab:
             roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
 
-            show_limit = st.slider(
-                "Show last records",
-                min_value=50,
-                max_value=500,
-                value=150,
-                step=50,
-            )
+            show_limit = st.slider("Show last records", min_value=50, max_value=500, value=150, step=50)
 
             shown = hist if selected_role == "all" else hist[hist["Role"] == selected_role]
             shown = shown.tail(show_limit) if len(shown) > show_limit else shown
@@ -630,7 +651,6 @@ with history_tab:
                                 if st.button("Yes", type="primary", use_container_width=True):
                                     confirm_delete_role_history(user_key, selected_role)
                         delete_role_dialog()
-
             with delete_col2:
                 if st.button("Delete all history", use_container_width=True, type="secondary"):
                     @st.dialog("Delete ALL history?")
@@ -649,10 +669,22 @@ with history_tab:
             shown = hist
 
         history_editable = shown.copy()
-
+        if "Candidate Industry" in history_editable.columns:
+            history_editable["Candidate Industry"] = (
+                history_editable["Candidate Industry"]
+                .fillna("")
+                .astype(str)
+                .replace({"": "Others / Not Detected", "nan": "Others / Not Detected"})
+            )
+        if "Industry Match" in history_editable.columns:
+            history_editable["Industry Match"] = (
+                history_editable["Industry Match"]
+                .fillna("NA")
+                .astype(str)
+                .replace({"": "NA", "nan": "NA"})
+            )
         if "Send" not in history_editable.columns:
             history_editable.insert(0, "Send", False)
-
         history_editable["Send"] = history_editable["Send"].fillna(False).astype(bool)
 
         for col in ["Experience", "Keyword Score", "Final Score"]:
@@ -672,9 +704,7 @@ with history_tab:
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
 
-        history_editable = order_columns_first(
-            history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
-        )
+        history_editable = order_columns_first(history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"])
         history_editable = format_experience_years(history_editable)
 
         if "Feedback" not in history_editable.columns:
@@ -692,9 +722,7 @@ with history_tab:
                 "Send": st.column_config.CheckboxColumn("Send"),
                 "Email": st.column_config.TextColumn("Email"),
                 "Profile Key": None,
-                "Feedback": st.column_config.SelectboxColumn(
-                    "Feedback", options=["Pending", "Good Hire", "Bad Hire", "Not Selected"]
-                ),
+                "Feedback": st.column_config.SelectboxColumn("Feedback", options=["Pending", "Good Hire", "Bad Hire", "Not Selected"]),
             },
         )
 
@@ -717,15 +745,11 @@ with history_tab:
             st.subheader("Send email from history")
 
             history_role = (
-                selected_role
-                if selected_role != "all"
+                selected_role if selected_role != "all"
                 else st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
             )
 
-            history_fingerprint = (
-                history_role,
-                tuple(st.session_state.selected_history.index.tolist()),
-            )
+            history_fingerprint = (history_role, tuple(st.session_state.selected_history.index.tolist()))
             if st.session_state.get("_history_fingerprint") != history_fingerprint:
                 st.session_state["_history_fingerprint"] = history_fingerprint
                 st.session_state["history_subject"] = f"Details required for {history_role} opportunity"
@@ -757,7 +781,7 @@ with history_tab:
                 f"Send {len(st.session_state.selected_history)} email(s)",
                 type="primary",
                 disabled=not history_confirm or not st.session_state.sender_password,
-                key="send_history_btn"
+                key="send_history_btn",
             )
 
             if send_history:
@@ -779,16 +803,71 @@ with history_tab:
                 st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
                 st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
 
+with lookup_tab:
+    st.subheader("Candidate Lookup")
+    st.caption("Search any candidate ever screened — across every role and every client — and see their full timeline.")
 
-# ====================== JD LIBRARY TAB ======================
+    lookup_query = st.text_input(
+        "Search by name, email, or phone",
+        placeholder="e.g. Vishesh Sharma, vishesh@gmail.com, or 98765...",
+        key="lookup_query",
+    )
+
+    if lookup_query.strip():
+        matches = search_candidates(user_key)
+
+        if matches.empty:
+            st.info("No candidate found matching that search.")
+        else:
+            unique_people = matches.drop_duplicates(subset=["Profile Key"]) if "Profile Key" in matches.columns else matches
+            st.caption(f"{len(unique_people)} unique candidate(s), {len(matches)} total screening record(s) found.")
+
+            group_col = "Profile Key" if "Profile Key" in matches.columns else "Name"
+            for _, group in matches.groupby(group_col, sort=False):
+                display_name = str(group.iloc[0].get("Name", "Unknown Candidate")).title()
+                display_email = str(group.iloc[0].get("Email", ""))
+                display_phone = str(group.iloc[0].get("Phone", ""))
+
+                with st.expander(f"{display_name} · {display_email or display_phone or 'No contact info'}", expanded=len(unique_people) == 1):
+                    contact_c1, contact_c2, contact_c3 = st.columns(3)
+                    contact_c1.metric("Screenings", len(group))
+                    good_hires = int((group.get("Feedback", pd.Series(dtype=str)) == "Good Hire").sum())
+                    bad_hires = int((group.get("Feedback", pd.Series(dtype=str)) == "Bad Hire").sum())
+                    contact_c2.metric("Good Hires", good_hires)
+                    contact_c3.metric("Bad Hires", bad_hires)
+
+                    timeline = group.sort_values("Screened At", ascending=False) if "Screened At" in group.columns else group
+
+                    for _, row in timeline.iterrows():
+                        role = row.get("Role", "Unknown Role")
+                        client = row.get("Client", "")
+                        screened_at = str(row.get("Screened At", ""))[:16]
+                        feedback = str(row.get("Feedback", "Pending") or "Pending")
+
+                        badge_class = "badge-pending"
+                        if feedback == "Good Hire":
+                            badge_class = "badge-good"
+                        elif feedback == "Bad Hire":
+                            badge_class = "badge-bad"
+
+                        st.markdown(
+                            f"""
+                            <div class="timeline-card">
+                                <div class="tc-role">{role}{f' · {client}' if client else ''}</div>
+                                <div class="tc-meta">Screened {screened_at}</div>
+                                <span class="tc-badge {badge_class}">{feedback}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+    else:
+        st.info("Type a name, email, or phone number above to look up a candidate's full history.")
+
 with jd_tab:
     col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
-
     with col1:
         st.subheader("JD Library")
-
     with col2:
-        st.markdown("<div style='height: 8px'></div>", unsafe_allow_html=True)
         if st.button("New screening", key="jd_new_btn", use_container_width=True):
             reset_jd_library_form()
             st.rerun()
@@ -798,11 +877,7 @@ with jd_tab:
     if "jd_save_role" not in st.session_state:
         st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
 
-    save_role = st.text_input(
-        "Role title",
-        placeholder="e.g. Assistant Manager Supply",
-        key="jd_save_role",
-    )
+    save_role = st.text_input("Role title", placeholder="e.g. Assistant Manager Supply", key="jd_save_role")
 
     if "jd_save_text" not in st.session_state:
         st.session_state["jd_save_text"] = st.session_state.get("last_jd", "")
@@ -814,11 +889,7 @@ with jd_tab:
         key="jd_save_text",
     )
 
-    save_tags = st.text_input(
-        "Tags (optional)",
-        placeholder="e.g. agrochemicals, bangalore, urgent",
-        key="jd_save_tags",
-    )
+    save_tags = st.text_input("Tags (optional)", placeholder="e.g. agrochemicals, bangalore, urgent", key="jd_save_tags")
 
     if st.button("Save to JD Library", type="primary", use_container_width=False):
         if not save_role.strip():
@@ -839,14 +910,8 @@ with jd_tab:
     if jd_lib.empty:
         st.info("No JDs saved yet. Run a screening or paste a JD above to save it.")
     else:
-        search_query = st.text_input(
-            "Search",
-            placeholder="Filter by role or tags",
-            key="jd_search",
-        )
-
+        search_query = st.text_input("Search", placeholder="Filter by role or tags", key="jd_search")
         display_df = jd_lib.copy()
-
         if search_query.strip():
             mask = (
                 display_df["Role"].astype(str).str.lower().str.contains(search_query.lower(), na=False)
@@ -863,19 +928,21 @@ with jd_tab:
                 tags = str(row.get("Tags", ""))
                 jd_preview = str(row.get("JD Text", ""))[:180].replace("\n", " ")
 
-                with st.expander(f"{role_label}  ·  {saved_at[:10]}" + (f"  ·  {tags}" if tags and tags != "nan" else "")):
-                    st.caption(jd_preview + ("..." if len(str(row.get("JD Text", ""))) > 180 else ""))
+                title = f"{role_label} · {saved_at[:10]}"
+                if tags and tags != "nan":
+                    title += f" · {tags}"
 
-                    c1, c2 = st.columns([1, 1])
+                with st.expander(title):
+                    st.caption(jd_preview + ("..." if len(str(row.get("JD Text", ""))) > 180 else ""))
+                    c1, c2 = st.columns(2)
                     with c1:
                         if st.button("Load into screener", key=f"load_jd_{role_label}", use_container_width=True):
                             st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
                             st.session_state["_pending_role_input"] = role_label
                             st.rerun()
-
                     with c2:
                         if st.button("Delete", key=f"delete_jd_{role_label}", use_container_width=True):
-                            @st.dialog(f"Delete JD: '{role_label}'?")
+                            @st.dialog(f"Delete JD '{role_label}'?")
                             def delete_jd_dialog():
                                 st.warning(f"This will permanently delete the saved JD **{role_label}** from your library.")
                                 st.write("This action cannot be undone.")
@@ -888,5 +955,5 @@ with jd_tab:
                                         confirm_delete_jd(user_key, role_label)
                             delete_jd_dialog()
 
-    st.divider()
-    st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
+        st.divider()
+        st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
