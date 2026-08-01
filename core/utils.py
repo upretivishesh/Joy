@@ -217,6 +217,43 @@ def first_name(full_name: str) -> str:
         return "there"
     return str(full_name).split()[0].strip(",")
 
+def get_allowed_emails() -> set[str]:
+    raw = get_secret("ALLOWED_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def is_user_allowed(email: str) -> bool:
+    if not email:
+        return False
+    allowed = get_allowed_emails()
+    # Empty list = allow everyone (useful for local testing). Remove this line for strict mode.
+    if not allowed:
+        return True
+    return email.strip().lower() in allowed
+
+
+def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
+    """Called after successful Google OAuth + whitelist check."""
+    clean_email = (email or "").strip().lower()
+    st.session_state.gmail_authenticated = True
+    st.session_state.sender_email = clean_email
+    st.session_state.sender_name = (name or "").strip() or name_from_email_address(clean_email)
+    st.session_state.company_name = (company or "").strip() or DEFAULT_COMPANY
+    # sender_password is set later via the App Password form (still required for SMTP)
+
+
+def logout_user() -> None:
+    # Clear app session state
+    for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name", "company_name"]:
+        st.session_state[key] = False if key == "gmail_authenticated" else ""
+    st.session_state.email_results = []
+    # Also clear Streamlit’s OIDC cookie
+    try:
+        st.logout()
+    except Exception:
+        pass
+    st.rerun()
+
 
 def render_css() -> None:
     st.markdown(
