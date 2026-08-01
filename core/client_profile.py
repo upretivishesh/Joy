@@ -1,6 +1,5 @@
-import json
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 import streamlit as st
 
@@ -23,14 +22,13 @@ def list_client_companies(user_key: str) -> list[str]:
     Names of every client this user already has a saved persona for,
     most-recently-updated first. Powers the 'pick from history' dropdown
     so Vishesh can select Atomgrid/Eunoia/Perch/etc. in one click instead
-    of retyping the name (which used to re-hit Supabase on every keystroke
-    of ANY field on the page, not just this one — that was the typing lag).
-    Returns [] quietly if Supabase isn't reachable; caller falls back to
-    plain free-text entry.
+    of retyping the name.
+    Returns [] quietly if Supabase isn't reachable.
     """
     supabase = get_supabase_client()
     if not supabase:
         return []
+
     try:
         response = (
             supabase.table("client_personas")
@@ -47,6 +45,19 @@ def list_client_companies(user_key: str) -> list[str]:
         return names
     except Exception:
         return []
+
+
+def get_default_profile() -> Dict[str, Any]:
+    """Returns default empty persona profile"""
+    return {
+        "preferred_industries": [],
+        "language_preferences": [],
+        "preferred_colleges": "",
+        "min_experience": 0,
+        "max_experience": 15,
+        "culture_notes": "",
+        "last_updated": "",
+    }
 
 
 def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
@@ -84,19 +95,6 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
         st.warning(f"Could not load client persona: {e}")
 
     return get_default_profile()
-
-
-def get_default_profile() -> Dict[str, Any]:
-    """Returns default empty persona profile"""
-    return {
-        "preferred_industries": [],
-        "language_preferences": [],
-        "preferred_colleges": "",
-        "min_experience": 0,
-        "max_experience": 15,
-        "culture_notes": "",
-        "last_updated": "",
-    }
 
 
 def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> bool:
