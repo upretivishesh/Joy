@@ -191,6 +191,10 @@ def logout_user() -> None:
     for key in ["gmail_authenticated", "sender_email", "sender_password", "sender_name", "company_name"]:
         st.session_state[key] = False if key == "gmail_authenticated" else ""
     st.session_state.email_results = []
+    try:
+        st.logout()
+    except Exception:
+        pass
     st.rerun()
 
 
