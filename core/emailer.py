@@ -189,6 +189,8 @@ def send_email(
         return False, str(exc)
 
 
+
+
 def send_bulk_emails(
     selected_df: pd.DataFrame,
     role: str,
