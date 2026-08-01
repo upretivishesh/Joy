@@ -49,40 +49,70 @@ inject_clear_icon_fix()
 inject_keepalive()
 init_state()
 
-if not st.session_state.gmail_authenticated:
+# ---------- Google OAuth + paid whitelist ----------
+if not st.user.is_logged_in:
     st.markdown(
         """
         <section class="hero">
             <div class="eyebrow">Joy AI Recruiter</div>
             <h1 class="hero-title">Screen once. Ask once.</h1>
             <p class="hero-copy">
-                Sign in with the Gmail account that should send candidate emails.
-                Credentials stay in this Streamlit session and are never written to GitHub.
+                Sign in with Google to continue. Only approved (paid) accounts can use the tool.
             </p>
         </section>
         """,
         unsafe_allow_html=True,
     )
-
-    with st.form("gmail_login"):
-        login_email = st.text_input("Gmail address", placeholder="you@gmail.com")
-        login_password = st.text_input("Gmail App Password", type="password", placeholder="16-character app password")
-        login_name = st.text_input("Your name", placeholder="Auto-filled from email if left blank")
-        login_company = st.text_input("Company", value=st.session_state.company_name or DEFAULT_COMPANY)
-        submitted = st.form_submit_button("Start screening", type="primary", use_container_width=True)
-
-    st.caption("Use a Gmail App Password from Google Account > Security > 2-Step Verification > App Passwords.")
-
-    if submitted:
-        if "@" not in login_email:
-            st.error("Enter a valid Gmail address.")
-        elif len(login_password.replace(" ", "").strip()) < 16:
-            st.error("Enter your Gmail App Password.")
-        else:
-            login_user(login_email, login_password, login_name, login_company)
-            st.rerun()
-
+    st.button("Sign in with Google", type="primary", on_click=st.login, use_container_width=True)
+    st.caption("We only request basic profile + email. No passwords are stored.")
     st.stop()
+
+# At this point the user is authenticated with Google
+google_email = (getattr(st.user, "email", None) or "").strip().lower()
+google_name = getattr(st.user, "name", "") or ""
+
+if not is_user_allowed(google_email):
+    st.markdown(
+        """
+        <section class="hero">
+            <div class="eyebrow">Joy AI Recruiter</div>
+            <h1 class="hero-title">Access required</h1>
+            <p class="hero-copy">
+                This is a paid tool. Complete payment, then message the admin with the exact Google email you used to sign in so it can be whitelisted.
+            </p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    payment_url = get_secret("PAYMENT_LINK", "")
+    if payment_url:
+        st.link_button("Pay now (Razorpay / Stripe)", payment_url, type="primary", use_container_width=True)
+    else:
+        st.warning("Payment link not configured yet. Contact the admin.")
+    st.info(f"You are signed in as **{google_email}**. After payment, ask the admin to add this exact address to the whitelist.")
+    if st.button("Sign out"):
+        logout_user()
+    st.stop()
+
+# Whitelisted → finish setting session (App Password still needed for SMTP)
+if not st.session_state.gmail_authenticated or st.session_state.sender_email != google_email:
+    login_user_from_google(google_email, google_name, st.session_state.get("company_name", DEFAULT_COMPANY))
+
+# One-time / optional App Password prompt (required only when you want to send emails)
+if not st.session_state.sender_password:
+    with st.expander("Gmail App Password required for sending emails", expanded=True):
+        st.caption("Google blocks regular passwords for SMTP. Generate a 16-character App Password: Google Account → Security → 2-Step Verification → App Passwords.")
+        app_pw = st.text_input("App Password for the signed-in Gmail", type="password", placeholder="xxxx xxxx xxxx xxxx")
+        if st.button("Save App Password", type="primary"):
+            clean_pw = re.sub(r"\s+", "", app_pw or "")
+            if len(clean_pw) < 16:
+                st.error("App Password must be at least 16 characters.")
+            else:
+                st.session_state.sender_password = clean_pw
+                st.success("App Password saved for this session.")
+                st.rerun()
+    # You can choose to st.stop() here if you want to force the password before any screening,
+    # or let the user screen without it and only block the Email tab later.
 
 with st.sidebar:
     st.title("Joy")
@@ -101,7 +131,7 @@ with st.sidebar:
 
     st.divider()
     st.caption(f"Signed in as {mask_email(st.session_state.sender_email)}")
-    if st.button("Change Gmail login", use_container_width=True):
+    if st.button("Sign out", use_container_width=True):
         logout_user()
 
     st.divider()
@@ -499,6 +529,9 @@ with email_tab:
         if not missing_email.empty:
             st.warning("Add valid email addresses before sending: " + ", ".join(missing_email["Name"].astype(str).tolist()))
 
+        if not st.session_state.sender_email or not st.session_state.sender_password:
+            st.error("App Password missing or session expired. Add it above / sign in again.")
+        
         if send_clicked:
             if not st.session_state.sender_email or not st.session_state.sender_password:
                 st.error("Your Gmail session expired. Sign in again to send emails.")
