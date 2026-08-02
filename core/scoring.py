@@ -1,7 +1,4 @@
-import json
 import re
-
-from core import client_profile
 
 from .parser import (
     extract_email,
@@ -10,11 +7,8 @@ from .parser import (
     extract_name,
     extract_phone,
     extract_skills,
-    parse_required_education_level,
     profile_key,
-    EDUCATION_KEYWORDS,
 )
-
 from .semantic import semantic_similarity_score
 from .llm_extractor import extract_keywords_llm, extract_candidate_name_llm
 from .india_industry_map import get_candidate_industry
@@ -68,18 +62,23 @@ def experience_score(candidate_years: float, required_years: float) -> int:
         return 65 if candidate_years == 0 else min(100, 65 + int(candidate_years * 4))
 
     if candidate_years == 0:
-        return 40 
+        return 40
 
     if candidate_years >= required_years:
         bonus = min(10, int((candidate_years - required_years) * 2))
         return min(100, 100 + bonus)
 
     ratio = candidate_years / required_years
-    if ratio >= 0.90: return 92
-    if ratio >= 0.80: return 83
-    if ratio >= 0.70: return 72
-    if ratio >= 0.55: return 58
-    if ratio >= 0.40: return 42
+    if ratio >= 0.90:
+        return 92
+    if ratio >= 0.80:
+        return 83
+    if ratio >= 0.70:
+        return 72
+    if ratio >= 0.55:
+        return 58
+    if ratio >= 0.40:
+        return 42
     return int(max(10, ratio * 80))
 
 
@@ -98,22 +97,31 @@ def education_score(resume_edu_level: int, required_edu: str, required_edu_level
 
 def contact_score(email: str, phone: str) -> int:
     score = 0
-    if email: score += 65
-    if phone: score += 35
+    if email:
+        score += 65
+    if phone:
+        score += 35
     return score
 
 
 def section_presence_score(resume_text: str) -> int:
     lower = (resume_text or "").lower()
-    sections = ["experience", "education", "skills", "objective", "summary",
-                "projects", "certifications", "achievements"]
+    sections = [
+        "experience",
+        "education",
+        "skills",
+        "objective",
+        "summary",
+        "projects",
+        "certifications",
+        "achievements",
+    ]
     found = sum(1 for s in sections if s in lower)
     return min(20, found * 4)
 
 
 # ---------------------------------------------------------------------------
-# INDUSTRY FIT — small helper so app.py / utils.py can render a consistent
-# badge without duplicating the Yes/Partial/No -> emoji mapping everywhere.
+# INDUSTRY FIT HELPERS
 # ---------------------------------------------------------------------------
 def industry_fit_badge(industry_match: str) -> str:
     return {
@@ -123,15 +131,100 @@ def industry_fit_badge(industry_match: str) -> str:
     }.get(industry_match, "— N/A")
 
 
+def _normalize_industry_label(value: str) -> str:
+    value = (value or "").lower().strip()
+    if not value:
+        return ""
+
+    value = value.replace("&", " and ")
+    value = value.replace("/", " ")
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+
+    replacements = {
+        r"\bfmcg\b": "fast moving consumer goods",
+        r"\bd2c\b": "direct to consumer",
+        r"\bdtc\b": "direct to consumer",
+        r"\bb2b\b": "business to business",
+        r"\bagro chemical\b": "agrochemicals",
+        r"\bagro chemicals\b": "agrochemicals",
+        r"\bagri input\b": "agrochemicals",
+        r"\bcrop care\b": "agrochemicals",
+        r"\bpharma\b": "pharmaceuticals",
+        r"\bchemicals? and cement\b": "chemicals cement",
+    }
+
+    for pattern, replacement in replacements.items():
+        value = re.sub(pattern, replacement, value)
+
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _industry_tokens(value: str) -> set[str]:
+    stop = {
+        "and",
+        "the",
+        "for",
+        "with",
+        "business",
+        "consumer",
+        "goods",
+        "services",
+        "sector",
+        "industry",
+    }
+    normalized = _normalize_industry_label(value)
+    return {t for t in normalized.split() if len(t) > 2 and t not in stop}
+
+
+def _fallback_industry_match(rule_based_industry: str, client_profile: dict | None) -> str:
+    if not client_profile:
+        return "N/A"
+
+    preferred = client_profile.get("preferred_industries") or []
+    preferred = [str(p).strip() for p in preferred if str(p).strip()]
+
+    if not preferred or rule_based_industry == "Others / Not Detected":
+        return "N/A"
+
+    rb_norm = _normalize_industry_label(rule_based_industry)
+    rb_tokens = _industry_tokens(rule_based_industry)
+
+    if not rb_norm or not rb_tokens:
+        return "N/A"
+
+    for pref in preferred:
+        pref_norm = _normalize_industry_label(pref)
+        pref_tokens = _industry_tokens(pref)
+
+        if not pref_norm or not pref_tokens:
+            continue
+
+        if rb_norm == pref_norm:
+            return "Yes"
+
+        overlap = rb_tokens & pref_tokens
+        if overlap:
+            return "Partial"
+
+    return "N/A"
+
+
 # ---------------------------------------------------------------------------
-# AI SCORING — routes through core.ai_client, which dispatches to OpenAI
-# or Anthropic based on the model string. Nothing else in this function
-# needs to know or care which provider actually served the request.
+# AI SCORING
 # ---------------------------------------------------------------------------
-def ai_score_resume(jd_text: str, resume_text: str, role: str, api_key: str, model: str,
-                    jd_requirements: dict | None = None, client_company: str = "") -> tuple[int | None, str, str, str]:
+def ai_score_resume(
+    jd_text: str,
+    resume_text: str,
+    role: str,
+    api_key: str,
+    model: str,
+    jd_requirements: dict | None = None,
+    client_company: str = "",
+) -> tuple[int | None, str, str, str]:
     if not api_key:
         return None, "", "N/A", ""
+
     try:
         requirements_context = ""
         if jd_requirements:
@@ -149,7 +242,8 @@ Structured requirements extracted from JD:
             f"what this company actually does (infer its industry/sector from its "
             f"name and the JD if you're not directly familiar with it), not just "
             f"the JD's stated industry line.\n"
-            if client_company.strip() else ""
+            if client_company.strip()
+            else ""
         )
 
         prompt = f"""You are a strict senior recruiter evaluating a resume for a specific role.
@@ -181,13 +275,16 @@ Resume:
             max_tokens=260,
             temperature=0,
         )
+
         score = int(float(data.get("score", 0)))
         reason = str(data.get("reason", "")).strip()
         industry_match = str(data.get("industry_match", "")).strip().title()
         if industry_match not in {"Yes", "Partial", "No"}:
             industry_match = "N/A"
         candidate_industry = str(data.get("candidate_industry", "")).strip()
+
         return max(0, min(100, score)), reason, industry_match, candidate_industry
+
     except Exception as exc:
         return None, f"AI scoring skipped: {exc}", "N/A", ""
 
@@ -195,26 +292,38 @@ Resume:
 def make_reason(matched, missing, exp, min_exp, edu_reason=""):
     matched_text = ", ".join(matched[:5]) if matched else "few direct skill matches"
     missing_text = ", ".join(missing[:4]) if missing else "no obvious skill gaps"
+
     if min_exp > 0:
-        exp_text = f"{exp:g} yrs found vs {min_exp:g}+ yrs expected" if exp > 0 else f"Experience not extracted; {min_exp:g}+ yrs expected"
+        exp_text = (
+            f"{exp:g} yrs found vs {min_exp:g}+ yrs expected"
+            if exp > 0
+            else f"Experience not extracted; {min_exp:g}+ yrs expected"
+        )
     else:
         exp_text = f"{exp:g} yrs found" if exp else "Experience not clearly stated"
 
-    parts = [f"Skills matched: {matched_text}.", f"Skills missing: {missing_text}.", exp_text + "."]
+    parts = [
+        f"Skills matched: {matched_text}.",
+        f"Skills missing: {missing_text}.",
+        exp_text + ".",
+    ]
     if edu_reason:
         parts.append(edu_reason + ".")
     return " ".join(parts)
 
 
 def verdict_from_score(score: float) -> str:
-    if score >= 82: return "Strong Fit"
-    if score >= 68: return "Good Fit"
-    if score >= 50: return "Review"
+    if score >= 82:
+        return "Strong Fit"
+    if score >= 68:
+        return "Good Fit"
+    if score >= 50:
+        return "Review"
     return "Low Fit"
 
 
 # ---------------------------------------------------------------------------
-# MAIN SCORING FUNCTION (with Client Persona support)
+# MAIN SCORING FUNCTION
 # ---------------------------------------------------------------------------
 def score_resume(
     jd_text: str,
@@ -231,23 +340,21 @@ def score_resume(
     use_semantic: bool = True,
     use_llm_keywords: bool = True,
     client_company: str = "",
-    client_profile: dict | None = None,   # ← Per-client learning
+    client_profile: dict | None = None,
 ) -> dict:
-
-    # === 1. LLM Keyword Extraction (Best Quality) ===
+    # 1. Keyword source
     final_keywords = keywords or []
     if use_llm_keywords and api_key:
         llm_kws = extract_keywords_llm(jd_text, api_key, model)
         if llm_kws:
             final_keywords = llm_kws
 
-    # === 2. Extract candidate data ===
+    # 2. Candidate extraction
     email = extract_email(resume_text)
     phone = extract_phone(resume_text)
     exp = extract_experience(resume_text)
     skills = extract_skills(resume_text)
 
-    # Name extraction (LLM first, then fallback)
     name = ""
     if api_key:
         name = extract_candidate_name_llm(resume_text, api_key, model, contact_email=email)
@@ -257,56 +364,58 @@ def score_resume(
     resume_edu_level, resume_edu_qual = extract_education_level(resume_text)
     edu_sc, edu_reason = education_score(resume_edu_level, required_edu, required_edu_level)
 
-    # === 2b. Rule-based industry fallback — computed unconditionally, no
-    # API call, no cost. AI industry judgment only ever runs when the
-    # heuristic score already clears 50 AND an API key is set, which
-    # means a meaningful slice of resumes never got a Candidate Industry
-    # label at all — this is the floor that fixes that. ===
     rule_based_industry = get_candidate_industry(resume_text, filename)
 
-    # === 3. Sub-scores ===
+    # 3. Sub-scores
     kw_score, matched, missing = keyword_match_score(resume_text, final_keywords)
     exp_sc = experience_score(exp, min_exp)
     cnt_score = contact_score(email, phone)
     skill_score = min(100, len(skills) * 10)
     structure_score = section_presence_score(resume_text)
 
-    # === 4. Semantic Embedding Score ===
+    # 4. Semantic score
     semantic_sc = 50.0
     if use_semantic and api_key:
         semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
 
-    # === 5. Hybrid Weighted Score ===
+    # 5. Heuristic score
     has_edu_requirement = required_edu_level != -1
 
     if has_edu_requirement:
         heuristic = (
-            (kw_score * 0.27) +
-            (exp_sc * 0.22) +
-            (edu_sc * 0.15) +
-            (semantic_sc * 0.22) +
-            (skill_score * 0.09) +
-            (cnt_score * 0.03) +
-            (structure_score * 0.02)
+            (kw_score * 0.27)
+            + (exp_sc * 0.22)
+            + (edu_sc * 0.15)
+            + (semantic_sc * 0.22)
+            + (skill_score * 0.09)
+            + (cnt_score * 0.03)
+            + (structure_score * 0.02)
         )
     else:
         heuristic = (
-            (kw_score * 0.30) +
-            (exp_sc * 0.25) +
-            (semantic_sc * 0.25) +
-            (skill_score * 0.12) +
-            (cnt_score * 0.05) +
-            (structure_score * 0.03)
+            (kw_score * 0.30)
+            + (exp_sc * 0.25)
+            + (semantic_sc * 0.25)
+            + (skill_score * 0.12)
+            + (cnt_score * 0.05)
+            + (structure_score * 0.03)
         )
 
-    # === 6. AI Scoring ===
+    # 6. AI scoring
     ai_score = None
     ai_reason = ""
     industry_match = "N/A"
     candidate_industry = ""
+
     if heuristic >= 50 and api_key:
         ai_score, ai_reason, industry_match, candidate_industry = ai_score_resume(
-            jd_text, resume_text, role, api_key, model, jd_requirements, client_company
+            jd_text,
+            resume_text,
+            role,
+            api_key,
+            model,
+            jd_requirements,
+            client_company,
         )
 
     if ai_score is None:
@@ -319,27 +428,15 @@ def score_resume(
         reason = ai_reason or make_reason(matched, missing, exp, min_exp, edu_reason)
         ai_used = True
 
-    # === 6b. Backfill Candidate Industry from the rule-based map whenever
-    # AI didn't run, or ran but came back empty/unhelpful. Never leave the
-    # column blank when a free, deterministic guess is available. ===
+    # 6b. Candidate industry fallback
     if not candidate_industry or candidate_industry.strip().lower() in {"", "n/a", "unknown", "not detected"}:
         candidate_industry = rule_based_industry
 
-    # If AI never rendered a Yes/Partial/No verdict at all (heuristic below
-    # 50, or no API key), fall back to a lexical overlap check between the
-    # rule-based industry label and the client's preferred industries —
-    # weaker signal than AI judgment, so it only ever asserts "Partial",
-    # never "Yes"/"No", but it beats leaving every such candidate at N/A.
-    if industry_match == "N/A" and client_profile:
-        preferred = [str(p).strip().lower() for p in (client_profile.get("preferred_industries") or [])]
-        if preferred and rule_based_industry != "Others / Not Detected":
-            rb_lower = rule_based_industry.lower()
-            if any(rb_lower in p or p in rb_lower for p in preferred if p):
-                industry_match = "Partial"
+    # 6c. Industry match fallback
+    if industry_match == "N/A":
+        industry_match = _fallback_industry_match(rule_based_industry, client_profile)
 
-    # === Client Persona Boost (industry fit now cuts both ways, and the
-    # min/max experience band a client saves is finally actually used —
-    # before this it sat in Supabase looking pretty and doing nothing) ===
+    # 7. Client persona boost
     band_note = ""
     if client_profile:
         boost = 0
