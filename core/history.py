@@ -11,6 +11,23 @@ except Exception:
 from .constants import DATA_DIR
 
 
+FEEDBACK_OPTIONS = [
+    "Pending",
+    "Interviewed",
+    "Shortlisted",
+    "Hired",
+    "Rejected",
+    "Do Not Consider",
+]
+
+DECIDED_FEEDBACK = {
+    "Interviewed",
+    "Shortlisted",
+    "Hired",
+    "Rejected",
+    "Do Not Consider",
+}
+
 HISTORY_COLUMNS = [
     "Send",
     "Duplicate",
@@ -20,9 +37,8 @@ HISTORY_COLUMNS = [
     "Phone",
     "Experience",
     "Education",
-    "Keyword Score",
-    "Semantic Score",
     "Final Score",
+    "Feedback",
     "Verdict",
     "Industry Match",
     "Candidate Industry",
@@ -36,7 +52,6 @@ HISTORY_COLUMNS = [
     "Client",
     "Role",
     "JD",
-    "Feedback",
     "Saved At",
     "Memory Adjustment",
     "Learned Preference Adjustment",
@@ -83,8 +98,14 @@ def _ensure_history_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col in HISTORY_COLUMNS:
         if col not in df.columns:
-            df[col] = ""
+            if col == "Feedback":
+                df[col] = "Pending"
+            elif col == "Send":
+                df[col] = False
+            else:
+                df[col] = ""
     df = df.loc[:, ~df.columns.duplicated()]
+    df["Feedback"] = df["Feedback"].fillna("Pending").astype(str).replace("", "Pending")
     return df[HISTORY_COLUMNS]
 
 
@@ -124,6 +145,46 @@ def save_history(results_df: pd.DataFrame, role: str, user_key: str, jd_text: st
 
         incoming = _ensure_history_columns(incoming)
 
+        if not existing.empty and {"Profile Key", "Role", "Feedback"}.issubset(existing.columns):
+            prior_feedback = (
+                existing[
+                    existing["Feedback"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .isin(DECIDED_FEEDBACK)
+                ][["Profile Key", "Role", "Feedback"]]
+                .drop_duplicates(subset=["Profile Key", "Role"], keep="last")
+            )
+
+            if not prior_feedback.empty and {"Profile Key", "Role"}.issubset(incoming.columns):
+                incoming = incoming.merge(
+                    prior_feedback,
+                    on=["Profile Key", "Role"],
+                    how="left",
+                    suffixes=("", "_old"),
+                )
+                incoming["Feedback"] = (
+                    incoming["Feedback"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .replace("", "Pending")
+                )
+                incoming["Feedback_old"] = (
+                    incoming["Feedback_old"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                )
+                incoming["Feedback"] = incoming.apply(
+                    lambda r: r["Feedback_old"]
+                    if r["Feedback"] == "Pending" and r["Feedback_old"] in DECIDED_FEEDBACK
+                    else r["Feedback"],
+                    axis=1,
+                )
+                incoming = incoming.drop(columns=["Feedback_old"], errors="ignore")
+
         if existing.empty:
             combined = incoming.copy()
         else:
@@ -131,7 +192,10 @@ def save_history(results_df: pd.DataFrame, role: str, user_key: str, jd_text: st
 
         combined = combined.loc[:, ~combined.columns.duplicated()]
 
-        dedupe_keys = [c for c in ["Profile Key", "Role", "Client", "Source File"] if c in combined.columns]
+        dedupe_keys = [
+            c for c in ["Profile Key", "Role", "Client", "Source File"]
+            if c in combined.columns
+        ]
         if dedupe_keys:
             combined = combined.drop_duplicates(subset=dedupe_keys, keep="last")
         else:
@@ -197,6 +261,9 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
         profile_key_value = str(profile_key_value or "").strip()
         role = str(role or "").strip()
         feedback = str(feedback or "").strip() or "Pending"
+
+        if feedback not in FEEDBACK_OPTIONS:
+            feedback = "Pending"
 
         mask = pd.Series(True, index=df.index)
 
