@@ -121,7 +121,7 @@ def section_presence_score(resume_text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# INDUSTRY FIT HELPERS
+# INDUSTRY FIT
 # ---------------------------------------------------------------------------
 def industry_fit_badge(industry_match: str) -> str:
     return {
@@ -149,8 +149,10 @@ def _normalize_industry_label(value: str) -> str:
         r"\bagro chemicals\b": "agrochemicals",
         r"\bagri input\b": "agrochemicals",
         r"\bcrop care\b": "agrochemicals",
+        r"\bcrop protection\b": "agrochemicals",
         r"\bpharma\b": "pharmaceuticals",
-        r"\bchemicals? and cement\b": "chemicals cement",
+        r"\bspeciality chemical\b": "chemicals",
+        r"\bspecialty chemical\b": "chemicals",
     }
 
     for pattern, replacement in replacements.items():
@@ -172,6 +174,9 @@ def _industry_tokens(value: str) -> set[str]:
         "services",
         "sector",
         "industry",
+        "direct",
+        "moving",
+        "fast",
     }
     normalized = _normalize_industry_label(value)
     return {t for t in normalized.split() if len(t) > 2 and t not in stop}
@@ -342,14 +347,12 @@ def score_resume(
     client_company: str = "",
     client_profile: dict | None = None,
 ) -> dict:
-    # 1. Keyword source
     final_keywords = keywords or []
     if use_llm_keywords and api_key:
         llm_kws = extract_keywords_llm(jd_text, api_key, model)
         if llm_kws:
             final_keywords = llm_kws
 
-    # 2. Candidate extraction
     email = extract_email(resume_text)
     phone = extract_phone(resume_text)
     exp = extract_experience(resume_text)
@@ -366,19 +369,16 @@ def score_resume(
 
     rule_based_industry = get_candidate_industry(resume_text, filename)
 
-    # 3. Sub-scores
     kw_score, matched, missing = keyword_match_score(resume_text, final_keywords)
     exp_sc = experience_score(exp, min_exp)
     cnt_score = contact_score(email, phone)
     skill_score = min(100, len(skills) * 10)
     structure_score = section_presence_score(resume_text)
 
-    # 4. Semantic score
     semantic_sc = 50.0
     if use_semantic and api_key:
         semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
 
-    # 5. Heuristic score
     has_edu_requirement = required_edu_level != -1
 
     if has_edu_requirement:
@@ -401,7 +401,6 @@ def score_resume(
             + (structure_score * 0.03)
         )
 
-    # 6. AI scoring
     ai_score = None
     ai_reason = ""
     industry_match = "N/A"
@@ -428,15 +427,12 @@ def score_resume(
         reason = ai_reason or make_reason(matched, missing, exp, min_exp, edu_reason)
         ai_used = True
 
-    # 6b. Candidate industry fallback
     if not candidate_industry or candidate_industry.strip().lower() in {"", "n/a", "unknown", "not detected"}:
         candidate_industry = rule_based_industry
 
-    # 6c. Industry match fallback
     if industry_match == "N/A":
         industry_match = _fallback_industry_match(rule_based_industry, client_profile)
 
-    # 7. Client persona boost
     band_note = ""
     if client_profile:
         boost = 0
