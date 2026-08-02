@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -34,10 +33,17 @@ HISTORY_COLUMNS = [
     "Source File",
     "AI Used",
     "Keywords Used",
+    "Client",
     "Role",
     "JD",
     "Feedback",
     "Saved At",
+    "Memory Adjustment",
+    "Learned Preference Adjustment",
+    "Client Bias Adjustment",
+    "Learning Status",
+    "Memory Note",
+    "Learned Notes",
 ]
 
 JD_LIBRARY_COLUMNS = [
@@ -101,8 +107,7 @@ def load_history(user_key: str) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=HISTORY_COLUMNS)
 
-    df = _ensure_history_columns(df)
-    return df
+    return _ensure_history_columns(df)
 
 
 def save_history(results_df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> bool:
@@ -110,27 +115,29 @@ def save_history(results_df: pd.DataFrame, role: str, user_key: str, jd_text: st
         existing = load_history(user_key)
         incoming = results_df.copy()
 
-        incoming["Role"] = role or ""
-        incoming["JD"] = jd_text or ""
-        incoming["Feedback"] = incoming.get("Feedback", "Pending")
+        incoming["Role"] = role or incoming.get("Role", "")
+        incoming["JD"] = jd_text or incoming.get("JD", "")
+        if "Feedback" not in incoming.columns:
+            incoming["Feedback"] = "Pending"
         incoming["Feedback"] = incoming["Feedback"].replace("", "Pending").fillna("Pending")
         incoming["Saved At"] = datetime.now().isoformat(timespec="seconds")
 
         incoming = _ensure_history_columns(incoming)
 
-        if not existing.empty:
-            combined = pd.concat([existing, incoming], ignore_index=True)
-        else:
+        if existing.empty:
             combined = incoming.copy()
+        else:
+            combined = pd.concat([existing, incoming], ignore_index=True)
 
         combined = combined.loc[:, ~combined.columns.duplicated()]
 
-        dedupe_keys = [c for c in ["Profile Key", "Role", "Source File"] if c in combined.columns]
+        dedupe_keys = [c for c in ["Profile Key", "Role", "Client", "Source File"] if c in combined.columns]
         if dedupe_keys:
             combined = combined.drop_duplicates(subset=dedupe_keys, keep="last")
         else:
             combined = combined.drop_duplicates(keep="last")
 
+        combined = _ensure_history_columns(combined)
         combined.to_csv(_history_path(user_key), index=False)
         return True
     except Exception:
@@ -153,7 +160,7 @@ def clear_role_history(user_key: str, role: str) -> bool:
         if df.empty or "Role" not in df.columns:
             return True
 
-        remaining = df[df["Role"].astype(str) != str(role)]
+        remaining = df[df["Role"].astype(str).str.strip() != str(role).strip()].copy()
         remaining = _ensure_history_columns(remaining)
         remaining.to_csv(_history_path(user_key), index=False)
         return True
@@ -191,7 +198,7 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
         role = str(role or "").strip()
         feedback = str(feedback or "").strip() or "Pending"
 
-        mask = pd.Series([True] * len(df))
+        mask = pd.Series(True, index=df.index)
 
         if "Profile Key" in df.columns and profile_key_value:
             mask = mask & (df["Profile Key"].astype(str).str.strip() == profile_key_value)
@@ -221,7 +228,8 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
         return pd.DataFrame(columns=JD_LIBRARY_COLUMNS)
 
     df = _ensure_jd_columns(df)
-    df = df.sort_values("Saved At", ascending=False, na_position="last").reset_index(drop=True)
+    if "Saved At" in df.columns:
+        df = df.sort_values("Saved At", ascending=False, na_position="last").reset_index(drop=True)
     return df
 
 
@@ -235,14 +243,12 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
             return False
 
         existing = load_jd_library(user_key)
-        new_row = pd.DataFrame(
-            [{
-                "Role": role,
-                "JD Text": jd_text,
-                "Tags": tags,
-                "Saved At": datetime.now().isoformat(timespec="seconds"),
-            }]
-        )
+        new_row = pd.DataFrame([{
+            "Role": role,
+            "JD Text": jd_text,
+            "Tags": tags,
+            "Saved At": datetime.now().isoformat(timespec="seconds"),
+        }])
 
         combined = pd.concat([existing, new_row], ignore_index=True)
         combined = _ensure_jd_columns(combined)
