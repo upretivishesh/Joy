@@ -1083,8 +1083,8 @@ with jd_tab:
 
         with action_col2:
             if st.button("Delete JD", use_container_width=True, type="secondary"):
-               confirm_delete_jd(
+                confirm_delete_jd(
                     user_key,
-                    role_label,
-                    str(row.get("Saved At", "")),
+                    str(picked_row.get("Role", "")),
+                    str(picked_row.get("Saved At", "")),
                 )
