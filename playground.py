@@ -207,8 +207,9 @@ with screen_tab:
 
     if new_search:
         reset_screening_session()
+        st.session_state["client_picker"] = "+ New client"
         st.rerun()
-
+        
     jd_upload = st.file_uploader(
         "Upload JD",
         type=["pdf", "docx", "txt"],
