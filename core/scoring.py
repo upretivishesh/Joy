@@ -212,8 +212,7 @@ def _fallback_industry_match(rule_based_industry: str, client_profile: dict | No
         if overlap:
             return "Partial"
 
-    return "N/A"
-
+    return "No"
 
 # ---------------------------------------------------------------------------
 # AI SCORING
