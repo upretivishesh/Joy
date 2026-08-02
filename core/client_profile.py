@@ -1,6 +1,5 @@
-# core/client_profile.py
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 import json
 import os
 
@@ -20,7 +19,7 @@ def get_supabase_client():
     url = os.getenv("SUPABASE_URL") or ""
     key = os.getenv("SUPABASE_KEY") or ""
 
-    if (not url or not key):
+    if not url or not key:
         try:
             url = url or st.secrets.get("SUPABASE_URL") or ""
             key = key or st.secrets.get("SUPABASE_KEY") or ""
@@ -191,31 +190,34 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
 
 
 def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> bool:
-    """Upsert persona into Supabase"""
-    if not client_company or not client_company.strip():
+    client_company = _clean_company_name(client_company)
+    if not client_company:
         return False
+
+    payload = {
+        "user_key": user_key,
+        "client_company": client_company,
+        "preferred_industries": profile.get("preferred_industries", []) or [],
+        "language_preferences": profile.get("language_preferences", []) or [],
+        "preferred_colleges": profile.get("preferred_colleges", "") or "",
+        "min_experience": int(profile.get("min_experience", 0) or 0),
+        "max_experience": int(profile.get("max_experience", 15) or 15),
+        "culture_notes": profile.get("culture_notes", "") or "",
+        "last_updated": datetime.now().isoformat(),
+    }
+
+    local_ok = _save_local_persona(user_key, client_company, payload)
 
     supabase = get_supabase_client()
     if not supabase:
-        return False
+        return local_ok
 
     try:
-        data = {
-            "user_key": user_key,
-            "client_company": client_company.strip(),
-            "preferred_industries": profile.get("preferred_industries", []),
-            "language_preferences": profile.get("language_preferences", []),
-            "preferred_colleges": profile.get("preferred_colleges", ""),
-            "min_experience": profile.get("min_experience", 0),
-            "max_experience": profile.get("max_experience", 15),
-            "culture_notes": profile.get("culture_notes", ""),
-            "last_updated": datetime.now().isoformat(),
-        }
-
         supabase.table("client_personas").upsert(
-            data,
+            payload,
             on_conflict="user_key,client_company"
         ).execute()
         return True
-    except Exception:
-        return False
+    except Exception as e:
+        print(f"Supabase save_client_profile failed: {e}")
+        return local_ok
