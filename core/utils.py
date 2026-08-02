@@ -159,41 +159,40 @@ def reset_jd_library_form() -> None:
         st.session_state[key] = ""
 
 
-def reset_screening_session():
-    import streamlit as st
+def reset_screening_session() -> None:
     import pandas as pd
+    import streamlit as st
 
-    st.session_state.results_df = pd.DataFrame()
-    st.session_state.email_results = []
-    st.session_state.selected_candidates = pd.DataFrame()
-    st.session_state.selected_history = pd.DataFrame()
+    st.session_state["results_df"] = pd.DataFrame()
+    st.session_state["email_results"] = []
+    st.session_state["selected_candidates"] = pd.DataFrame()
+    st.session_state["selected_history"] = pd.DataFrame()
 
-    st.session_state.last_role = ""
-    st.session_state.last_jd = ""
-    st.session_state.last_keywords = []
-    st.session_state.last_client_company = ""
+    st.session_state["last_role"] = ""
+    st.session_state["last_jd"] = ""
+    st.session_state["last_keywords"] = []
+    st.session_state["last_client_company"] = ""
 
     st.session_state["typed_jd_text"] = ""
     st.session_state["role_input"] = ""
     st.session_state["client_company_input"] = ""
     st.session_state["extra_keywords"] = ""
 
-    st.session_state["_persona_company_key"] = None
-    st.session_state["_persona_profile"] = {}
-    st.session_state["_persona_save_status"] = None
-
     st.session_state["_pending_jd_text"] = None
     st.session_state["_pending_role_input"] = None
     st.session_state["_history_loaded_role"] = None
     st.session_state["_history_loaded_jd"] = None
+
+    st.session_state["_persona_company_key"] = None
+    st.session_state["_persona_profile"] = {}
+    st.session_state["_persona_save_status"] = None
 
     st.session_state.pop("client_picker", None)
     st.session_state.pop("email_editor", None)
     st.session_state.pop("edited_email_preview", None)
     st.session_state.pop("_email_fingerprint", None)
 
-    st.session_state.upload_session = st.session_state.get("upload_session", 0) + 1
-    
+    st.session_state["upload_session"] = st.session_state.get("upload_session", 0) + 1
 # ============================================================
 # Authentication (Google OAuth + Manual Whitelist)
 # ============================================================
