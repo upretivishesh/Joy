@@ -1,4 +1,3 @@
-# core/screening.py
 from typing import Dict, Tuple, Optional, List
 
 import pandas as pd
@@ -94,10 +93,16 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
                 learned_profile["preferred_industries"] = industry_counts.head(5).index.tolist()
 
             if "Experience" in positive_hist.columns:
-                exp_series = pd.to_numeric(positive_hist["Experience"], errors="coerce").dropna()
+                exp_series = pd.to_numeric(
+                    positive_hist["Experience"], errors="coerce"
+                ).dropna()
                 if not exp_series.empty:
-                    learned_profile["min_experience_hint"] = round(float(exp_series.quantile(0.25)), 1)
-                    learned_profile["max_experience_hint"] = round(float(exp_series.quantile(0.75)), 1)
+                    learned_profile["min_experience_hint"] = round(
+                        float(exp_series.quantile(0.25)), 1
+                    )
+                    learned_profile["max_experience_hint"] = round(
+                        float(exp_series.quantile(0.75)), 1
+                    )
 
             if "Matched Keywords" in positive_hist.columns:
                 keywords = []
@@ -111,7 +116,9 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
     return candidate_memory, client_bias, learned_profile
 
 
-def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> Tuple[float, str, str]:
+def apply_candidate_memory(
+    row: pd.Series, candidate_memory: dict
+) -> Tuple[float, str, str]:
     pk = _safe_str(row.get("Profile Key", "")).strip()
     memory = candidate_memory.get(pk)
     if not memory:
@@ -144,17 +151,26 @@ def apply_learned_profile(row: dict, learned_profile: dict) -> Tuple[float, List
         adjustment += 3.0
         notes.append(f"Matches historically successful industry: {candidate_industry}")
 
-    candidate_exp = pd.to_numeric(pd.Series([row.get("Experience", None)]), errors="coerce").iloc[0]
+    candidate_exp = pd.to_numeric(
+        pd.Series([row.get("Experience", None)]), errors="coerce"
+    ).iloc[0]
     min_hint = learned_profile.get("min_experience_hint")
     max_hint = learned_profile.get("max_experience_hint")
     if pd.notna(candidate_exp) and min_hint is not None and max_hint is not None:
         if min_hint <= float(candidate_exp) <= max_hint:
             adjustment += 2.0
-            notes.append(f"Experience aligns with prior successful range ({min_hint}-{max_hint} yrs)")
+            notes.append(
+                f"Experience aligns with prior successful range ({min_hint}-{max_hint} yrs)"
+            )
 
     matched_keywords_text = _safe_str(row.get("Matched Keywords", ""))
-    matched_keywords = {k.strip().lower() for k in matched_keywords_text.split(",") if k.strip()}
-    good_fit_keywords = {k.strip().lower() for k in (learned_profile.get("good_fit_keywords", []) or [])}
+    matched_keywords = {
+        k.strip().lower() for k in matched_keywords_text.split(",") if k.strip()
+    }
+    good_fit_keywords = {
+        k.strip().lower()
+        for k in (learned_profile.get("good_fit_keywords", []) or [])
+    }
     overlap = sorted(matched_keywords & good_fit_keywords)
     if overlap:
         bonus = min(4.0, 1.0 * len(overlap))
@@ -199,7 +215,9 @@ def run_screening(
         st.error("No resumes uploaded")
         return pd.DataFrame(), read_errors
 
-    candidate_memory, client_bias, learned_profile = get_learning_adjustments(user_key, client_company)
+    candidate_memory, client_bias, learned_profile = get_learning_adjustments(
+        user_key, client_company
+    )
 
     role = (
         role_input.strip()
@@ -225,14 +243,22 @@ def run_screening(
         jd_requirements=jd_req,
     )
 
-    merged_preferred_industries = list(dict.fromkeys(
-        [*preferred_industries, *(learned_profile.get("preferred_industries", []) or [])]
-    ))
+    merged_preferred_industries = list(
+        dict.fromkeys(
+            [
+                *preferred_industries,
+                *(learned_profile.get("preferred_industries", []) or []),
+            ]
+        )
+    )
 
     client_profile = {
         "preferred_industries": merged_preferred_industries,
         "min_experience": min_exp,
         "max_experience": max_exp,
+        "culture_notes": "",
+        "language_preferences": [],
+        "preferred_colleges": "",
     }
 
     results = []
@@ -244,12 +270,12 @@ def run_screening(
             text, read_error = read_uploaded_file(file.name, file.getvalue())
 
             if read_error:
-                read_errors.append("{}: {}".format(file.name, read_error))
+                read_errors.append(f"{file.name}: {read_error}")
                 progress_bar.progress((i + 1) / total)
                 continue
 
             if not text.strip():
-                read_errors.append("{}: no readable text found".format(file.name))
+                read_errors.append(f"{file.name}: no readable text found")
                 progress_bar.progress((i + 1) / total)
                 continue
 
@@ -301,12 +327,14 @@ def run_screening(
             notes.extend(learned_notes)
 
             if notes:
-                row["Reason"] = (str(row.get("Reason", "")) + " " + " ".join(notes)).strip()
+                row["Reason"] = (
+                    str(row.get("Reason", "")) + " " + " ".join(notes)
+                ).strip()
 
             results.append(row)
 
         except Exception as e:
-            read_errors.append("{}: {}".format(file.name, e))
+            read_errors.append(f"{file.name}: {e}")
 
         progress_bar.progress((i + 1) / total)
 
