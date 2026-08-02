@@ -383,7 +383,7 @@ with screen_tab:
                     st.success("Persona saved successfully!")
                 else:
                     st.error("Failed to save persona.")
-
+                    
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
     if detected_preview and detected_preview != "Open Role":
         st.caption(f"Detected role title: {detected_preview}")
