@@ -112,39 +112,37 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
 
 
 def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> bool:
-    client_company = _clean_company_name(client_company)
+    client_company = (client_company or "").strip()
     if not client_company:
+        st.error("Client name is blank.")
         return False
 
     supabase = get_supabase_client()
     if not supabase:
+        st.error("Supabase client not available. Check SUPABASE_URL and SUPABASE_KEY in Streamlit secrets.")
         return False
 
     try:
         data = {
             "user_key": user_key,
             "client_company": client_company,
-            "preferred_industries": [
-                str(x).strip()
-                for x in (profile.get("preferred_industries", []) or [])
-                if str(x).strip()
-            ],
-            "language_preferences": [
-                str(x).strip()
-                for x in (profile.get("language_preferences", []) or [])
-                if str(x).strip()
-            ],
-            "preferred_colleges": str(profile.get("preferred_colleges", "") or "").strip(),
+            "preferred_industries": profile.get("preferred_industries", []),
+            "language_preferences": profile.get("language_preferences", []),
+            "preferred_colleges": profile.get("preferred_colleges", ""),
             "min_experience": int(profile.get("min_experience", 0) or 0),
             "max_experience": int(profile.get("max_experience", 15) or 15),
-            "culture_notes": str(profile.get("culture_notes", "") or "").strip(),
+            "culture_notes": profile.get("culture_notes", ""),
             "last_updated": datetime.now().isoformat(),
         }
 
-        supabase.table("client_personas").upsert(
+        result = supabase.table("client_personas").upsert(
             data,
             on_conflict="user_key,client_company"
         ).execute()
+
+        st.success("Persona saved in Supabase.")
         return True
-    except Exception:
+
+    except Exception as e:
+        st.error(f"Failed to save client persona: {e}")
         return False
