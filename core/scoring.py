@@ -1,4 +1,3 @@
-import json
 import re
 
 from .parser import (
@@ -40,7 +39,9 @@ def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, lis
                 if all(re.search(rf"\b{re.escape(w)}\b", lower) for w in kw_words):
                     matched.append(kw)
                 else:
-                    hit_count = sum(1 for w in kw_words if re.search(rf"\b{re.escape(w)}\b", lower))
+                    hit_count = sum(
+                        1 for w in kw_words if re.search(rf"\b{re.escape(w)}\b", lower)
+                    )
                     if len(kw_words) > 1 and hit_count / len(kw_words) >= 0.6:
                         matched.append(kw)
                     else:
@@ -83,7 +84,9 @@ def experience_score(candidate_years: float, required_years: float) -> int:
     return int(max(10, ratio * 80))
 
 
-def education_score(resume_edu_level: int, required_edu: str, required_edu_level: int) -> tuple[int, str]:
+def education_score(
+    resume_edu_level: int, required_edu: str, required_edu_level: int
+) -> tuple[int, str]:
     if not required_edu or required_edu_level == -1:
         return 75, "No specific education requirement stated"
     if resume_edu_level == -1:
@@ -123,7 +126,7 @@ def section_presence_score(resume_text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# INDUSTRY FIT
+# INDUSTRY FIT HELPERS
 # ---------------------------------------------------------------------------
 def industry_fit_badge(industry_match: str) -> str:
     return {
@@ -141,7 +144,7 @@ def _normalize_industry_label(value: str) -> str:
     value = re.sub(r"\b(fmcg sales|fmcg)\b", "fast moving consumer goods", value)
     value = re.sub(r"\b(d2c|dtc)\b", "direct to consumer", value)
     value = re.sub(
-        r"\b(agro chemical|crop protection|crop care|agri input|agri inputs)\b",
+        r"\b(agro chemical|agro chemicals|crop protection|crop care|agri input|agri inputs)\b",
         "agrochemicals",
         value,
     )
@@ -151,8 +154,18 @@ def _normalize_industry_label(value: str) -> str:
 
 
 def _industry_tokens(value: str) -> set[str]:
-    stop = {"and", "to", "the", "of", "general", "conventional"}
-    return {t for t in _normalize_industry_label(value).split() if len(t) > 2 and t not in stop}
+    stop = {
+        "and",
+        "to",
+        "the",
+        "of",
+        "general",
+        "conventional",
+        "business",
+    }
+    return {
+        t for t in _normalize_industry_label(value).split() if len(t) > 2 and t not in stop
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +247,19 @@ Resume:
         return None, f"AI scoring skipped: {exc}", "N/A", ""
 
 
+# ---------------------------------------------------------------------------
+# REASON + VERDICT
+# ---------------------------------------------------------------------------
 def make_reason(matched, missing, exp, min_exp, edu_reason=""):
     matched_text = ", ".join(matched[:5]) if matched else "few direct skill matches"
     missing_text = ", ".join(missing[:4]) if missing else "no obvious skill gaps"
 
     if min_exp > 0:
-        exp_text = f"{exp:g} yrs found vs {min_exp:g}+ yrs expected" if exp > 0 else f"Experience not extracted; {min_exp:g}+ yrs expected"
+        exp_text = (
+            f"{exp:g} yrs found vs {min_exp:g}+ yrs expected"
+            if exp > 0
+            else f"Experience not extracted; {min_exp:g}+ yrs expected"
+        )
     else:
         exp_text = f"{exp:g} yrs found" if exp else "Experience not clearly stated"
 
@@ -283,12 +303,14 @@ def score_resume(
     client_company: str = "",
     client_profile: dict | None = None,
 ) -> dict:
+    # 1. Keywords
     final_keywords = keywords or []
     if use_llm_keywords and api_key:
         llm_kws = extract_keywords_llm(jd_text, api_key, model)
         if llm_kws:
             final_keywords = llm_kws
 
+    # 2. Candidate extraction
     email = extract_email(resume_text)
     phone = extract_phone(resume_text)
     exp = extract_experience(resume_text)
@@ -296,25 +318,33 @@ def score_resume(
 
     name = ""
     if api_key:
-        name = extract_candidate_name_llm(resume_text, api_key, model, contact_email=email)
+        name = extract_candidate_name_llm(
+            resume_text, api_key, model, contact_email=email
+        )
     if not name:
         name = extract_name(resume_text, filename)
 
     resume_edu_level, resume_edu_qual = extract_education_level(resume_text)
-    edu_sc, edu_reason = education_score(resume_edu_level, required_edu, required_edu_level)
+    edu_sc, edu_reason = education_score(
+        resume_edu_level, required_edu, required_edu_level
+    )
 
+    # 2b. Rule-based industry
     rule_based_industry = get_candidate_industry(resume_text, filename)
 
+    # 3. Sub-scores
     kw_score, matched, missing = keyword_match_score(resume_text, final_keywords)
     exp_sc = experience_score(exp, min_exp)
     cnt_score = contact_score(email, phone)
     skill_score = min(100, len(skills) * 10)
     structure_score = section_presence_score(resume_text)
 
+    # 4. Semantic score
     semantic_sc = 50.0
     if use_semantic and api_key:
         semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
 
+    # 5. Heuristic score
     has_edu_requirement = required_edu_level != -1
 
     if has_edu_requirement:
@@ -337,6 +367,7 @@ def score_resume(
             + (structure_score * 0.03)
         )
 
+    # 6. AI score
     ai_score = None
     ai_reason = ""
     industry_match = "N/A"
@@ -344,13 +375,13 @@ def score_resume(
 
     if heuristic >= 50 and api_key:
         ai_score, ai_reason, industry_match, candidate_industry = ai_score_resume(
-            jd_text,
-            resume_text,
-            role,
-            api_key,
-            model,
-            jd_requirements,
-            client_company,
+            jd_text=jd_text,
+            resume_text=resume_text,
+            role=role,
+            api_key=api_key,
+            model=model,
+            jd_requirements=jd_requirements,
+            client_company=client_company,
         )
 
     if ai_score is None:
@@ -363,9 +394,16 @@ def score_resume(
         reason = ai_reason or make_reason(matched, missing, exp, min_exp, edu_reason)
         ai_used = True
 
-    if not candidate_industry or candidate_industry.strip().lower() in {"", "n/a", "unknown", "not detected"}:
+    # 6b. Always backfill candidate industry if AI left it empty
+    if not candidate_industry or candidate_industry.strip().lower() in {
+        "",
+        "n/a",
+        "unknown",
+        "not detected",
+    }:
         candidate_industry = rule_based_industry
 
+    # 6c. Fallback industry match from client persona
     if industry_match == "N/A" and client_profile:
         preferred = client_profile.get("preferred_industries") or []
 
@@ -385,6 +423,7 @@ def score_resume(
                     industry_match = "Partial"
                     break
 
+    # 7. Client persona adjustment
     band_note = ""
     if client_profile:
         boost = 0
@@ -406,7 +445,9 @@ def score_resume(
         max_band = float(client_profile.get("max_experience", 0) or 0)
         if max_band > 0 and exp > 0 and not (min_band <= exp <= max_band):
             boost -= 4
-            band_note = f" Outside this client's usual {min_band:g}-{max_band:g} yr experience band."
+            band_note = (
+                f" Outside this client's usual {min_band:g}-{max_band:g} yr experience band."
+            )
 
         if boost != 0:
             final_score = max(0.0, min(100.0, round(final_score + boost, 1)))
