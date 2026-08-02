@@ -10,7 +10,7 @@ INDUSTRY_PATTERNS = {
         "bajaj auto", "ashok leyland", "eicher", "bosch", "motherson",
         "automotive", "automobile", "auto component", "autocomponent",
         "vehicle", "oem", "2 wheeler", "4 wheeler", "commercial vehicle",
-        "passenger vehicle", "tractor"
+        "passenger vehicle", "tractor",
     ],
 
     "FMCG": [
@@ -18,7 +18,7 @@ INDUSTRY_PATTERNS = {
         "marico", "gcpl", "godrej consumer", "emami", "reckitt", "pepsico",
         "cocacola", "coca cola", "fmcg", "consumer goods",
         "fast moving consumer goods", "foods", "food products", "beverages",
-        "personal care", "home care", "oral care", "packaged foods"
+        "personal care", "home care", "oral care", "packaged foods",
     ],
 
     "Retail": [
@@ -26,7 +26,7 @@ INDUSTRY_PATTERNS = {
         "bigbasket", "flipkart", "amazon", "nykaa", "myntra", "retail",
         "modern trade", "general trade", "ecommerce", "e commerce",
         "omnichannel", "store operations", "merchandising", "d2c",
-        "direct to consumer", "dtc"
+        "direct to consumer", "dtc",
     ],
 
     "Pharmaceuticals": [
@@ -34,7 +34,7 @@ INDUSTRY_PATTERNS = {
         "zydus", "alkem", "mankind", "glenmark", "ipca", "pharma",
         "pharmaceutical", "pharmaceuticals", "formulation", "formulations",
         "api", "bulk drug", "tablet", "capsule", "injectable", "healthcare",
-        "life sciences"
+        "life sciences",
     ],
 
     "Agrochemicals": [
@@ -44,13 +44,13 @@ INDUSTRY_PATTERNS = {
         "crop protection", "pesticide", "pesticides", "herbicide", "herbicides",
         "fungicide", "fungicides", "insecticide", "insecticides",
         "fertilizer", "fertilizers", "fertiliser", "fertilisers",
-        "plant nutrition", "crop care"
+        "plant nutrition", "crop care",
     ],
 
     "Agriculture / Agritech": [
         "agri", "agriculture", "agricultural", "agritech", "farm input",
         "farm inputs", "seed", "seeds", "crop", "crops", "irrigation",
-        "soil health", "farmer", "farming", "horticulture", "nursery"
+        "soil health", "farmer", "farming", "horticulture", "nursery",
     ],
 
     "Chemicals": [
@@ -58,99 +58,99 @@ INDUSTRY_PATTERNS = {
         "tatva chintan", "speciality chemical", "speciality chemicals",
         "specialty chemical", "specialty chemicals", "chemical", "chemicals",
         "industrial chemical", "solvent", "solvents", "resin", "resins",
-        "petrochemical", "petrochemicals", "adhesive", "adhesives"
+        "petrochemical", "petrochemicals", "adhesive", "adhesives",
     ],
 
     "Paints / Chemicals": [
         "asian paints", "berger paints", "kansai nerolac", "akzonobel",
         "paint", "paints", "coating", "coatings", "decorative paint",
-        "industrial paint"
+        "industrial paint",
     ],
 
     "Steel / Metals": [
         "tata steel", "jsw steel", "sail", "jindal steel", "steel",
         "rolled steel", "flat steel", "long steel", "metal", "metals",
-        "foundry", "forging", "forgings"
+        "foundry", "forging", "forgings",
     ],
 
     "Metals": [
         "hindalco", "vedanta", "nalco", "aluminium", "aluminum", "copper",
-        "zinc", "smelter", "extrusion"
+        "zinc", "smelter", "extrusion",
     ],
 
     "Cement / Building Materials": [
         "ultratech", "ambuja", "acc cement", "shree cement", "dalmia cement",
         "jk cement", "cement", "ready mix concrete", "rmc", "building material",
         "building materials", "construction material", "construction materials",
-        "tiles", "plywood", "sanitaryware", "pipes"
+        "tiles", "plywood", "sanitaryware", "pipes",
     ],
 
     "Oil & Gas": [
         "iocl", "indian oil", "ongc", "bpcl", "hpcl", "shell", "castrol",
         "oil and gas", "oil gas", "oil", "gas", "refinery", "refineries",
-        "lubricant", "lubricants", "petroleum", "downstream", "upstream"
+        "lubricant", "lubricants", "petroleum", "downstream", "upstream",
     ],
 
     "Energy / Infrastructure": [
         "adani", "ntpc", "power grid", "tata power", "renewable",
         "renewables", "solar", "wind energy", "energy", "power",
-        "transmission", "distribution utility", "infra", "infrastructure"
+        "transmission", "distribution utility", "infra", "infrastructure",
     ],
 
     "Construction / Infrastructure": [
         "l&t", "larsen and toubro", "construction", "epc", "project site",
         "contracting", "real estate", "civil", "structural", "site execution",
-        "site engineer", "infrastructure project"
+        "site engineer", "infrastructure project",
     ],
 
     "Logistics": [
         "logistics", "supply chain", "warehouse", "warehousing", "distribution",
         "transport", "transportation", "freight", "dispatch", "inventory",
-        "last mile", "cold chain", "3pl", "shipment"
+        "last mile", "cold chain", "3pl", "shipment",
     ],
 
     "Manufacturing": [
         "manufacturing", "manufacturer", "production", "factory", "plant",
-        "assembly line", "process plant", "unit"
+        "assembly line", "process plant", "unit",
     ],
 
     "Electrical / Electronics": [
         "electrical", "electronics", "consumer electronics", "pcb", "semiconductor",
-        "transformer", "switchgear", "wiring", "cable", "appliance"
+        "transformer", "switchgear", "wiring", "cable", "appliance",
     ],
 
     "Telecom": [
         "telecom", "telecommunications", "airtel", "jio", "vodafone idea",
-        "vi", "tower", "fiber", "broadband", "network rollout"
+        "vi", "tower", "fiber", "broadband", "network rollout",
     ],
 
     "Banking / Financial Services": [
         "bank", "banking", "nbfc", "insurance", "loan", "lending", "mortgage",
-        "wealth", "asset management", "financial services", "finserv"
+        "wealth", "asset management", "financial services", "finserv",
     ],
 
     "Textiles / Apparel": [
         "textile", "textiles", "garment", "garments", "apparel", "fashion retail",
-        "fabric", "spinning", "weaving", "knitting", "dyeing"
+        "fabric", "spinning", "weaving", "knitting", "dyeing",
     ],
 
     "Packaging": [
         "packaging", "flexible packaging", "rigid packaging", "label", "labels",
-        "carton", "corrugated", "blow molding", "injection molding"
+        "carton", "cartons", "blow molding", "injection molding",
     ],
 
     "Paper / Packaging": [
-        "paper", "pulp", "kraft", "corrugation", "corrugated box"
+        "paper", "pulp", "kraft", "corrugation", "corrugated", "corrugated box",
     ],
 
     "Mining / Minerals": [
-        "mining", "minerals", "quarry", "ore", "coal", "limestone", "bauxite"
+        "mining", "minerals", "quarry", "ore", "coal", "limestone", "bauxite",
     ],
 
     "Consumer Durables": [
         "consumer durable", "consumer durables", "white goods", "refrigerator",
         "washing machine", "air conditioner", "ac sales", "home appliance",
-        "durable sales"
+        "durable sales",
     ],
 }
 
@@ -185,7 +185,7 @@ INDUSTRY_PRIORITY = {
 
 GENERIC_PENALTY_TERMS = {
     "plant", "production", "factory", "unit", "manufacturing", "manufacturer",
-    "logistics", "distribution", "inventory", "dispatch", "warehouse"
+    "logistics", "distribution", "inventory", "dispatch", "warehouse",
 }
 
 
