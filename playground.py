@@ -505,12 +505,11 @@ with screen_tab:
 
 
 # ====================== EMAIL TAB ======================
-# ====================== EMAIL TAB ======================
 with email_tab:
     st.subheader("Outreach")
 
     if st.session_state.results_df.empty:
-        st.info("Run a screening first.")
+        st.caption("Run a screening first.")
     else:
         editable = st.session_state.results_df.copy()
 
