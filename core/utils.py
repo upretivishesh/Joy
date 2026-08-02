@@ -155,9 +155,7 @@ def init_state() -> None:
 
 
 def reset_jd_library_form() -> None:
-    for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
-        st.session_state[key] = ""
-
+    st.session_state["_clear_jd_form"] = True
 
 def reset_screening_session() -> None:
     import pandas as pd
