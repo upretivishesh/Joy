@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List, Set
 import os
 
 import streamlit as st
 
 
 def get_supabase_client():
-    """Safely get Supabase client."""
     try:
         from supabase import create_client
     except Exception:
@@ -15,7 +14,7 @@ def get_supabase_client():
     url = os.getenv("SUPABASE_URL") or ""
     key = os.getenv("SUPABASE_KEY") or ""
 
-    if (not url or not key):
+    if not url or not key:
         try:
             url = url or st.secrets.get("SUPABASE_URL") or ""
             key = key or st.secrets.get("SUPABASE_KEY") or ""
@@ -27,8 +26,7 @@ def get_supabase_client():
 
     try:
         return create_client(url, key)
-    except Exception as e:
-        st.error(f"Supabase connection failed: {e}")
+    except Exception:
         return None
 
 
@@ -48,7 +46,7 @@ def _clean_company_name(value: str) -> str:
     return " ".join((value or "").strip().split())
 
 
-def list_client_companies(user_key: str) -> list[str]:
+def list_client_companies(user_key: str) -> List[str]:
     supabase = get_supabase_client()
     if not supabase:
         return []
@@ -62,19 +60,18 @@ def list_client_companies(user_key: str) -> list[str]:
             .execute()
         )
 
-        names: list[str] = []
-        seen: set[str] = set()
+        names: List[str] = []
+        seen: Set[str] = set()
 
         for row in response.data or []:
             name = _clean_company_name(row.get("client_company", ""))
-            key = name.lower()
-            if name and key not in seen:
-                seen.add(key)
+            lowered = name.lower()
+            if name and lowered not in seen:
+                seen.add(lowered)
                 names.append(name)
 
         return names
-    except Exception as e:
-        st.warning(f"Could not list client personas: {e}")
+    except Exception:
         return []
 
 
@@ -108,8 +105,8 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
                 "culture_notes": row.get("culture_notes", "") or "",
                 "last_updated": row.get("last_updated", "") or "",
             }
-    except Exception as e:
-        st.warning(f"Could not load client persona: {e}")
+    except Exception:
+        pass
 
     return get_default_profile()
 
@@ -117,20 +114,26 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
 def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> bool:
     client_company = _clean_company_name(client_company)
     if not client_company:
-        st.error("Client name is blank.")
         return False
 
     supabase = get_supabase_client()
     if not supabase:
-        st.error("Supabase client not available.")
         return False
 
     try:
         data = {
             "user_key": user_key,
             "client_company": client_company,
-            "preferred_industries": [str(x).strip() for x in (profile.get("preferred_industries", []) or []) if str(x).strip()],
-            "language_preferences": [str(x).strip() for x in (profile.get("language_preferences", []) or []) if str(x).strip()],
+            "preferred_industries": [
+                str(x).strip()
+                for x in (profile.get("preferred_industries", []) or [])
+                if str(x).strip()
+            ],
+            "language_preferences": [
+                str(x).strip()
+                for x in (profile.get("language_preferences", []) or [])
+                if str(x).strip()
+            ],
             "preferred_colleges": str(profile.get("preferred_colleges", "") or "").strip(),
             "min_experience": int(profile.get("min_experience", 0) or 0),
             "max_experience": int(profile.get("max_experience", 15) or 15),
@@ -142,17 +145,6 @@ def save_client_profile(user_key: str, client_company: str, profile: Dict[str, A
             data,
             on_conflict="user_key,client_company"
         ).execute()
-
-        verify = (
-            supabase.table("client_personas")
-            .select("client_company")
-            .eq("user_key", user_key)
-            .eq("client_company", client_company)
-            .limit(1)
-            .execute()
-        )
-
-        return bool(verify.data)
-    except Exception as e:
-        st.error(f"Failed to save client persona: {e}")
+        return True
+    except Exception:
         return False
