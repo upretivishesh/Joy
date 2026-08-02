@@ -167,7 +167,6 @@ with st.sidebar:
         st.session_state.email_results = []
         st.rerun()
 
-
 st.markdown(
     """
     <section class="hero">
@@ -278,8 +277,6 @@ with screen_tab:
             key="extra_keywords",
         )
 
-        # Persona defaults — used in run_screening call below whether or
-        # not a client is entered, so they're always defined in this scope.
         persona_min_exp: float = 0.0
         persona_max_exp: float = 15.0
         persona_industries: list = []
@@ -314,6 +311,7 @@ with screen_tab:
                     i.strip() for i in industries_text.split(",") if i.strip()
                 ]
                 persona_industries = profile["preferred_industries"]
+
             with col2:
                 languages_text = st.text_input(
                     "Language preference",
@@ -344,6 +342,7 @@ with screen_tab:
                     key=f"persona_min_exp_{company_key}",
                 )
                 persona_min_exp = float(profile["min_experience"])
+
             with exp_col2:
                 profile["max_experience"] = st.number_input(
                     "Max experience (years)",
@@ -354,6 +353,7 @@ with screen_tab:
                     key=f"persona_max_exp_{company_key}",
                 )
                 persona_max_exp = float(profile["max_experience"])
+
             st.caption("Candidates outside this range take a small score penalty for this client.")
 
             profile["culture_notes"] = st.text_area(
@@ -367,11 +367,10 @@ with screen_tab:
             if st.button("Save Persona", type="secondary", use_container_width=True):
                 if save_client_profile(user_key, client_company_input, profile):
                     st.session_state["_persona_profile"] = profile
-                    if client_company_input.strip() not in st.session_state["_known_clients"]:
-                        st.session_state["_known_clients"].insert(0, client_company_input.strip())
-                    st.success("Persona saved successfully!")
-                else:
-                    st.error("Failed to save persona.")
+                    clean_name = " ".join((client_company_input or "").strip().split())
+                    known = [str(x).strip().lower() for x in st.session_state["_known_clients"]]
+                    if clean_name and clean_name.lower() not in known:
+                        st.session_state["_known_clients"].insert(0, clean_name)
 
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
     if detected_preview and detected_preview != "Open Role":
@@ -409,16 +408,10 @@ with screen_tab:
                     preferred_industries=persona_industries,
                 )
 
-            # Detect role from results (new screening.py adds Role column)
-            # or fall back to role_input so last_role is always set.
             detected_role = role_input.strip()
             if results is not None and not results.empty and "Role" in results.columns:
                 detected_role = str(results["Role"].iloc[0]) or detected_role
 
-            # Wire results into session_state so Email + History tabs work.
-            # The new screening.py returns a plain DataFrame and read_errors
-            # list — it no longer writes to session_state itself or calls
-            # save_history, so we do both here.
             if results is not None and not results.empty:
                 df_ranked = results.copy()
                 if "Final Score" in df_ranked.columns:
@@ -434,7 +427,6 @@ with screen_tab:
             st.session_state.last_keywords = []
             st.session_state.last_client_company = client_company_input
 
-            # Save to history so the History tab is populated immediately.
             try:
                 from core.history import save_history
                 if st.session_state.results_df is not None and not st.session_state.results_df.empty:
@@ -462,7 +454,6 @@ with screen_tab:
         st.divider()
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
-
 
 # ====================== EMAIL TAB ======================
 with email_tab:
