@@ -1,14 +1,11 @@
-import json
 import re
 import pandas as pd
 import streamlit as st
 
-from core.constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
+from core.constants import APP_NAME, DEFAULT_COMPANY
 from core.client_profile import load_client_profile, save_client_profile, list_client_companies
 from core.emailer import build_email_body, send_bulk_emails
 from core.history import (
-    clear_history,
-    clear_role_history,
     load_history,
     load_jd_library,
     save_jd,
@@ -20,10 +17,12 @@ from core.history import (
 )
 from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd
+from core.persona_options import INDUSTRY_OPTIONS, LANGUAGE_OPTIONS, merge_with_custom
 from core.screening import run_screening
 from core.utils import (
     filter_history_by_search,
     format_experience_years,
+    format_industry_fit,
     get_secret,
     init_state,
     inject_clear_icon_fix,
@@ -101,7 +100,11 @@ if not is_user_allowed(google_email):
     st.stop()
 
 if not st.session_state.gmail_authenticated or st.session_state.sender_email != google_email:
-    login_user_from_google(google_email, google_name, st.session_state.get("company_name", DEFAULT_COMPANY))
+    login_user_from_google(
+        google_email,
+        google_name,
+        st.session_state.get("company_name", DEFAULT_COMPANY),
+    )
 
 if not st.session_state.sender_password:
     with st.expander("Gmail App Password required for sending emails", expanded=True):
@@ -113,7 +116,7 @@ if not st.session_state.sender_password:
         app_pw = st.text_input(
             "App Password for the signed-in Gmail",
             type="password",
-            placeholder="xxxx xxxx xxxx xxxx"
+            placeholder="xxxx xxxx xxxx xxxx",
         )
         if st.button("Save App Password", type="primary"):
             clean_pw = re.sub(r"\s+", "", app_pw or "")
@@ -185,7 +188,6 @@ screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "Histor
 
 # ====================== SCREEN TAB ======================
 with screen_tab:
-
     pending_jd = st.session_state.pop("_pending_jd_text", None)
     pending_role = st.session_state.pop("_pending_role_input", None)
     if pending_jd is not None:
@@ -221,10 +223,7 @@ with screen_tab:
 
     jd_text = typed_jd_text
     if jd_upload:
-        uploaded_jd_text, jd_error = read_uploaded_file(
-            jd_upload.name,
-            jd_upload.getvalue(),
-        )
+        uploaded_jd_text, jd_error = read_uploaded_file(jd_upload.name, jd_upload.getvalue())
         if jd_error:
             st.warning(f"JD upload: {jd_error}")
         if uploaded_jd_text.strip():
@@ -279,7 +278,7 @@ with screen_tab:
 
         persona_min_exp: float = 0.0
         persona_max_exp: float = 15.0
-        persona_industries: list = []
+        persona_industries: list[str] = []
 
         if client_company_input.strip():
             company_key = client_company_input.strip().lower()
@@ -287,6 +286,7 @@ with screen_tab:
             if st.session_state.get("_persona_company_key") != company_key:
                 st.session_state["_persona_profile"] = load_client_profile(user_key, client_company_input)
                 st.session_state["_persona_company_key"] = company_key
+
             profile = st.session_state["_persona_profile"]
 
             persona_min_exp = float(profile.get("min_experience", 0) or 0)
@@ -295,33 +295,44 @@ with screen_tab:
 
             st.markdown("**Persona**")
             if profile.get("last_updated"):
-                st.caption(f"Joy remembers these preferences for this client · last updated {str(profile['last_updated'])[:10]}")
+                st.caption(
+                    f"Joy remembers these preferences for this client · last updated {str(profile['last_updated'])[:10]}"
+                )
             else:
                 st.caption("Joy remembers these preferences for this client")
 
             col1, col2 = st.columns([1.1, 1])
+
             with col1:
-                industries_text = st.text_input(
-                    "Preferred industries",
-                    value=", ".join(profile.get("preferred_industries", [])),
-                    placeholder="D2C, Agrochemicals, Organic Farming",
-                    key=f"persona_industries_{company_key}",
+                industry_options = merge_with_custom(
+                    INDUSTRY_OPTIONS,
+                    profile.get("preferred_industries", []),
                 )
-                profile["preferred_industries"] = [
-                    i.strip() for i in industries_text.split(",") if i.strip()
-                ]
+                profile["preferred_industries"] = st.multiselect(
+                    "Preferred industries",
+                    options=industry_options,
+                    default=profile.get("preferred_industries", []),
+                    key=f"persona_industries_{company_key}",
+                    help="Choose from the list or type custom ones like Agrochemical, Crop Protection, or Agro Inputs.",
+                    accept_new_options=True,
+                    placeholder="Choose or add industries",
+                )
                 persona_industries = profile["preferred_industries"]
 
             with col2:
-                languages_text = st.text_input(
-                    "Language preference",
-                    value=", ".join(profile.get("language_preferences", [])),
-                    placeholder="English, Hindi, Punjabi",
-                    key=f"persona_languages_{company_key}",
+                language_options = merge_with_custom(
+                    LANGUAGE_OPTIONS,
+                    profile.get("language_preferences", []),
                 )
-                profile["language_preferences"] = [
-                    l.strip() for l in languages_text.split(",") if l.strip()
-                ]
+                profile["language_preferences"] = st.multiselect(
+                    "Language preference",
+                    options=language_options,
+                    default=profile.get("language_preferences", []),
+                    key=f"persona_languages_{company_key}",
+                    help="Choose one or more languages, or type a custom one.",
+                    accept_new_options=True,
+                    placeholder="Choose or add languages",
+                )
 
             profile["preferred_colleges"] = st.text_area(
                 "Preferred colleges / tiers",
@@ -367,10 +378,11 @@ with screen_tab:
             if st.button("Save Persona", type="secondary", use_container_width=True):
                 if save_client_profile(user_key, client_company_input, profile):
                     st.session_state["_persona_profile"] = profile
-                    clean_name = " ".join((client_company_input or "").strip().split())
-                    known = [str(x).strip().lower() for x in st.session_state["_known_clients"]]
-                    if clean_name and clean_name.lower() not in known:
-                        st.session_state["_known_clients"].insert(0, clean_name)
+                    if client_company_input.strip() not in st.session_state["_known_clients"]:
+                        st.session_state["_known_clients"].insert(0, client_company_input.strip())
+                    st.success("Persona saved successfully!")
+                else:
+                    st.error("Failed to save persona.")
 
     detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
     if detected_preview and detected_preview != "Open Role":
@@ -418,6 +430,7 @@ with screen_tab:
                     df_ranked = df_ranked.sort_values("Final Score", ascending=False).reset_index(drop=True)
                 if "Rank" not in df_ranked.columns:
                     df_ranked.insert(0, "Rank", range(1, len(df_ranked) + 1))
+                df_ranked = format_industry_fit(df_ranked)
                 st.session_state.results_df = df_ranked
             else:
                 st.session_state.results_df = pd.DataFrame()
@@ -446,8 +459,8 @@ with screen_tab:
                 and not results["AI Used"].any()
             ):
                 st.warning(
-                    f"A {provider_label} key is set, but AI scoring failed for every resume in this batch "
-                    "(Industry Match will show N/A). Check the key and model in your secrets."
+                    f"A {provider_label} key is set, but AI scoring failed for every resume in this batch. "
+                    "Check the key and model in your secrets."
                 )
 
     if not st.session_state.results_df.empty:
@@ -476,9 +489,19 @@ with email_tab:
             hide_index=True,
             num_rows="fixed",
             disabled=[
-                "Rank", "Phone", "Experience", "Keyword Score", "Final Score",
-                "Verdict", "Industry Match", "Candidate Industry", "Matched Keywords",
-                "Missing Keywords", "Skills", "Source File", "AI Used",
+                "Rank",
+                "Phone",
+                "Experience",
+                "Keyword Score",
+                "Final Score",
+                "Verdict",
+                "Industry Match",
+                "Candidate Industry",
+                "Matched Keywords",
+                "Missing Keywords",
+                "Skills",
+                "Source File",
+                "AI Used",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
@@ -513,7 +536,6 @@ with email_tab:
             st.session_state.pop("edited_email_preview", None)
 
         subject = st.text_input("Subject", key="email_subject")
-
         questions = questions_from_text(st.session_state.questions_text)
 
         if not st.session_state.selected_candidates.empty:
@@ -532,7 +554,7 @@ with email_tab:
 
             with st.expander(
                 f"Preview: {st.session_state.selected_candidates.iloc[0]['Name']}",
-                expanded=True
+                expanded=True,
             ):
                 st.text_area(
                     "Edit email before sending",
@@ -558,7 +580,10 @@ with email_tab:
             )
 
         if not missing_email.empty:
-            st.warning("Add valid email addresses before sending: " + ", ".join(missing_email["Name"].astype(str).tolist()))
+            st.warning(
+                "Add valid email addresses before sending: "
+                + ", ".join(missing_email["Name"].astype(str).tolist())
+            )
 
         if not st.session_state.sender_password:
             st.error("App Password is required to send emails. Add it above.")
@@ -620,7 +645,7 @@ with history_tab:
         selected_role = "all"
         if search_query.strip():
             shown = filter_history_by_search(hist, search_query)
-            st.caption(f"{len(shown)} match(es) across all roles for \"{search_query.strip()}\"")
+            st.caption(f'{len(shown)} match(es) across all roles for "{search_query.strip()}"')
         elif "Role" in hist.columns:
             roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
             selected_role = st.selectbox("Role filter", roles)
@@ -710,6 +735,7 @@ with history_tab:
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
 
+        history_editable = format_industry_fit(history_editable)
         history_editable = order_columns_first(
             history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
         )
@@ -736,8 +762,8 @@ with history_tab:
                         "Pending",
                         "Interviewed",
                         "Shortlisted",
-                        "Rejected",
                         "Hired",
+                        "Rejected",
                         "Do Not Consider",
                     ],
                 ),
@@ -778,8 +804,18 @@ with history_tab:
                 st.session_state.pop("history_email_preview", None)
 
             history_subject = st.text_input("Subject", key="history_subject")
-            history_questions = st.text_area("Questions to collect", value=st.session_state.questions_text, height=180, key="history_questions")
-            history_note = st.text_area("Extra note", placeholder="Optional context for candidates", height=100, key="history_note")
+            history_questions = st.text_area(
+                "Questions to collect",
+                value=st.session_state.questions_text,
+                height=180,
+                key="history_questions",
+            )
+            history_note = st.text_area(
+                "Extra note",
+                placeholder="Optional context for candidates",
+                height=100,
+                key="history_note",
+            )
 
             parsed_questions = questions_from_text(history_questions)
 
@@ -803,7 +839,7 @@ with history_tab:
                 f"Send {len(st.session_state.selected_history)} email(s)",
                 type="primary",
                 disabled=not history_confirm or not st.session_state.sender_password,
-                key="send_history_btn"
+                key="send_history_btn",
             )
 
             if send_history:
@@ -827,112 +863,70 @@ with history_tab:
 
 # ====================== JD LIBRARY TAB ======================
 with jd_tab:
-    col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
+    st.subheader("JD Library")
 
-    with col1:
-        st.subheader("JD Library")
-
-    with col2:
-        st.markdown("<div style='height: 8px'></div>", unsafe_allow_html=True)
-        if st.button("New screening", key="jd_new_btn", use_container_width=True):
-            reset_jd_library_form()
-            st.rerun()
-
-    jd_lib = load_jd_library(user_key)
-
-    if "jd_save_role" not in st.session_state:
-        st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
-
-    save_role = st.text_input(
-        "Role title",
-        placeholder="e.g. Assistant Manager Supply",
-        key="jd_save_role",
-    )
-
-    if "jd_save_text" not in st.session_state:
-        st.session_state["jd_save_text"] = st.session_state.get("last_jd", "")
-
-    save_jd_text = st.text_area(
-        "JD text",
-        height=200,
-        placeholder="Paste JD here or it auto-fills from your last screening.",
-        key="jd_save_text",
-    )
-
-    save_tags = st.text_input(
-        "Tags (optional)",
-        placeholder="e.g. agrochemicals, bangalore, urgent",
-        key="jd_save_tags",
-    )
-
-    if st.button("Save to JD Library", type="primary", use_container_width=False):
-        if not save_role.strip():
-            st.error("Add a role title before saving.")
-        elif not save_jd_text.strip():
-            st.error("JD text is empty.")
-        else:
-            success = save_jd(user_key, save_role, save_jd_text, save_tags)
-            if success:
-                st.success(f"Saved: {save_role}")
-                st.rerun()
-            else:
-                st.error("Could not save. Check role title and JD text.")
-
-    st.divider()
-    st.markdown("**Saved JDs**")
-
-    if jd_lib.empty:
-        st.info("No JDs saved yet. Run a screening or paste a JD above to save it.")
+    jd_df = load_jd_library(user_key)
+    if jd_df.empty:
+        st.info("No saved JDs yet.")
     else:
-        search_query = st.text_input(
-            "Search",
-            placeholder="Filter by role or tags",
-            key="jd_search",
+        st.dataframe(jd_df, use_container_width=True, hide_index=True)
+
+    with st.expander("Save current JD", expanded=False):
+        jd_save_role = st.text_input(
+            "Role",
+            value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
+            key="jd_save_role",
+        )
+        jd_save_text = st.text_area(
+            "JD Text",
+            value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
+            height=220,
+            key="jd_save_text",
+        )
+        jd_save_tags = st.text_input(
+            "Tags",
+            value=st.session_state.get("jd_save_tags", ""),
+            placeholder="e.g. sales, agrochemical, west india",
+            key="jd_save_tags",
         )
 
-        display_df = jd_lib.copy()
+        save_jd_clicked = st.button("Save JD", type="primary")
+        if save_jd_clicked:
+            if not jd_save_role.strip() or not jd_save_text.strip():
+                st.error("Role and JD text are required.")
+            else:
+                if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
+                    st.success("JD saved.")
+                    reset_jd_library_form()
+                    st.rerun()
+                else:
+                    st.error("Could not save JD.")
 
-        if search_query.strip():
-            mask = (
-                display_df["Role"].astype(str).str.lower().str.contains(search_query.lower(), na=False)
-                | display_df.get("Tags", pd.Series(dtype=str)).astype(str).str.lower().str.contains(search_query.lower(), na=False)
-            )
-            display_df = display_df[mask]
+    if not jd_df.empty:
+        st.divider()
+        st.subheader("Manage saved JDs")
 
-        if display_df.empty:
-            st.info("No JDs match that search.")
-        else:
-            for _, row in display_df.iterrows():
-                role_label = str(row.get("Role", ""))
-                saved_at = str(row.get("Saved At", ""))
-                tags = str(row.get("Tags", ""))
-                jd_preview = str(row.get("JD Text", ""))[:180].replace("\n", " ")
+        jd_options = [
+            f"{row['Role']} · {str(row.get('Saved At', ''))[:19]}"
+            for _, row in jd_df.iterrows()
+        ]
+        picked_label = st.selectbox("Saved JDs", jd_options)
+        picked_index = jd_options.index(picked_label)
+        picked_row = jd_df.iloc[picked_index]
 
-                with st.expander(f"{role_label}  ·  {saved_at[:10]}" + (f"  ·  {tags}" if tags and tags != "nan" else "")):
-                    st.caption(jd_preview + ("..." if len(str(row.get("JD Text", ""))) > 180 else ""))
+        action_col1, action_col2 = st.columns(2)
 
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        if st.button("Load into screener", key=f"load_jd_{role_label}_{saved_at}", use_container_width=True):
-                            st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
-                            st.session_state["_pending_role_input"] = role_label
-                            st.rerun()
+        with action_col1:
+            if st.button("Load into Screen tab", use_container_width=True):
+                st.session_state["_pending_jd_text"] = picked_row.get("JD Text", "")
+                st.session_state["_pending_role_input"] = picked_row.get("Role", "")
+                st.success("JD loaded into Screen tab.")
+                st.rerun()
 
-                    with c2:
-                        delete_key = f"delete_jd_{role_label}_{saved_at}"
-                        if st.button("Delete", key=delete_key, use_container_width=True):
-                            @st.dialog(f"Delete JD: '{role_label}'?")
-                            def delete_jd_dialog():
-                                st.warning(f"This will permanently delete the saved JD **{role_label}** from your library.")
-                                st.write("This action cannot be undone.")
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("Cancel", use_container_width=True, key=f"cancel_{delete_key}"):
-                                        st.rerun()
-                                with col2:
-                                    if st.button("Yes, Delete JD", type="primary", use_container_width=True, key=f"confirm_{delete_key}"):
-                                        confirm_delete_jd(user_key, role_label, saved_at)
-                            delete_jd_dialog()
-
-    st.divider()
-    st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
+        with action_col2:
+            if st.button("Delete JD", use_container_width=True, type="secondary"):
+                confirm_delete_jd(
+                    user_key,
+                    str(picked_row.get("Role", "")),
+                    str(picked_row.get("Saved At", "")),
+                )
