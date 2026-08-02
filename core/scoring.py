@@ -1,8 +1,11 @@
+# core/scoring.py
 import re
+from typing import Optional
 
 from .parser import (
-    extract_email,
+    EDUCATION_KEYWORDS,
     extract_education_level,
+    extract_email,
     extract_experience,
     extract_name,
     extract_phone,
@@ -16,7 +19,7 @@ from .ai_client import chat_json
 
 
 # ---------------------------------------------------------------------------
-# KEYWORD MATCHING (kept for explainability)
+# KEYWORD MATCHING
 # ---------------------------------------------------------------------------
 def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, list[str], list[str]]:
     if not keywords:
@@ -55,7 +58,7 @@ def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, lis
 
 
 # ---------------------------------------------------------------------------
-# EXPERIENCE, EDUCATION, CONTACT, STRUCTURE SCORING
+# EXPERIENCE, EDUCATION, CONTACT, STRUCTURE
 # ---------------------------------------------------------------------------
 def experience_score(candidate_years: float, required_years: float) -> int:
     if required_years <= 0:
@@ -89,6 +92,7 @@ def education_score(resume_edu_level: int, required_edu: str, required_edu_level
         return 35, f"Education not clearly identified on resume (requires {required_edu})"
     if resume_edu_level >= required_edu_level:
         return 100, "Meets or exceeds education requirement"
+
     gap = required_edu_level - resume_edu_level
     if gap == 1:
         return 52, f"One level below required education ({required_edu})"
@@ -121,7 +125,7 @@ def section_presence_score(resume_text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# INDUSTRY FIT
+# INDUSTRY FIT HELPERS
 # ---------------------------------------------------------------------------
 def industry_fit_badge(industry_match: str) -> str:
     return {
@@ -133,86 +137,139 @@ def industry_fit_badge(industry_match: str) -> str:
 
 def _normalize_industry_label(value: str) -> str:
     value = (value or "").lower().strip()
-    if not value:
-        return ""
-
     value = value.replace("&", " and ")
     value = value.replace("/", " ")
     value = re.sub(r"[^a-z0-9\s]", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
 
     replacements = {
-        r"\bfmcg\b": "fast moving consumer goods",
-        r"\bd2c\b": "direct to consumer",
-        r"\bdtc\b": "direct to consumer",
-        r"\bb2b\b": "business to business",
-        r"\bagro chemical\b": "agrochemicals",
-        r"\bagro chemicals\b": "agrochemicals",
-        r"\bagri input\b": "agrochemicals",
-        r"\bcrop care\b": "agrochemicals",
-        r"\bcrop protection\b": "agrochemicals",
-        r"\bpharma\b": "pharmaceuticals",
-        r"\bspeciality chemical\b": "chemicals",
-        r"\bspecialty chemical\b": "chemicals",
+        "agro chemical": "agrochemicals",
+        "agro chemicals": "agrochemicals",
+        "agrochemicals crop protection": "agrochemicals",
+        "crop protection": "agrochemicals",
+        "crop care": "agrochemicals",
+        "agri input": "agrochemicals",
+        "agri inputs": "agrochemicals",
+        "fertilizer": "agrochemicals",
+        "fertilizers": "agrochemicals",
+        "fertilisers": "agrochemicals",
+        "pesticide": "agrochemicals",
+        "pesticides": "agrochemicals",
+        "insecticide": "agrochemicals",
+        "insecticides": "agrochemicals",
+        "fungicide": "agrochemicals",
+        "fungicides": "agrochemicals",
+        "herbicide": "agrochemicals",
+        "herbicides": "agrochemicals",
+        "direct to consumer": "d2c",
+        "direct to consumer brands": "d2c",
+        "consumer brands": "d2c",
+        "fast moving consumer goods": "fmcg",
+        "speciality chemicals": "chemicals",
+        "specialty chemicals": "chemicals",
+        "chemicals specialty chemicals": "chemicals",
+        "oil gas": "oil and gas",
     }
 
-    for pattern, replacement in replacements.items():
-        value = re.sub(pattern, replacement, value)
+    for src, dst in replacements.items():
+        value = value.replace(src, dst)
 
-    value = re.sub(r"\s+", " ", value).strip()
-    return value
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def _industry_tokens(value: str) -> set[str]:
     stop = {
         "and",
         "the",
+        "of",
+        "to",
         "for",
-        "with",
-        "business",
-        "consumer",
-        "goods",
-        "services",
-        "sector",
+        "general",
         "industry",
-        "direct",
-        "moving",
-        "fast",
+        "industries",
+        "sector",
+        "sectors",
     }
     normalized = _normalize_industry_label(value)
     return {t for t in normalized.split() if len(t) > 2 and t not in stop}
 
 
-def _fallback_industry_match(rule_based_industry: str, client_profile: dict | None) -> str:
-    if not client_profile:
-        return "N/A"
+def _industry_aliases(value: str) -> set[str]:
+    normalized = _normalize_industry_label(value)
+    aliases = {normalized} if normalized else set()
 
-    preferred = client_profile.get("preferred_industries") or []
-    preferred = [str(p).strip() for p in preferred if str(p).strip()]
+    if "agrochemicals" in normalized:
+        aliases.update(
+            {
+                "agrochemicals",
+                "agrochemical",
+                "agrochemicals and crop protection",
+                "crop protection",
+                "crop care",
+                "agri inputs",
+                "fertilizers",
+                "pesticides",
+            }
+        )
 
-    if not preferred or rule_based_industry == "Others / Not Detected":
-        return "N/A"
+    if "d2c" in normalized:
+        aliases.update(
+            {
+                "d2c",
+                "direct to consumer",
+                "direct to consumer brands",
+                "consumer brands",
+            }
+        )
 
-    rb_norm = _normalize_industry_label(rule_based_industry)
-    rb_tokens = _industry_tokens(rule_based_industry)
+    if "fmcg" in normalized:
+        aliases.update({"fmcg", "fast moving consumer goods"})
 
-    if not rb_norm or not rb_tokens:
-        return "N/A"
+    if "chemicals" in normalized:
+        aliases.update({"chemicals", "specialty chemicals", "speciality chemicals"})
 
-    for pref in preferred:
-        pref_norm = _normalize_industry_label(pref)
-        pref_tokens = _industry_tokens(pref)
+    if "agriculture" in normalized or "agritech" in normalized:
+        aliases.update({"agriculture", "agritech", "agri"})
 
-        if not pref_norm or not pref_tokens:
+    return aliases
+
+
+def _fallback_industry_match(rule_based_industry: str, preferred_industries: list[str]) -> str:
+    if not preferred_industries or rule_based_industry == "Others / Not Detected":
+        return "No"
+
+    candidate_norm = _normalize_industry_label(rule_based_industry)
+    candidate_aliases = _industry_aliases(rule_based_industry)
+    candidate_tokens = _industry_tokens(rule_based_industry)
+
+    for preferred in preferred_industries:
+        preferred = str(preferred or "").strip()
+        if not preferred:
             continue
 
-        if rb_norm == pref_norm:
+        preferred_norm = _normalize_industry_label(preferred)
+        preferred_aliases = _industry_aliases(preferred)
+        preferred_tokens = _industry_tokens(preferred)
+
+        if candidate_norm == preferred_norm:
             return "Yes"
 
-        overlap = rb_tokens & pref_tokens
+        if candidate_aliases & preferred_aliases:
+            return "Yes"
+
+        if candidate_norm in preferred_norm or preferred_norm in candidate_norm:
+            return "Partial"
+
+        overlap = candidate_tokens & preferred_tokens
         if overlap:
+            if "agrochemicals" in candidate_aliases and (
+                "agrochemicals" in preferred_aliases or "crop protection" in preferred_aliases
+            ):
+                return "Yes"
             return "Partial"
 
     return "No"
+
 
 # ---------------------------------------------------------------------------
 # AI SCORING
@@ -223,9 +280,9 @@ def ai_score_resume(
     role: str,
     api_key: str,
     model: str,
-    jd_requirements: dict | None = None,
+    jd_requirements: Optional[dict] = None,
     client_company: str = "",
-) -> tuple[int | None, str, str, str]:
+) -> tuple[Optional[int], str, str, str]:
     if not api_key:
         return None, "", "N/A", ""
 
@@ -285,8 +342,8 @@ Resume:
         industry_match = str(data.get("industry_match", "")).strip().title()
         if industry_match not in {"Yes", "Partial", "No"}:
             industry_match = "N/A"
-        candidate_industry = str(data.get("candidate_industry", "")).strip()
 
+        candidate_industry = str(data.get("candidate_industry", "")).strip()
         return max(0, min(100, score)), reason, industry_match, candidate_industry
 
     except Exception as exc:
@@ -298,11 +355,7 @@ def make_reason(matched, missing, exp, min_exp, edu_reason=""):
     missing_text = ", ".join(missing[:4]) if missing else "no obvious skill gaps"
 
     if min_exp > 0:
-        exp_text = (
-            f"{exp:g} yrs found vs {min_exp:g}+ yrs expected"
-            if exp > 0
-            else f"Experience not extracted; {min_exp:g}+ yrs expected"
-        )
+        exp_text = f"{exp:g} yrs found vs {min_exp:g}+ yrs expected" if exp > 0 else f"Experience not extracted; {min_exp:g}+ yrs expected"
     else:
         exp_text = f"{exp:g} yrs found" if exp else "Experience not clearly stated"
 
@@ -338,13 +391,13 @@ def score_resume(
     min_exp: float = 0.0,
     api_key: str = "",
     model: str = "gpt-4o-mini",
-    jd_requirements: dict | None = None,
+    jd_requirements: Optional[dict] = None,
     required_edu: str = "",
     required_edu_level: int = -1,
     use_semantic: bool = True,
     use_llm_keywords: bool = True,
     client_company: str = "",
-    client_profile: dict | None = None,
+    client_profile: Optional[dict] = None,
 ) -> dict:
     final_keywords = keywords or []
     if use_llm_keywords and api_key:
@@ -405,15 +458,15 @@ def score_resume(
     industry_match = "N/A"
     candidate_industry = ""
 
-    if heuristic >= 50 and api_key:
+    if api_key:
         ai_score, ai_reason, industry_match, candidate_industry = ai_score_resume(
-            jd_text,
-            resume_text,
-            role,
-            api_key,
-            model,
-            jd_requirements,
-            client_company,
+            jd_text=jd_text,
+            resume_text=resume_text,
+            role=role,
+            api_key=api_key,
+            model=model,
+            jd_requirements=jd_requirements,
+            client_company=client_company,
         )
 
     if ai_score is None:
@@ -429,8 +482,13 @@ def score_resume(
     if not candidate_industry or candidate_industry.strip().lower() in {"", "n/a", "unknown", "not detected"}:
         candidate_industry = rule_based_industry
 
-    if industry_match == "N/A":
-        industry_match = _fallback_industry_match(rule_based_industry, client_profile)
+    if client_profile:
+        preferred = client_profile.get("preferred_industries") or []
+        if industry_match == "N/A":
+            industry_match = _fallback_industry_match(rule_based_industry, preferred)
+    else:
+        if industry_match == "N/A":
+            industry_match = "No"
 
     band_note = ""
     if client_profile:
