@@ -314,28 +314,28 @@ with screen_tab:
             col1, col2 = st.columns([1.1, 1])
 
             with col1:
-                industries_text = st.text_input(
+                current_industries = profile.get("preferred_industries", []) or []
+                industry_options = merge_with_custom(INDUSTRY_OPTIONS, current_industries)
+                profile["preferred_industries"] = st.multiselect(
                     "Preferred industries",
-                    value=", ".join(profile.get("preferred_industries", [])),
-                    placeholder="D2C, Agrochemicals, Organic Farming",
+                    options=industry_options,
+                    default=current_industries,
                     key=f"persona_industries_{company_key}",
+                    help="Pick one or more industries. Existing custom values are preserved.",
                 )
-                profile["preferred_industries"] = [
-                    i.strip() for i in industries_text.split(",") if i.strip()
-                ]
                 persona_industries = profile["preferred_industries"]
-
+            
             with col2:
-                languages_text = st.text_input(
+                current_languages = profile.get("language_preferences", []) or []
+                language_options = merge_with_custom(LANGUAGE_OPTIONS, current_languages)
+                profile["language_preferences"] = st.multiselect(
                     "Language preference",
-                    value=", ".join(profile.get("language_preferences", [])),
-                    placeholder="English, Hindi, Punjabi",
+                    options=language_options,
+                    default=current_languages,
                     key=f"persona_languages_{company_key}",
+                    help="Pick preferred spoken languages for the client.",
                 )
-                profile["language_preferences"] = [
-                    l.strip() for l in languages_text.split(",") if l.strip()
-                ]
-
+                
             profile["preferred_colleges"] = st.text_area(
                 "Preferred colleges / tiers",
                 value=profile.get("preferred_colleges", ""),
@@ -501,6 +501,8 @@ with screen_tab:
         st.divider()
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
+
+
 # ====================== EMAIL TAB ======================
 with email_tab:
     st.subheader("Outreach")
