@@ -486,32 +486,103 @@ def get_jd(user_key: str, role: str) -> str:
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
     """
     Tag a specific candidate history record with recruiter outcome feedback.
+    Works with both Supabase and local Excel fallback.
     """
-    client = _client()
-    if not client or not profile_key_value:
+    allowed_feedback = {
+        "Pending",
+        "Interviewed",
+        "Shortlisted",
+        "Rejected",
+        "Hired",
+        "Do Not Consider",
+    }
+
+    feedback = str(feedback or "").strip()
+    profile_key_value = str(profile_key_value or "").strip()
+    role = str(role or "").strip()
+
+    if not profile_key_value or not role or feedback not in allowed_feedback:
         return False
 
+    client = _client()
+    if client:
+        try:
+            response = (
+                client.table("candidate_history")
+                .select("id, data")
+                .eq("user_key", user_key)
+                .eq("role", role)
+                .execute()
+            )
+
+            for row in response.data or []:
+                data = row.get("data", {}) or {}
+                if str(data.get("Profile Key", "")).strip() == profile_key_value:
+                    data["Feedback"] = feedback
+                    client.table("candidate_history").update({"data": data}).eq("id", row["id"]).execute()
+
+                    # keep local Excel copy aligned too when possible
+                    try:
+                        local_df = load_history(user_key)
+                        if not local_df.empty and "Profile Key" in local_df.columns and "Role" in local_df.columns:
+                            mask = (
+                                local_df["Profile Key"].astype(str).str.strip() == profile_key_value
+                            ) & (
+                                local_df["Role"].astype(str).str.strip().str.lower() == role.lower()
+                            )
+                            if "Feedback" not in local_df.columns:
+                                local_df["Feedback"] = ""
+                            local_df.loc[mask, "Feedback"] = feedback
+                            local_df.to_excel(history_path(user_key), index=False)
+                    except Exception:
+                        pass
+
+                    return True
+
+        except Exception as e:
+            print(f"❌ Supabase update_feedback error: {e}")
+
+    # local fallback
     try:
-        response = (
-            client.table("candidate_history")
-            .select("id, data")
-            .eq("user_key", user_key)
-            .eq("role", role)
-            .execute()
+        path = history_path(user_key)
+        legacy = legacy_history_path(user_key)
+
+        if path.exists():
+            df = pd.read_excel(path)
+            write_excel = True
+        elif legacy.exists():
+            df = pd.read_csv(legacy)
+            write_excel = False
+        else:
+            return False
+
+        if df.empty or "Profile Key" not in df.columns or "Role" not in df.columns:
+            return False
+
+        if "Feedback" not in df.columns:
+            df["Feedback"] = ""
+
+        mask = (
+            df["Profile Key"].astype(str).str.strip() == profile_key_value
+        ) & (
+            df["Role"].astype(str).str.strip().str.lower() == role.lower()
         )
 
-        for row in response.data or []:
-            data = row.get("data", {}) or {}
-            if str(data.get("Profile Key", "")) == str(profile_key_value):
-                data["Feedback"] = feedback
-                client.table("candidate_history").update({"data": data}).eq("id", row["id"]).execute()
-                return True
+        if not mask.any():
+            return False
 
-        return False
+        df.loc[mask, "Feedback"] = feedback
+
+        if write_excel:
+            df.to_excel(path, index=False)
+        else:
+            df.to_csv(legacy, index=False)
+
+        return True
+
     except Exception as e:
-        print(f"❌ Supabase update_feedback error: {e}")
+        print(f"❌ Local update_feedback error: {e}")
         return False
-
 
 def confirm_delete_role_history(user_key: str, role: str):
     clear_role_history(user_key, role)
