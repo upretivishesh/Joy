@@ -115,14 +115,13 @@ def load_client_profile(user_key: str, client_company: str) -> Dict[str, Any]:
     return get_default_profile()
 
 
-def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> bool:
-    """Upsert persona into Supabase. Fails quietly if Supabase is unavailable."""
+def save_client_profile(user_key: str, client_company: str, profile: Dict[str, Any]) -> tuple[bool, str]:
     if not client_company or not client_company.strip():
-        return False
+        return False, "Client company is blank"
 
     supabase = get_supabase_client()
     if not supabase:
-        return False
+        return False, "Supabase client not available"
 
     try:
         data = {
@@ -137,10 +136,12 @@ def save_client_profile(user_key: str, client_company: str, profile: Dict[str, A
             "last_updated": datetime.now().isoformat(),
         }
 
-        supabase.table("client_personas").upsert(
-            data,
-            on_conflict="user_key,client_company",
-        ).execute()
-        return True
-    except Exception:
-        return False
+        response = (
+            supabase.table("client_personas")
+            .upsert(data, on_conflict="user_key,client_company")
+            .execute()
+        )
+
+        return True, str(response)
+    except Exception as e:
+        return False, str(e)
