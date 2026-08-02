@@ -1,3 +1,4 @@
+# core/screening.py
 from typing import Dict, Tuple, Optional, List
 
 import pandas as pd
@@ -111,7 +112,7 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
 
 
 def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> Tuple[float, str, str]:
-    pk = _safe_str(row.get("Profile Key", ""))
+    pk = _safe_str(row.get("Profile Key", "")).strip()
     memory = candidate_memory.get(pk)
     if not memory:
         return 0.0, "", "New"
