@@ -1,12 +1,10 @@
-# core/india_industry_map.py
-
 import re
 from collections import defaultdict
 
 
 INDUSTRY_PATTERNS = {
     "Automotive": [
-        "tata motors", "mahindra", "maruti", "hero motocorp", "hero", "tvs",
+        "tata motors", "mahindra", "maruti", "hero motocorp", "tvs",
         "bajaj auto", "ashok leyland", "eicher", "bosch", "motherson",
         "automotive", "automobile", "auto component", "autocomponent",
         "vehicle", "oem", "2 wheeler", "4 wheeler", "commercial vehicle",
@@ -17,7 +15,7 @@ INDUSTRY_PATTERNS = {
         "hul", "hindustan unilever", "itc", "dabur", "nestle", "britannia",
         "marico", "gcpl", "godrej consumer", "emami", "reckitt", "pepsico",
         "cocacola", "coca cola", "fmcg", "consumer goods",
-        "fast moving consumer goods", "foods", "food products", "beverages",
+        "fast moving consumer goods", "food products", "beverages",
         "personal care", "home care", "oral care", "packaged foods",
     ],
 
@@ -30,7 +28,7 @@ INDUSTRY_PATTERNS = {
     ],
 
     "Pharmaceuticals": [
-        "sun pharma", "cipla", "dr reddy", "dr. reddy", "lupin", "torrent pharma",
+        "sun pharma", "cipla", "dr reddy", "dr reddys", "lupin", "torrent pharma",
         "zydus", "alkem", "mankind", "glenmark", "ipca", "pharma",
         "pharmaceutical", "pharmaceuticals", "formulation", "formulations",
         "api", "bulk drug", "tablet", "capsule", "injectable", "healthcare",
@@ -49,8 +47,8 @@ INDUSTRY_PATTERNS = {
 
     "Agriculture / Agritech": [
         "agri", "agriculture", "agricultural", "agritech", "farm input",
-        "farm inputs", "seed", "seeds", "crop", "crops", "irrigation",
-        "soil health", "farmer", "farming", "horticulture", "nursery",
+        "farm inputs", "seed", "seeds", "irrigation", "soil health",
+        "farmer", "farming", "horticulture", "nursery",
     ],
 
     "Chemicals": [
@@ -87,7 +85,7 @@ INDUSTRY_PATTERNS = {
 
     "Oil & Gas": [
         "iocl", "indian oil", "ongc", "bpcl", "hpcl", "shell", "castrol",
-        "oil and gas", "oil gas", "oil", "gas", "refinery", "refineries",
+        "oil and gas", "oil gas", "refinery", "refineries",
         "lubricant", "lubricants", "petroleum", "downstream", "upstream",
     ],
 
@@ -121,11 +119,11 @@ INDUSTRY_PATTERNS = {
 
     "Telecom": [
         "telecom", "telecommunications", "airtel", "jio", "vodafone idea",
-        "vi", "tower", "fiber", "broadband", "network rollout",
+        "tower", "fiber", "broadband", "network rollout",
     ],
 
     "Banking / Financial Services": [
-        "bank", "banking", "nbfc", "insurance", "loan", "lending", "mortgage",
+        "banking", "nbfc", "insurance", "loan", "lending", "mortgage",
         "wealth", "asset management", "financial services", "finserv",
     ],
 
@@ -188,6 +186,12 @@ GENERIC_PENALTY_TERMS = {
     "logistics", "distribution", "inventory", "dispatch", "warehouse",
 }
 
+VERY_GENERIC_TERMS = {
+    "retail", "energy", "power", "construction", "civil", "metal", "metals",
+    "chemical", "chemicals", "packaging", "paper", "textile", "textiles",
+    "electronics", "electrical", "telecom", "vehicle",
+}
+
 
 def _normalize_text(value: str) -> str:
     value = (value or "").lower()
@@ -211,35 +215,54 @@ def _keyword_weight(keyword: str) -> int:
         return 10
     if keyword in GENERIC_PENALTY_TERMS:
         return 4
+    if keyword in VERY_GENERIC_TERMS:
+        return 3
     return 6
 
 
+def _contains_keyword(text: str, keyword: str) -> bool:
+    pattern = rf"\b{re.escape(keyword)}\b"
+    return re.search(pattern, text) is not None
+
+
 def get_candidate_industry(resume_text: str, filename: str = "") -> str:
-    """
-    Returns the best-fit industry label for Indian non-IT hiring.
-    Uses weighted multi-match scoring so specific industries beat generic ones.
-    """
     text = _normalize_text(f"{resume_text or ''} {filename or ''}")
     if not text:
         return "Others / Not Detected"
 
     scores = defaultdict(int)
+    raw_hits = defaultdict(int)
+    strong_hits = defaultdict(int)
 
     for industry, keywords in INDUSTRY_PATTERNS.items():
         for raw_kw in keywords:
             kw = _normalize_text(raw_kw)
             if not kw:
                 continue
-            if kw in text:
-                scores[industry] += _keyword_weight(kw)
 
-        if scores[industry]:
+            if _contains_keyword(text, kw):
+                weight = _keyword_weight(kw)
+                scores[industry] += weight
+                raw_hits[industry] += 1
+                if len(kw.split()) >= 2 or weight >= 10:
+                    strong_hits[industry] += 1
+
+        if scores[industry] >= 10 or strong_hits[industry] >= 1 or raw_hits[industry] >= 2:
             scores[industry] += INDUSTRY_PRIORITY.get(industry, 0)
 
     if not scores:
-        if any(word in text for word in ["factory", "plant", "unit", "production", "manufacturer", "manufacturing"]):
+        if any(_contains_keyword(text, word) for word in ["factory", "plant", "unit", "production", "manufacturer", "manufacturing"]):
             return "Manufacturing"
         return "Others / Not Detected"
 
-    best_industry = max(scores.items(), key=lambda item: item[1])[0]
+    ranked = sorted(
+        scores.items(),
+        key=lambda item: (item[1], strong_hits[item[0]], raw_hits[item[0]]),
+        reverse=True,
+    )
+
+    best_industry, best_score = ranked[0]
+    if best_score < 12:
+        return "Others / Not Detected"
+
     return best_industry
