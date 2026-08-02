@@ -1099,3 +1099,42 @@ with jd_tab:
     jd_df = load_jd_library(user_key)
 
     st.subheader("Saved JDs")
+
+    if jd_df.empty:
+        st.info("No saved JDs yet.")
+    else:
+        st.dataframe(jd_df, use_container_width=True, hide_index=True)
+
+        jd_options = [
+            f"{row['Role']} · {str(row.get('Saved At', ''))[:19]}"
+            for _, row in jd_df.iterrows()
+        ]
+
+        picked_label = st.selectbox("Select a saved JD", jd_options)
+        picked_index = jd_options.index(picked_label)
+        picked_row = jd_df.iloc[picked_index]
+
+        preview_role = str(picked_row.get("Role", "")).strip()
+        preview_tags = str(picked_row.get("Tags", "")).strip()
+        preview_saved_at = str(picked_row.get("Saved At", "")).strip()
+
+        meta_parts = [part for part in [preview_role, preview_tags, preview_saved_at] if part]
+        if meta_parts:
+            st.caption(" • ".join(meta_parts))
+
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            if st.button("Load into Screen tab", use_container_width=True):
+                st.session_state["_pending_jd_text"] = picked_row.get("JD Text", "")
+                st.session_state["_pending_role_input"] = picked_row.get("Role", "")
+                st.success("JD loaded into Screen tab.")
+                st.rerun()
+
+        with action_col2:
+            if st.button("Delete JD", use_container_width=True, type="secondary"):
+                confirm_delete_jd(
+                    user_key,
+                    str(picked_row.get("Role", "")),
+                    str(picked_row.get("Saved At", "")),
+                )
