@@ -488,7 +488,9 @@ with email_tab:
         )
 
         st.session_state.selected_candidates = edited[edited["Send"] == True].copy()
-        missing_email = st.session_state.selected_candidates[~st.session_state.selected_candidates["Email"].astype(str).str.contains("@", na=False)]
+        missing_email = st.session_state.selected_candidates[
+            ~st.session_state.selected_candidates["Email"].astype(str).str.contains("@", na=False)
+        ]
 
         st.session_state.questions_text = st.text_area(
             "Questions to collect",
@@ -595,7 +597,6 @@ with email_tab:
                     sent_count = sum(1 for item in email_results if item["Success"])
                     st.success(f"Sent {sent_count} of {len(email_results)} email(s).")
                     st.dataframe(pd.DataFrame(email_results), use_container_width=True, hide_index=True)
-
 
 # ====================== HISTORY TAB ======================
 with history_tab:
@@ -730,7 +731,15 @@ with history_tab:
                 "Email": st.column_config.TextColumn("Email"),
                 "Profile Key": None,
                 "Feedback": st.column_config.SelectboxColumn(
-                    "Feedback", options=["Pending", "Good Hire", "Bad Hire", "Not Selected"]
+                    "Feedback",
+                    options=[
+                        "Pending",
+                        "Interviewed",
+                        "Shortlisted",
+                        "Rejected",
+                        "Hired",
+                        "Do Not Consider",
+                    ],
                 ),
             },
         )
@@ -815,7 +824,6 @@ with history_tab:
                 sent_count = sum(1 for item in history_results if item["Success"])
                 st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
                 st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
-
 
 # ====================== JD LIBRARY TAB ======================
 with jd_tab:
@@ -905,24 +913,25 @@ with jd_tab:
 
                     c1, c2 = st.columns([1, 1])
                     with c1:
-                        if st.button("Load into screener", key=f"load_jd_{role_label}", use_container_width=True):
+                        if st.button("Load into screener", key=f"load_jd_{role_label}_{saved_at}", use_container_width=True):
                             st.session_state["_pending_jd_text"] = str(row.get("JD Text", ""))
                             st.session_state["_pending_role_input"] = role_label
                             st.rerun()
 
                     with c2:
-                        if st.button("Delete", key=f"delete_jd_{role_label}", use_container_width=True):
+                        delete_key = f"delete_jd_{role_label}_{saved_at}"
+                        if st.button("Delete", key=delete_key, use_container_width=True):
                             @st.dialog(f"Delete JD: '{role_label}'?")
                             def delete_jd_dialog():
                                 st.warning(f"This will permanently delete the saved JD **{role_label}** from your library.")
                                 st.write("This action cannot be undone.")
                                 col1, col2 = st.columns(2)
                                 with col1:
-                                    if st.button("Cancel", use_container_width=True):
+                                    if st.button("Cancel", use_container_width=True, key=f"cancel_{delete_key}"):
                                         st.rerun()
                                 with col2:
-                                    if st.button("Yes, Delete JD", type="primary", use_container_width=True):
-                                        confirm_delete_jd(user_key, role_label)
+                                    if st.button("Yes, Delete JD", type="primary", use_container_width=True, key=f"confirm_{delete_key}"):
+                                        confirm_delete_jd(user_key, role_label, saved_at)
                             delete_jd_dialog()
 
     st.divider()
