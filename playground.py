@@ -505,6 +505,7 @@ with screen_tab:
 
 
 # ====================== EMAIL TAB ======================
+# ====================== EMAIL TAB ======================
 with email_tab:
     st.subheader("Outreach")
 
@@ -512,12 +513,48 @@ with email_tab:
         st.info("Run a screening first.")
     else:
         editable = st.session_state.results_df.copy()
-        editable["Send"] = editable["Send"].astype(bool)
-        editable = editable.drop(columns=["Reason", "Duplicate", "Profile Key"], errors="ignore")
-        editable = order_columns_first(
-            editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
+
+        if "Send" not in editable.columns:
+            editable["Send"] = False
+        editable["Send"] = editable["Send"].fillna(False).astype(bool)
+
+        for col in ["Experience", "Final Score"]:
+            if col in editable.columns:
+                editable[col] = pd.to_numeric(editable[col], errors="coerce")
+
+        if "Feedback" not in editable.columns:
+            editable["Feedback"] = "Pending"
+        editable["Feedback"] = editable["Feedback"].fillna("Pending").replace("", "Pending")
+
+        editable = editable.drop(
+            columns=[
+                "Reason",
+                "Duplicate",
+                "Profile Key",
+                "Keyword Score",
+                "Semantic Score",
+            ],
+            errors="ignore",
         )
+
+        editable = order_columns_first(
+            editable,
+            [
+                "Rank",
+                "Send",
+                "Name",
+                "Email",
+                "Phone",
+                "Experience",
+                "Education",
+                "Final Score",
+                "Feedback",
+                "Verdict",
+            ],
+        )
+
         editable = format_experience_years(editable)
+        editable = format_industry_fit(editable)
 
         edited = st.data_editor(
             editable,
@@ -528,7 +565,7 @@ with email_tab:
                 "Rank",
                 "Phone",
                 "Experience",
-                "Keyword Score",
+                "Education",
                 "Final Score",
                 "Verdict",
                 "Industry Match",
@@ -538,13 +575,17 @@ with email_tab:
                 "Skills",
                 "Source File",
                 "AI Used",
+                "Feedback",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
                 "Email": st.column_config.TextColumn("Email"),
+                "Feedback": st.column_config.TextColumn("Feedback"),
             },
             key="email_editor",
         )
+
+        st.caption("Feedback shown here is read-only. Update and save feedback from the History tab.")
 
         st.session_state.selected_candidates = edited[edited["Send"] == True].copy()
         missing_email = st.session_state.selected_candidates[
@@ -568,7 +609,9 @@ with email_tab:
         )
         if st.session_state.get("_email_fingerprint") != email_fingerprint:
             st.session_state["_email_fingerprint"] = email_fingerprint
-            st.session_state["email_subject"] = f"Details required for {st.session_state.last_role} opportunity"
+            st.session_state["email_subject"] = (
+                f"Details required for {st.session_state.last_role} opportunity"
+            )
             st.session_state.pop("edited_email_preview", None)
 
         subject = st.text_input("Subject", key="email_subject")
@@ -611,7 +654,9 @@ with email_tab:
             send_clicked = st.button(
                 f"Send {len(st.session_state.selected_candidates)} email(s)",
                 type="primary",
-                disabled=st.session_state.selected_candidates.empty or not confirm or not st.session_state.sender_password,
+                disabled=st.session_state.selected_candidates.empty
+                or not confirm
+                or not st.session_state.sender_password,
                 use_container_width=True,
             )
 
@@ -652,13 +697,18 @@ with email_tab:
                     )
 
                     progress.progress(1.0)
-                    status.write(f"Processed {len(st.session_state.selected_candidates)} email(s)")
+                    status.write(
+                        f"Processed {len(st.session_state.selected_candidates)} email(s)"
+                    )
 
                     st.session_state.email_results = email_results
                     sent_count = sum(1 for item in email_results if item["Success"])
                     st.success(f"Sent {sent_count} of {len(email_results)} email(s).")
-                    st.dataframe(pd.DataFrame(email_results), use_container_width=True, hide_index=True)
-
+                    st.dataframe(
+                        pd.DataFrame(email_results),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 # ====================== HISTORY TAB ======================
 with history_tab:
     st.subheader("History")
@@ -669,7 +719,12 @@ with history_tab:
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("Candidates", len(hist))
-        c2.metric("Strong Fit", int((hist["Verdict"] == "Strong Fit").sum()) if "Verdict" in hist.columns else 0)
+        c2.metric(
+            "Strong Fit",
+            int((hist["Verdict"] == "Strong Fit").sum())
+            if "Verdict" in hist.columns
+            else 0,
+        )
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
         search_query = st.text_input(
@@ -714,12 +769,19 @@ with history_tab:
                         st.rerun()
 
             delete_col1, delete_col2 = st.columns(2)
+
             with delete_col1:
                 if selected_role != "all":
-                    if st.button(f"Delete {selected_role} history", use_container_width=True, type="secondary"):
+                    if st.button(
+                        f"Delete {selected_role} history",
+                        use_container_width=True,
+                        type="secondary",
+                    ):
                         @st.dialog(f"Delete history for '{selected_role}'?")
                         def delete_role_dialog():
-                            st.warning(f"This will permanently delete **all screenings** for the role **{selected_role}**.")
+                            st.warning(
+                                f"This will permanently delete **all screenings** for the role **{selected_role}**."
+                            )
                             st.write("This action cannot be undone.")
                             col1, col2 = st.columns(2)
                             with col1:
@@ -728,21 +790,33 @@ with history_tab:
                             with col2:
                                 if st.button("Yes", type="primary", use_container_width=True):
                                     confirm_delete_role_history(user_key, selected_role)
+
                         delete_role_dialog()
 
             with delete_col2:
-                if st.button("Delete all history", use_container_width=True, type="secondary"):
+                if st.button(
+                    "Delete all history",
+                    use_container_width=True,
+                    type="secondary",
+                ):
                     @st.dialog("Delete ALL history?")
                     def delete_all_dialog():
-                        st.error("**Warning:** This will permanently delete **all** screening history.")
+                        st.error(
+                            "**Warning:** This will permanently delete **all** screening history."
+                        )
                         st.write("This action cannot be undone.")
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("Cancel", use_container_width=True):
                                 st.rerun()
                         with col2:
-                            if st.button("Yes, Delete Everything", type="primary", use_container_width=True):
+                            if st.button(
+                                "Yes, Delete Everything",
+                                type="primary",
+                                use_container_width=True,
+                            ):
                                 confirm_delete_all_history(user_key)
+
                     delete_all_dialog()
         else:
             shown = hist
@@ -754,32 +828,56 @@ with history_tab:
 
         history_editable["Send"] = history_editable["Send"].fillna(False).astype(bool)
 
-        for col in ["Experience", "Keyword Score", "Final Score"]:
+        for col in ["Experience", "Final Score"]:
             if col in history_editable.columns:
                 history_editable[col] = pd.to_numeric(history_editable[col], errors="coerce")
 
         for col in history_editable.columns:
-            if col not in ["Send", "Experience", "Keyword Score", "Final Score"]:
+            if col not in ["Send", "Experience", "Final Score"]:
                 history_editable[col] = history_editable[col].fillna("").astype(str)
 
         if "Name" in history_editable.columns:
             history_editable["Name"] = history_editable["Name"].str.title()
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
-        history_editable = history_editable.drop(columns=["Reason", "JD", "Duplicate"], errors="ignore")
-
-        if selected_role != "all":
-            history_editable = history_editable.drop(columns=["Role"], errors="ignore")
+        history_editable = history_editable.drop(
+            columns=[
+                "Reason",
+                "JD",
+                "Duplicate",
+                "Keyword Score",
+                "Semantic Score",
+            ],
+            errors="ignore",
+        )
 
         history_editable = format_industry_fit(history_editable)
+
         history_editable = order_columns_first(
-            history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"]
+            history_editable,
+            [
+                "Rank",
+                "Send",
+                "Name",
+                "Email",
+                "Phone",
+                "Experience",
+                "Education",
+                "Final Score",
+                "Feedback",
+                "Verdict",
+            ],
         )
+
         history_editable = format_experience_years(history_editable)
 
         if "Feedback" not in history_editable.columns:
             history_editable["Feedback"] = "Pending"
-        history_editable["Feedback"] = history_editable["Feedback"].replace("", "Pending")
+        history_editable["Feedback"] = (
+            history_editable["Feedback"].fillna("Pending").replace("", "Pending")
+        )
+
+        st.caption("Update feedback in this table, then click 'Save feedback'.")
 
         history_edited = st.data_editor(
             history_editable,
@@ -807,18 +905,28 @@ with history_tab:
         )
 
         if st.button("Save feedback", use_container_width=False):
-            changed = history_edited[history_edited["Feedback"] != history_editable["Feedback"]]
+            changed = history_edited[
+                history_edited["Feedback"] != history_editable["Feedback"]
+            ]
             saved_count = 0
             for _, row in changed.iterrows():
                 row_role = row.get("Role", selected_role if selected_role != "all" else "")
-                if update_feedback(user_key, row.get("Profile Key", ""), row_role, row["Feedback"]):
+                if update_feedback(
+                    user_key,
+                    row.get("Profile Key", ""),
+                    row_role,
+                    row["Feedback"],
+                ):
                     saved_count += 1
             if saved_count:
                 st.success(f"Saved feedback for {saved_count} candidate(s).")
+                st.rerun()
             else:
                 st.info("No feedback changes to save.")
 
-        st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
+        st.session_state.selected_history = history_edited[
+            history_edited["Send"] == True
+        ].copy()
 
         if not st.session_state.selected_history.empty:
             st.divider()
@@ -827,7 +935,9 @@ with history_tab:
             history_role = (
                 selected_role
                 if selected_role != "all"
-                else st.session_state.selected_history.iloc[0].get("Role", st.session_state.last_role or "the role")
+                else st.session_state.selected_history.iloc[0].get(
+                    "Role", st.session_state.last_role or "the role"
+                )
             )
 
             history_fingerprint = (
@@ -836,7 +946,9 @@ with history_tab:
             )
             if st.session_state.get("_history_fingerprint") != history_fingerprint:
                 st.session_state["_history_fingerprint"] = history_fingerprint
-                st.session_state["history_subject"] = f"Details required for {history_role} opportunity"
+                st.session_state["history_subject"] = (
+                    f"Details required for {history_role} opportunity"
+                )
                 st.session_state.pop("history_email_preview", None)
 
             history_subject = st.text_input("Subject", key="history_subject")
@@ -868,8 +980,15 @@ with history_tab:
             if "history_email_preview" not in st.session_state:
                 st.session_state["history_email_preview"] = preview_body
 
-            st.text_area("Edit email before sending", height=380, key="history_email_preview")
-            history_confirm = st.checkbox("History recipient list reviewed", key="history_confirm")
+            st.text_area(
+                "Edit email before sending",
+                height=380,
+                key="history_email_preview",
+            )
+            history_confirm = st.checkbox(
+                "History recipient list reviewed",
+                key="history_confirm",
+            )
 
             send_history = st.button(
                 f"Send {len(st.session_state.selected_history)} email(s)",
@@ -895,8 +1014,11 @@ with history_tab:
                     )
                 sent_count = sum(1 for item in history_results if item["Success"])
                 st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
-                st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
-
+                st.dataframe(
+                    pd.DataFrame(history_results),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 # ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
@@ -961,7 +1083,8 @@ with jd_tab:
 
         with action_col2:
             if st.button("Delete JD", use_container_width=True, type="secondary"):
-                confirm_delete_jd(
+               confirm_delete_jd(
                     user_key,
-                    str(picked_row.get("Role", "")),
+                    role_label,
+                    str(row.get("Saved At", "")),
                 )
