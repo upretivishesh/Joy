@@ -21,6 +21,24 @@ from .ai_client import chat_json
 # ---------------------------------------------------------------------------
 # KEYWORD MATCHING
 # ---------------------------------------------------------------------------
+
+def _normalize_industry_label(value: str) -> str:
+    value = (value or "").lower().strip()
+    value = value.replace("&", " and ")
+    value = value.replace("/", " ")
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+    value = re.sub(r"\b(fmcg sales|fmcg)\b", "fast moving consumer goods", value)
+    value = re.sub(r"\b(d2c|dtc)\b", "direct to consumer", value)
+    value = re.sub(r"\b(agro chemical|crop protection|crop care|agri input|agri inputs)\b", "agrochemicals", value)
+    value = re.sub(r"\b(speciality)\b", "specialty", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _industry_tokens(value: str) -> set[str]:
+    stop = {"and", "to", "the", "of", "general", "conventional"}
+    return {t for t in _normalize_industry_label(value).split() if len(t) > 2 and t not in stop}
+
 def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, list[str], list[str]]:
     if not keywords:
         return 60, [], []
