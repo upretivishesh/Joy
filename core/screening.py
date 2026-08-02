@@ -1,7 +1,7 @@
+# core/screening.py
 import pandas as pd
 import streamlit as st
 
-from core.history import load_history
 from core.ocr import read_uploaded_file
 from core.parser import (
     detect_role_title,
@@ -11,6 +11,7 @@ from core.parser import (
     parse_required_education_level,
 )
 from core.scoring import score_resume, verdict_from_score
+from core.history import load_history
 
 
 def get_learning_adjustments(user_key: str, client_company: str = ""):
@@ -47,7 +48,7 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
         bad = int((client_hist["Feedback"] == "Bad Hire").sum())
         total_decided = good + bad
         if total_decided >= 3:
-            client_bias = round((good - bad) / total_decided * 10, 2)
+            client_bias = round(((good - bad) / total_decided) * 10, 2)
 
     return candidate_memory, client_bias
 
@@ -59,32 +60,34 @@ def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> tuple[floa
         return 0.0, ""
 
     feedback = memory.get("feedback", "")
-    memory_role = memory.get("role", "")
-
     if feedback == "Good Hire":
-        return 12.0, f"Previously a Good Hire for {memory_role}."
+        return 12.0, f"Previously a Good Hire ({memory.get('role', '')})."
     if feedback == "Bad Hire":
-        return -15.0, f"Previously a Bad Hire for {memory_role}."
+        return -15.0, f"Previously a Bad Hire ({memory.get('role', '')})."
     if feedback == "Not Selected":
-        return -4.0, f"Previously Not Selected for {memory_role}."
+        return -4.0, f"Previously Not Selected ({memory.get('role', '')})."
     return 0.0, ""
 
 
-def required_education_from_jd(jd_requirements: dict) -> tuple[int, str]:
-    required_edu_label = str((jd_requirements or {}).get("requirededucation", "")).strip()
+def _required_education_from_jd(jd_requirements: dict) -> tuple[int, str]:
+    required_edu_label = str(
+        (jd_requirements or {}).get("required_education", "") or ""
+    ).strip()
     if not required_edu_label:
         return -1, ""
+
     try:
         level = parse_required_education_level(required_edu_label)
     except Exception:
         level = -1
+
     return level, required_edu_label
 
 
 def run_screening(
     uploads,
     jd_text: str,
-    role_input: str = "",
+    role_input: str,
     extra_keywords: str = "",
     api_key: str = "",
     model: str = "gpt-4o-mini",
@@ -98,7 +101,7 @@ def run_screening(
     preferred_industries = preferred_industries or []
 
     if not uploads:
-        st.error("No resumes uploaded.")
+        st.error("No resumes uploaded")
         return pd.DataFrame(), read_errors
 
     candidate_memory, client_bias = get_learning_adjustments(user_key, client_company)
@@ -109,16 +112,16 @@ def run_screening(
         else detect_role_title(jd_text, role_input, api_key, model)
     )
 
-    jd_req = extract_jd_requirements_ai(
-        jd_text,
-        api_key,
-        model or "gpt-4o-mini",
-    ) if api_key else {}
+    jd_req = (
+        extract_jd_requirements_ai(jd_text, api_key, model or "gpt-4o-mini")
+        if api_key
+        else {}
+    )
 
     jd_min_exp = parse_min_experience(jd_text)
     effective_min_exp = jd_min_exp if jd_min_exp > 0 else float(min_exp or 0)
 
-    required_edu_level, required_edu_label = required_education_from_jd(jd_req)
+    required_edu_level, required_edu_label = _required_education_from_jd(jd_req)
 
     keywords = extract_keywords(
         jd_text,
@@ -172,18 +175,23 @@ def run_screening(
             row["Client"] = client_company
             row["Role"] = role
 
-            memory_adj, memory_note = apply_candidate_memory(pd.Series(row), candidate_memory)
+            memory_adj, memory_note = apply_candidate_memory(
+                pd.Series(row), candidate_memory
+            )
             total_adjustment = memory_adj + client_bias
 
             if total_adjustment:
-                row["Final Score"] = max(0.0, min(100.0, round(float(row["Final Score"]) + total_adjustment, 1)))
+                row["Final Score"] = max(
+                    0.0,
+                    min(100.0, round(float(row["Final Score"]) + total_adjustment, 1)),
+                )
                 row["Verdict"] = verdict_from_score(float(row["Final Score"]))
 
             row["Memory Adjustment"] = memory_adj
             row["Memory Note"] = memory_note
 
             if memory_note:
-                row["Reason"] = f"{str(row.get('Reason', '')).strip()} {memory_note}".strip()
+                row["Reason"] = (str(row.get("Reason", "")) + " " + memory_note).strip()
 
             results.append(row)
 
@@ -193,6 +201,7 @@ def run_screening(
         progress_bar.progress((i + 1) / total)
 
     df = pd.DataFrame(results)
+
     if not df.empty and "Final Score" in df.columns:
         df = df.sort_values("Final Score", ascending=False).reset_index(drop=True)
 
