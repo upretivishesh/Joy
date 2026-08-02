@@ -1020,6 +1020,7 @@ with history_tab:
                     hide_index=True,
                 )
 # ====================== JD LIBRARY TAB ======================
+# ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
 
@@ -1028,6 +1029,11 @@ with jd_tab:
         st.info("No saved JDs yet.")
     else:
         st.dataframe(jd_df, use_container_width=True, hide_index=True)
+
+    if st.session_state.pop("_clear_jd_form", False):
+        st.session_state["jd_save_role"] = ""
+        st.session_state["jd_save_text"] = ""
+        st.session_state["jd_save_tags"] = ""
 
     with st.expander("Save current JD", expanded=False):
         jd_save_role = st.text_input(
