@@ -1019,6 +1019,7 @@ with history_tab:
                     use_container_width=True,
                     hide_index=True,
                 )
+                
 # ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
@@ -1032,15 +1033,35 @@ with jd_tab:
         st.session_state["jd_save_tags"] = ""
         st.session_state["show_jd_form"] = False
 
-    top_col1, top_col2 = st.columns([1, 5])
+    st.markdown(
+        """
+        <div class="joy-card jd-action-card">
+            <div class="jd-action-inner">
+                <div class="jd-action-button-space"></div>
+                <p class="jd-action-copy">
+                    Save a reusable job description, then load it back into the Screen tab anytime.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with top_col1:
-        if st.button("Add new JD", type="primary", use_container_width=True):
-            st.session_state["show_jd_form"] = True
-            st.rerun()
+    add_new_jd_clicked = st.button(
+        "Add new JD",
+        type="primary",
+        use_container_width=False,
+        key="add_new_jd_btn",
+    )
 
-    with top_col2:
-        st.caption("Save a reusable job description, then load it back into the Screen tab anytime.")
+    if add_new_jd_clicked:
+        st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
+        st.session_state["jd_save_text"] = st.session_state.get("last_jd", "")
+        st.session_state["jd_save_tags"] = ""
+        st.session_state["show_jd_form"] = True
+        st.rerun()
+
+    st.caption("Create and store a JD once, then reuse it for future resume screening.")
 
     if st.session_state["show_jd_form"]:
         st.markdown("### New JD")
