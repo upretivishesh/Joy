@@ -159,38 +159,41 @@ def reset_jd_library_form() -> None:
         st.session_state[key] = ""
 
 
-def reset_screening_session() -> None:
+def reset_screening_session():
+    import streamlit as st
+    import pandas as pd
+
     st.session_state.results_df = pd.DataFrame()
     st.session_state.email_results = []
+    st.session_state.selected_candidates = pd.DataFrame()
+    st.session_state.selected_history = pd.DataFrame()
+
     st.session_state.last_role = ""
     st.session_state.last_jd = ""
     st.session_state.last_keywords = []
     st.session_state.last_client_company = ""
-    st.session_state.upload_session += 1
 
-    st.session_state["_pending_jd_text"] = ""
-    st.session_state["_pending_role_input"] = ""
+    st.session_state["typed_jd_text"] = ""
+    st.session_state["role_input"] = ""
+    st.session_state["client_company_input"] = ""
+    st.session_state["extra_keywords"] = ""
 
-    for key in ["typed_jd_text", "role_input", "extra_keywords", "client_company_input", "client_picker"]:
-        if key in st.session_state:
-            del st.session_state[key]
+    st.session_state["_persona_company_key"] = None
+    st.session_state["_persona_profile"] = {}
+    st.session_state["_persona_save_status"] = None
 
-    for key in ["_persona_company_key", "_persona_profile"]:
-        if key in st.session_state:
-            del st.session_state[key]
+    st.session_state["_pending_jd_text"] = None
+    st.session_state["_pending_role_input"] = None
+    st.session_state["_history_loaded_role"] = None
+    st.session_state["_history_loaded_jd"] = None
 
-    for key in ["email_subject", "edited_email_preview", "_email_fingerprint"]:
-        if key in st.session_state:
-            del st.session_state[key]
+    st.session_state.pop("client_picker", None)
+    st.session_state.pop("email_editor", None)
+    st.session_state.pop("edited_email_preview", None)
+    st.session_state.pop("_email_fingerprint", None)
 
-    for key in ["history_subject", "history_email_preview", "_history_fingerprint", "history_confirm"]:
-        if key in st.session_state:
-            del st.session_state[key]
-
-    for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
-        st.session_state[key] = ""
-
-
+    st.session_state.upload_session = st.session_state.get("upload_session", 0) + 1
+    
 # ============================================================
 # Authentication (Google OAuth + Manual Whitelist)
 # ============================================================
