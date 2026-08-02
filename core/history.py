@@ -360,7 +360,13 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
     client = _client()
     if client:
         try:
-            response = client.table("jd_library").select("*").eq("user_key", user_key).execute()
+            response = (
+                client.table("jd_library")
+                .select("*")
+                .eq("user_key", user_key)
+                .order("saved_at", desc=True)
+                .execute()
+            )
             if response.data:
                 df = pd.DataFrame(response.data).rename(
                     columns={
@@ -370,7 +376,11 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                         "tags": "Tags",
                     }
                 )
+                for col in ["Role", "JD Text", "Saved At", "Tags"]:
+                    if col not in df.columns:
+                        df[col] = ""
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
+
             return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
         except Exception as e:
             print(f"Supabase load_jd_library error: {e}")
@@ -380,6 +390,98 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
         return pd.read_excel(path)
 
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
+
+
+def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
+    if not jd_text.strip() or not role.strip():
+        return False
+
+    saved_at_iso = pd.Timestamp.now().isoformat()
+    saved_at_display = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    client = _client()
+    if client:
+        try:
+            data = {
+                "user_key": user_key,
+                "role": role.strip(),
+                "jd_text": jd_text.strip(),
+                "saved_at": saved_at_iso,
+                "tags": tags.strip(),
+            }
+            client.table("jd_library").insert(data).execute()
+        except Exception as e:
+            print(f"Supabase save_jd error: {e}")
+            # continue to local fallback instead of returning False
+
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        existing = load_jd_library(user_key)
+
+        new_entry = pd.DataFrame(
+            [
+                {
+                    "Role": role.strip(),
+                    "JD Text": jd_text.strip(),
+                    "Saved At": saved_at_display,
+                    "Tags": tags.strip(),
+                }
+            ]
+        )
+
+        combined = pd.concat([existing, new_entry], ignore_index=True)
+        combined = combined.loc[:, ~combined.columns.duplicated()]
+        combined.to_excel(jd_library_path(user_key), index=False)
+        return True
+    except Exception as e:
+        print(f"Local save_jd error: {e}")
+        return client is not None
+
+
+def delete_jd(user_key: str, role: str, saved_at: str = "") -> None:
+    client = _client()
+    if client:
+        try:
+            query = client.table("jd_library").delete().eq("user_key", user_key).ilike("role", role.strip())
+            if saved_at:
+                query = query.eq("saved_at", saved_at)
+            query.execute()
+            print(f"✅ Deleted JD: {role}")
+        except Exception as e:
+            print(f"Supabase delete_jd error: {e}")
+
+    path = jd_library_path(user_key)
+    if not path.exists():
+        return
+
+    df = pd.read_excel(path)
+    if "Role" not in df.columns:
+        return
+
+    mask = df["Role"].astype(str).str.lower().str.strip() == role.lower().strip()
+    if saved_at and "Saved At" in df.columns:
+        mask &= df["Saved At"].astype(str) == str(saved_at)
+
+    df = df[~mask]
+    df.to_excel(path, index=False)
+
+
+def get_jd(user_key: str, role: str) -> str:
+    df = load_jd_library(user_key)
+    if df.empty or "Role" not in df.columns:
+        return ""
+
+    match = df[df["Role"].astype(str).str.lower().str.strip() == role.lower().strip()]
+    if match.empty:
+        return ""
+
+    if "Saved At" in match.columns:
+        try:
+            match = match.sort_values("Saved At", ascending=False)
+        except Exception:
+            pass
+
+    return str(match.iloc[0].get("JD Text", ""))
 
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
