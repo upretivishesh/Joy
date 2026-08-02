@@ -1020,63 +1020,77 @@ with history_tab:
                     hide_index=True,
                 )
 # ====================== JD LIBRARY TAB ======================
-# ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
 
     jd_df = load_jd_library(user_key)
-    if jd_df.empty:
-        st.info("No saved JDs yet.")
-    else:
-        st.dataframe(jd_df, use_container_width=True, hide_index=True)
 
     if st.session_state.pop("_clear_jd_form", False):
         st.session_state["jd_save_role"] = ""
         st.session_state["jd_save_text"] = ""
         st.session_state["jd_save_tags"] = ""
 
-    with st.expander("Save current JD", expanded=False):
-        jd_save_role = st.text_input(
-            "Role",
-            value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
-            key="jd_save_role",
-        )
-        jd_save_text = st.text_area(
-            "JD Text",
-            value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
-            height=220,
-            key="jd_save_text",
-        )
-        jd_save_tags = st.text_input(
-            "Tags",
-            value=st.session_state.get("jd_save_tags", ""),
-            placeholder="e.g. sales, agrochemical, west india",
-            key="jd_save_tags",
-        )
+    st.markdown("### Add new JD")
 
-        save_jd_clicked = st.button("Save JD", type="primary")
-        if save_jd_clicked:
-            if not jd_save_role.strip() or not jd_save_text.strip():
-                st.error("Role and JD text are required.")
+    jd_save_role = st.text_input(
+        "Role",
+        value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
+        key="jd_save_role",
+        placeholder="e.g. Area Sales Manager",
+    )
+
+    jd_save_text = st.text_area(
+        "JD Text",
+        value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
+        height=220,
+        key="jd_save_text",
+        placeholder="Paste the full job description here...",
+    )
+
+    jd_save_tags = st.text_input(
+        "Tags",
+        value=st.session_state.get("jd_save_tags", ""),
+        placeholder="e.g. sales, agrochemical, west india",
+        key="jd_save_tags",
+    )
+
+    save_jd_clicked = st.button("Save JD", type="primary", use_container_width=False)
+
+    if save_jd_clicked:
+        if not jd_save_role.strip() or not jd_save_text.strip():
+            st.error("Role and JD text are required.")
+        else:
+            if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
+                st.success("JD saved.")
+                reset_jd_library_form()
+                st.rerun()
             else:
-                if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
-                    st.success("JD saved.")
-                    reset_jd_library_form()
-                    st.rerun()
-                else:
-                    st.error("Could not save JD.")
+                st.error("Could not save JD.")
 
-    if not jd_df.empty:
-        st.divider()
-        st.subheader("Manage saved JDs")
+    st.divider()
+    st.subheader("Saved JDs")
+
+    if jd_df.empty:
+        st.info("No saved JDs yet.")
+    else:
+        st.dataframe(jd_df, use_container_width=True, hide_index=True)
 
         jd_options = [
             f"{row['Role']} · {str(row.get('Saved At', ''))[:19]}"
             for _, row in jd_df.iterrows()
         ]
-        picked_label = st.selectbox("Saved JDs", jd_options)
+
+        picked_label = st.selectbox("Select a saved JD", jd_options)
         picked_index = jd_options.index(picked_label)
         picked_row = jd_df.iloc[picked_index]
+
+        preview_role = str(picked_row.get("Role", "")).strip()
+        preview_tags = str(picked_row.get("Tags", "")).strip()
+        preview_saved_at = str(picked_row.get("Saved At", "")).strip()
+
+        meta_parts = [part for part in [preview_role, preview_tags, preview_saved_at] if part]
+        if meta_parts:
+            st.caption(" • ".join(meta_parts))
 
         action_col1, action_col2 = st.columns(2)
 
