@@ -192,6 +192,14 @@ def reset_screening_session() -> None:
     st.session_state.pop("edited_email_preview", None)
     st.session_state.pop("_email_fingerprint", None)
 
+    st.session_state.pop("history_editor", None)
+    st.session_state.pop("history_email_preview", None)
+    st.session_state.pop("_history_fingerprint", None)
+    st.session_state.pop("history_subject", None)
+    st.session_state.pop("history_questions", None)
+    st.session_state.pop("history_note", None)
+    st.session_state.pop("history_confirm", None)
+    
     st.session_state["upload_session"] = st.session_state.get("upload_session", 0) + 1
 # ============================================================
 # Authentication (Google OAuth + Manual Whitelist)
@@ -616,19 +624,29 @@ def show_results_summary(df: pd.DataFrame) -> None:
             "Email",
             "Phone",
             "Experience",
+            "Education",
             "Final Score",
+            "Feedback",
             "Verdict",
             "Industry Match",
             "Candidate Industry",
             "Matched Keywords",
             "Missing Keywords",
-            "Reason",
             "Source File",
         ]
         if col in df.columns
     ]
 
     display_df = df[display_cols].copy()
+
+    if "Feedback" not in display_df.columns:
+        display_df["Feedback"] = "Pending"
+    display_df["Feedback"] = (
+        display_df["Feedback"]
+        .fillna("Pending")
+        .astype(str)
+        .replace({"": "Pending", "nan": "Pending"})
+    )
 
     if "Name" in display_df.columns:
         display_df["Name"] = display_df["Name"].astype(str).str.title()
@@ -651,6 +669,20 @@ def show_results_summary(df: pd.DataFrame) -> None:
 
     display_df = format_experience_years(display_df)
     display_df = format_industry_fit(display_df)
+    display_df = order_columns_first(
+        display_df,
+        [
+            "Send",
+            "Name",
+            "Email",
+            "Phone",
+            "Experience",
+            "Education",
+            "Final Score",
+            "Feedback",
+            "Verdict",
+        ],
+    )
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
