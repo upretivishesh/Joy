@@ -1023,51 +1023,74 @@ with history_tab:
 with jd_tab:
     st.subheader("JD Library")
 
-    jd_df = load_jd_library(user_key)
+    if "show_jd_form" not in st.session_state:
+        st.session_state["show_jd_form"] = False
 
     if st.session_state.pop("_clear_jd_form", False):
         st.session_state["jd_save_role"] = ""
         st.session_state["jd_save_text"] = ""
         st.session_state["jd_save_tags"] = ""
+        st.session_state["show_jd_form"] = False
 
-    st.markdown("### Add new JD")
+    top_col1, top_col2 = st.columns([1, 5])
 
-    jd_save_role = st.text_input(
-        "Role",
-        value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
-        key="jd_save_role",
-        placeholder="e.g. Area Sales Manager",
-    )
+    with top_col1:
+        if st.button("Add new JD", type="primary", use_container_width=True):
+            st.session_state["show_jd_form"] = True
+            st.rerun()
 
-    jd_save_text = st.text_area(
-        "JD Text",
-        value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
-        height=220,
-        key="jd_save_text",
-        placeholder="Paste the full job description here...",
-    )
+    with top_col2:
+        st.caption("Save a reusable job description, then load it back into the Screen tab anytime.")
 
-    jd_save_tags = st.text_input(
-        "Tags",
-        value=st.session_state.get("jd_save_tags", ""),
-        placeholder="e.g. sales, agrochemical, west india",
-        key="jd_save_tags",
-    )
+    if st.session_state["show_jd_form"]:
+        st.markdown("### New JD")
 
-    save_jd_clicked = st.button("Save JD", type="primary", use_container_width=False)
+        jd_save_role = st.text_input(
+            "Role",
+            value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
+            key="jd_save_role",
+            placeholder="e.g. Area Sales Manager",
+        )
 
-    if save_jd_clicked:
-        if not jd_save_role.strip() or not jd_save_text.strip():
-            st.error("Role and JD text are required.")
-        else:
-            if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
-                st.success("JD saved.")
-                reset_jd_library_form()
+        jd_save_text = st.text_area(
+            "JD Text",
+            value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
+            height=220,
+            key="jd_save_text",
+            placeholder="Paste the full job description here...",
+        )
+
+        jd_save_tags = st.text_input(
+            "Tags",
+            value=st.session_state.get("jd_save_tags", ""),
+            placeholder="e.g. sales, agrochemical, west india",
+            key="jd_save_tags",
+        )
+
+        form_col1, form_col2 = st.columns(2)
+
+        with form_col1:
+            save_jd_clicked = st.button("Save JD", type="primary", use_container_width=True)
+            if save_jd_clicked:
+                if not jd_save_role.strip() or not jd_save_text.strip():
+                    st.error("Role and JD text are required.")
+                else:
+                    if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
+                        st.success("JD saved.")
+                        reset_jd_library_form()
+                        st.rerun()
+                    else:
+                        st.error("Could not save JD.")
+
+        with form_col2:
+            if st.button("Cancel", type="secondary", use_container_width=True):
+                st.session_state["show_jd_form"] = False
                 st.rerun()
-            else:
-                st.error("Could not save JD.")
 
-    st.divider()
+        st.divider()
+
+    jd_df = load_jd_library(user_key)
+
     st.subheader("Saved JDs")
 
     if jd_df.empty:
