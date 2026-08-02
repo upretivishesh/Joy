@@ -1,4 +1,6 @@
 # core/screening.py
+from typing import Dict, Tuple, Optional, List
+
 import pandas as pd
 import streamlit as st
 
@@ -53,7 +55,7 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
     return candidate_memory, client_bias
 
 
-def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> tuple[float, str]:
+def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> Tuple[float, str]:
     pk = str(row.get("Profile Key", "")).strip()
     memory = candidate_memory.get(pk)
     if not memory:
@@ -61,15 +63,15 @@ def apply_candidate_memory(row: pd.Series, candidate_memory: dict) -> tuple[floa
 
     feedback = memory.get("feedback", "")
     if feedback == "Good Hire":
-        return 12.0, f"Previously a Good Hire ({memory.get('role', '')})."
+        return 12.0, "Previously a Good Hire ({}) .".format(memory.get("role", ""))
     if feedback == "Bad Hire":
-        return -15.0, f"Previously a Bad Hire ({memory.get('role', '')})."
+        return -15.0, "Previously a Bad Hire ({}) .".format(memory.get("role", ""))
     if feedback == "Not Selected":
-        return -4.0, f"Previously Not Selected ({memory.get('role', '')})."
+        return -4.0, "Previously Not Selected ({}) .".format(memory.get("role", ""))
     return 0.0, ""
 
 
-def _required_education_from_jd(jd_requirements: dict) -> tuple[int, str]:
+def _required_education_from_jd(jd_requirements: dict) -> Tuple[int, str]:
     required_edu_label = str(
         (jd_requirements or {}).get("required_education", "") or ""
     ).strip()
@@ -95,7 +97,7 @@ def run_screening(
     client_company: str = "",
     min_exp: float = 0,
     max_exp: float = 15,
-    preferred_industries: list | None = None,
+    preferred_industries: Optional[List[str]] = None,
 ):
     read_errors = []
     preferred_industries = preferred_industries or []
@@ -145,12 +147,12 @@ def run_screening(
             text, read_error = read_uploaded_file(file.name, file.getvalue())
 
             if read_error:
-                read_errors.append(f"{file.name}: {read_error}")
+                read_errors.append("{}: {}".format(file.name, read_error))
                 progress_bar.progress((i + 1) / total)
                 continue
 
             if not text.strip():
-                read_errors.append(f"{file.name}: no readable text found")
+                read_errors.append("{}: no readable text found".format(file.name))
                 progress_bar.progress((i + 1) / total)
                 continue
 
@@ -196,7 +198,7 @@ def run_screening(
             results.append(row)
 
         except Exception as e:
-            read_errors.append(f"{file.name}: {e}")
+            read_errors.append("{}: {}".format(file.name, e))
 
         progress_bar.progress((i + 1) / total)
 
