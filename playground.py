@@ -188,6 +188,7 @@ screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "Histor
 
 # ====================== SCREEN TAB ======================
 with screen_tab:
+
     pending_jd = st.session_state.pop("_pending_jd_text", None)
     pending_role = st.session_state.pop("_pending_role_input", None)
     if pending_jd is not None:
@@ -223,7 +224,10 @@ with screen_tab:
 
     jd_text = typed_jd_text
     if jd_upload:
-        uploaded_jd_text, jd_error = read_uploaded_file(jd_upload.name, jd_upload.getvalue())
+        uploaded_jd_text, jd_error = read_uploaded_file(
+            jd_upload.name,
+            jd_upload.getvalue(),
+        )
         if jd_error:
             st.warning(f"JD upload: {jd_error}")
         if uploaded_jd_text.strip():
@@ -245,7 +249,11 @@ with screen_tab:
         client_pick_options = [NEW_CLIENT_LABEL] + known_clients
         current_value = st.session_state.get("client_company_input", "").strip()
         try:
-            default_index = client_pick_options.index(current_value) if current_value in known_clients else 0
+            default_index = (
+                client_pick_options.index(current_value)
+                if current_value in known_clients
+                else 0
+            )
         except ValueError:
             default_index = 0
 
@@ -284,7 +292,9 @@ with screen_tab:
             company_key = client_company_input.strip().lower()
 
             if st.session_state.get("_persona_company_key") != company_key:
-                st.session_state["_persona_profile"] = load_client_profile(user_key, client_company_input)
+                st.session_state["_persona_profile"] = load_client_profile(
+                    user_key, client_company_input
+                )
                 st.session_state["_persona_company_key"] = company_key
 
             profile = st.session_state["_persona_profile"]
@@ -304,35 +314,27 @@ with screen_tab:
             col1, col2 = st.columns([1.1, 1])
 
             with col1:
-                industry_options = merge_with_custom(
-                    INDUSTRY_OPTIONS,
-                    profile.get("preferred_industries", []),
-                )
-                profile["preferred_industries"] = st.multiselect(
+                industries_text = st.text_input(
                     "Preferred industries",
-                    options=industry_options,
-                    default=profile.get("preferred_industries", []),
+                    value=", ".join(profile.get("preferred_industries", [])),
+                    placeholder="D2C, Agrochemicals, Organic Farming",
                     key=f"persona_industries_{company_key}",
-                    help="Choose from the list or type custom ones like Agrochemical, Crop Protection, or Agro Inputs.",
-                    accept_new_options=True,
-                    placeholder="Choose or add industries",
                 )
+                profile["preferred_industries"] = [
+                    i.strip() for i in industries_text.split(",") if i.strip()
+                ]
                 persona_industries = profile["preferred_industries"]
 
             with col2:
-                language_options = merge_with_custom(
-                    LANGUAGE_OPTIONS,
-                    profile.get("language_preferences", []),
-                )
-                profile["language_preferences"] = st.multiselect(
+                languages_text = st.text_input(
                     "Language preference",
-                    options=language_options,
-                    default=profile.get("language_preferences", []),
+                    value=", ".join(profile.get("language_preferences", [])),
+                    placeholder="English, Hindi, Punjabi",
                     key=f"persona_languages_{company_key}",
-                    help="Choose one or more languages, or type a custom one.",
-                    accept_new_options=True,
-                    placeholder="Choose or add languages",
                 )
+                profile["language_preferences"] = [
+                    l.strip() for l in languages_text.split(",") if l.strip()
+                ]
 
             profile["preferred_colleges"] = st.text_area(
                 "Preferred colleges / tiers",
@@ -343,6 +345,7 @@ with screen_tab:
             )
 
             exp_col1, exp_col2 = st.columns(2)
+
             with exp_col1:
                 profile["min_experience"] = st.number_input(
                     "Min experience (years)",
@@ -365,7 +368,9 @@ with screen_tab:
                 )
                 persona_max_exp = float(profile["max_experience"])
 
-            st.caption("Candidates outside this range take a small score penalty for this client.")
+            st.caption(
+                "Candidates outside this range take a small score penalty for this client."
+            )
 
             profile["culture_notes"] = st.text_area(
                 "Culture / soft-fit notes",
@@ -376,15 +381,30 @@ with screen_tab:
             )
 
             if st.button("Save Persona", type="secondary", use_container_width=True):
-                if save_client_profile(user_key, client_company_input, profile):
+                saved_ok = save_client_profile(user_key, client_company_input, profile)
+                st.session_state["_persona_save_status"] = (
+                    "success" if saved_ok else "error"
+                )
+
+                if saved_ok:
                     st.session_state["_persona_profile"] = profile
-                    if client_company_input.strip() not in st.session_state["_known_clients"]:
-                        st.session_state["_known_clients"].insert(0, client_company_input.strip())
-                    st.success("Persona saved successfully!")
-                else:
-                    st.error("Failed to save persona.")
-                    
-    detected_preview = extract_role_from_jd(jd_text, role_input) if (jd_text.strip() or role_input.strip()) else ""
+                    clean_name = client_company_input.strip()
+                    if clean_name and clean_name not in st.session_state["_known_clients"]:
+                        st.session_state["_known_clients"].insert(0, clean_name)
+
+                st.rerun()
+
+            save_status = st.session_state.pop("_persona_save_status", None)
+            if save_status == "success":
+                st.success("Persona saved successfully!")
+            elif save_status == "error":
+                st.error("Failed to save persona.")
+
+    detected_preview = (
+        extract_role_from_jd(jd_text, role_input)
+        if (jd_text.strip() or role_input.strip())
+        else ""
+    )
     if detected_preview and detected_preview != "Open Role":
         st.caption(f"Detected role title: {detected_preview}")
 
@@ -397,13 +417,17 @@ with screen_tab:
 
     run_col, _ = st.columns([1, 4])
     with run_col:
-        run_clicked = st.button("Screen resumes", type="primary", use_container_width=True)
+        run_clicked = st.button(
+            "Screen resumes", type="primary", use_container_width=True
+        )
 
     if run_clicked:
         if not uploads:
             st.error("Upload at least one resume.")
         elif not role_input.strip() and not jd_text.strip():
-            st.error("Upload or paste a JD, or add a role override in Optional screening controls.")
+            st.error(
+                "Upload or paste a JD, or add a role override in Optional screening controls."
+            )
         else:
             with st.spinner("Screening resumes..."):
                 results, read_errors = run_screening(
@@ -427,10 +451,11 @@ with screen_tab:
             if results is not None and not results.empty:
                 df_ranked = results.copy()
                 if "Final Score" in df_ranked.columns:
-                    df_ranked = df_ranked.sort_values("Final Score", ascending=False).reset_index(drop=True)
+                    df_ranked = df_ranked.sort_values(
+                        "Final Score", ascending=False
+                    ).reset_index(drop=True)
                 if "Rank" not in df_ranked.columns:
                     df_ranked.insert(0, "Rank", range(1, len(df_ranked) + 1))
-                df_ranked = format_industry_fit(df_ranked)
                 st.session_state.results_df = df_ranked
             else:
                 st.session_state.results_df = pd.DataFrame()
@@ -442,8 +467,17 @@ with screen_tab:
 
             try:
                 from core.history import save_history
-                if st.session_state.results_df is not None and not st.session_state.results_df.empty:
-                    save_history(st.session_state.results_df, detected_role, user_key, jd_text)
+
+                if (
+                    st.session_state.results_df is not None
+                    and not st.session_state.results_df.empty
+                ):
+                    save_history(
+                        st.session_state.results_df,
+                        detected_role,
+                        user_key,
+                        jd_text,
+                    )
             except Exception as _hist_err:
                 st.warning(f"History save failed: {_hist_err}")
 
@@ -459,15 +493,14 @@ with screen_tab:
                 and not results["AI Used"].any()
             ):
                 st.warning(
-                    f"A {provider_label} key is set, but AI scoring failed for every resume in this batch. "
-                    "Check the key and model in your secrets."
+                    f"A {provider_label} key is set, but AI scoring failed for every resume in this batch "
+                    "(Industry Match will show N/A). Check the key and model in your secrets."
                 )
 
     if not st.session_state.results_df.empty:
         st.divider()
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
-
 # ====================== EMAIL TAB ======================
 with email_tab:
     st.subheader("Outreach")
