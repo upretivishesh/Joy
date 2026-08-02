@@ -1,12 +1,11 @@
 import os
 import re
-from typing import Optional
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from .constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
+from .constants import DEFAULT_COMPANY, DEFAULT_QUESTIONS
 
 
 # ============================================================
@@ -27,7 +26,6 @@ def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-
 def name_from_email_address(email: str) -> str:
     local = (email or "").split("@")[0]
     local = re.sub(r"\+.*$", "", local)
@@ -35,7 +33,6 @@ def name_from_email_address(email: str) -> str:
     local = re.sub(r"[^A-Za-z]+", " ", local)
     parts = [part for part in local.split() if len(part) > 1 and not part.isdigit()]
     return " ".join(part.capitalize() for part in parts[:3])
-
 
 
 def mask_email(email: str) -> str:
@@ -50,13 +47,11 @@ def mask_email(email: str) -> str:
     return f"{masked_local}@{domain}"
 
 
-
 def order_columns_first(df: pd.DataFrame, first: list[str]) -> pd.DataFrame:
     cols = list(df.columns)
     first_present = [c for c in first if c in cols]
     remaining = [c for c in cols if c not in first_present]
     return df[first_present + remaining]
-
 
 
 def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
@@ -68,15 +63,21 @@ def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
 def format_industry_fit(df: pd.DataFrame) -> pd.DataFrame:
     if "Industry Match" not in df.columns:
         return df
     df = df.copy()
-    badge = {"Yes": "Match", "Partial": "Partial", "No": "No Match", "N/A": "—", "NA": "—"}
+    badge = {
+        "Yes": "Match",
+        "Partial": "Partial",
+        "No": "No Match",
+        "N/A": "—",
+        "NA": "—",
+        "nan": "—",
+        "": "—",
+    }
     df["Industry Match"] = df["Industry Match"].astype(str).map(lambda v: badge.get(v, "—"))
     return df
-
 
 
 def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
@@ -86,8 +87,15 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     search_cols = [
         c for c in [
-            "Name", "Email", "Phone", "Skills", "Matched Keywords",
-            "Role", "Candidate Industry", "Source File", "Profile Key",
+            "Name",
+            "Email",
+            "Phone",
+            "Skills",
+            "Matched Keywords",
+            "Role",
+            "Candidate Industry",
+            "Source File",
+            "Profile Key",
         ]
         if c in df.columns
     ]
@@ -100,11 +108,9 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     return df[mask]
 
 
-
 def safe_filename_part(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", value or "user")
     return clean.strip("_")[:80] or "user"
-
 
 
 def questions_from_text(text: str) -> list[str]:
@@ -114,7 +120,6 @@ def questions_from_text(text: str) -> list[str]:
         if clean:
             questions.append(clean)
     return questions or DEFAULT_QUESTIONS
-
 
 
 def first_name(full_name: str) -> str:
@@ -149,11 +154,9 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
-
 def reset_jd_library_form() -> None:
     for key in ["jd_save_role", "jd_save_text", "jd_save_tags"]:
         st.session_state[key] = ""
-
 
 
 def reset_screening_session() -> None:
@@ -162,6 +165,7 @@ def reset_screening_session() -> None:
     st.session_state.last_role = ""
     st.session_state.last_jd = ""
     st.session_state.last_keywords = []
+    st.session_state.last_client_company = ""
     st.session_state.upload_session += 1
 
     st.session_state["_pending_jd_text"] = ""
@@ -176,6 +180,10 @@ def reset_screening_session() -> None:
             del st.session_state[key]
 
     for key in ["email_subject", "edited_email_preview", "_email_fingerprint"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+    for key in ["history_subject", "history_email_preview", "_history_fingerprint", "history_confirm"]:
         if key in st.session_state:
             del st.session_state[key]
 
@@ -197,7 +205,6 @@ def is_auth_configured() -> bool:
         return False
 
 
-
 def is_user_allowed(email: str) -> bool:
     if not email:
         return False
@@ -215,7 +222,6 @@ def is_user_allowed(email: str) -> bool:
     return email in admins or email in allowed
 
 
-
 def login_user_from_google(email: str, name: str = "", company: str = "") -> None:
     clean_email = (email or "").strip().lower()
     st.session_state.gmail_authenticated = True
@@ -226,7 +232,6 @@ def login_user_from_google(email: str, name: str = "", company: str = "") -> Non
         st.session_state.sender_password = ""
 
 
-
 def login_user(email: str, app_password: str, sender_name: str, company_name: str) -> None:
     clean_email = email.strip().lower()
     st.session_state.gmail_authenticated = True
@@ -234,7 +239,6 @@ def login_user(email: str, app_password: str, sender_name: str, company_name: st
     st.session_state.sender_password = re.sub(r"\s+", "", app_password or "")
     st.session_state.sender_name = sender_name.strip() or name_from_email_address(clean_email)
     st.session_state.company_name = company_name.strip() or DEFAULT_COMPANY
-
 
 
 def logout_user() -> None:
@@ -498,24 +502,21 @@ def inject_elite_theme() -> None:
             border-radius: 6px;
             margin-top: 6px;
         }
-        .badge-good { background: var(--accent-soft); color: var(--accent); }
-        .badge-bad { background: var(--bad-soft); color: var(--bad); }
-        .badge-pending { background: rgba(255,255,255,0.06); color: var(--muted); }
+        .badge-good { background: rgba(53,224,193,0.14); color: #35e0c1; }
+        .badge-bad { background: rgba(255,90,90,0.15); color: #ff6b6b; }
+        .badge-pending { background: rgba(255,255,255,0.06); color: #9aa1b2; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-
 def render_css() -> None:
     inject_elite_theme()
 
 
-
 def inject_premium_persona_css() -> None:
     inject_elite_theme()
-
 
 
 def _inject_html(html_string: str, height: int = 0, width: int = 0) -> None:
@@ -523,7 +524,6 @@ def _inject_html(html_string: str, height: int = 0, width: int = 0) -> None:
         components.html(html_string, height=height, width=width)
     except Exception:
         pass
-
 
 
 def inject_multiselect_chip_fix() -> None:
@@ -554,7 +554,6 @@ def inject_multiselect_chip_fix() -> None:
     )
 
 
-
 def inject_clear_icon_fix() -> None:
     _inject_html(
         """
@@ -583,7 +582,6 @@ def inject_clear_icon_fix() -> None:
     )
 
 
-
 def inject_keepalive() -> None:
     _inject_html(
         """
@@ -599,10 +597,10 @@ def inject_keepalive() -> None:
     )
 
 
-
 def show_results_summary(df: pd.DataFrame) -> None:
     if df.empty:
         return
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Screened", len(df))
     c2.metric("Strong Fit", int((df["Verdict"] == "Strong Fit").sum()) if "Verdict" in df.columns else 0)
@@ -611,16 +609,28 @@ def show_results_summary(df: pd.DataFrame) -> None:
 
     display_cols = [
         col for col in [
-            "Send", "Name", "Email", "Phone", "Experience",
-            "Final Score", "Verdict", "Industry Match", "Candidate Industry",
-            "Matched Keywords", "Missing Keywords", "Reason", "Source File",
+            "Send",
+            "Name",
+            "Email",
+            "Phone",
+            "Experience",
+            "Final Score",
+            "Verdict",
+            "Industry Match",
+            "Candidate Industry",
+            "Matched Keywords",
+            "Missing Keywords",
+            "Reason",
+            "Source File",
         ]
         if col in df.columns
     ]
 
     display_df = df[display_cols].copy()
+
     if "Name" in display_df.columns:
         display_df["Name"] = display_df["Name"].astype(str).str.title()
+
     if "Candidate Industry" in display_df.columns:
         display_df["Candidate Industry"] = (
             display_df["Candidate Industry"]
@@ -628,6 +638,7 @@ def show_results_summary(df: pd.DataFrame) -> None:
             .astype(str)
             .replace({"": "Others / Not Detected", "nan": "Others / Not Detected"})
         )
+
     if "Industry Match" in display_df.columns:
         display_df["Industry Match"] = (
             display_df["Industry Match"]
@@ -635,8 +646,10 @@ def show_results_summary(df: pd.DataFrame) -> None:
             .astype(str)
             .replace({"NA": "N/A", "": "N/A", "nan": "N/A"})
         )
+
     display_df = format_experience_years(display_df)
     display_df = format_industry_fit(display_df)
+
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     st.download_button(
