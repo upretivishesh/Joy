@@ -964,5 +964,4 @@ with jd_tab:
                 confirm_delete_jd(
                     user_key,
                     str(picked_row.get("Role", "")),
-                    str(picked_row.get("Saved At", "")),
                 )
