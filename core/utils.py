@@ -400,6 +400,36 @@ def inject_elite_theme() -> None:
             background: var(--panel) !important;
             color: var(--ink) !important;
         }
+        div[data-baseweb="input"] {
+          background: var(--panel) !important;
+          border: 1px solid var(--line) !important;
+          border-radius: var(--radius-sm) !important;
+          box-shadow: none !important;
+        }
+        
+        div[data-baseweb="input"] > div {
+          border: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+        }
+        
+        div[data-baseweb="input"] input {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          color: var(--ink) !important;
+        }
+        
+        div[data-baseweb="input"]:focus-within {
+          border-color: var(--accent) !important;
+          box-shadow: 0 0 0 1px var(--accent) !important;
+        }
+        
+        div[data-baseweb="input"] input:focus {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+
         .stButton > button[kind="secondary"]:hover {
             border-color: var(--accent) !important;
             color: var(--accent) !important;
@@ -480,38 +510,7 @@ def inject_elite_theme() -> None:
             border-radius: 12px;
             padding: 14px 18px;
             box-shadow: var(--shadow);
-        }
-        /* Fix double border/line on text and password inputs */
-        div[data-baseweb="input"] {
-          background: var(--panel) !important;
-          border: 1px solid var(--line) !important;
-          border-radius: var(--radius-sm) !important;
-          box-shadow: none !important;
-        }
-        
-        div[data-baseweb="input"] > div {
-          border: none !important;
-          box-shadow: none !important;
-          background: transparent !important;
-        }
-        
-        div[data-baseweb="input"] input {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-          color: var(--ink) !important;
-        }
-        
-        div[data-baseweb="input"]:focus-within {
-          border-color: var(--accent) !important;
-          box-shadow: 0 0 0 1px var(--accent) !important;
-        }
-        
-        div[data-baseweb="input"] input:focus {
-          outline: none !important;
-          box-shadow: none !important;
-        }
-        
+        }        
         [data-testid="stMetricValue"] { color: var(--ink) !important; font-weight: 800; }
         [data-testid="stMetricLabel"] p { color: var(--muted) !important; font-size: 0.78rem !important; }
 
