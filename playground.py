@@ -870,6 +870,14 @@ with history_tab:
 
         history_editable = format_experience_years(history_editable)
 
+        if "Phone" in history_editable.columns:
+            history_editable["Phone"] = (
+                history_editable["Phone"]
+                .fillna("")
+                .astype(str)
+                .str.replace(r"\.0$", "", regex=True)
+            )
+
         if "Feedback" not in history_editable.columns:
             history_editable["Feedback"] = "Pending"
         history_editable["Feedback"] = (
