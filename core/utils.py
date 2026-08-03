@@ -1,11 +1,12 @@
 import os
 import re
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from .constants import DEFAULT_COMPANY, DEFAULT_QUESTIONS
+from .constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
 
 
 # ============================================================
@@ -67,17 +68,18 @@ def format_industry_fit(df: pd.DataFrame) -> pd.DataFrame:
     if "Industry Match" not in df.columns:
         return df
     df = df.copy()
-    badge = {
-        "Yes": "Match",
-        "Partial": "Partial",
-        "No": "No Match",
-        "N/A": "—",
-        "NA": "—",
-        "nan": "—",
-        "": "—",
-    }
+    badge = {"Yes": "Match", "Partial": "Partial", "No": "No Match", "N/A": "—"}
     df["Industry Match"] = df["Industry Match"].astype(str).map(lambda v: badge.get(v, "—"))
     return df
+
+
+def clean_phone_series(series: pd.Series) -> pd.Series:
+    return (
+        series.fillna("")
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
 
 
 def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
@@ -87,18 +89,11 @@ def filter_history_by_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
     search_cols = [
         c for c in [
-            "Name",
-            "Email",
-            "Phone",
-            "Skills",
-            "Matched Keywords",
-            "Role",
-            "Candidate Industry",
-            "Source File",
-            "Profile Key",
-        ]
-        if c in df.columns
+            "Name", "Email", "Phone", "Skills", "Matched Keywords",
+            "Role", "Candidate Industry", "Source File", "Profile Key",
+        ] if c in df.columns
     ]
+
     if not search_cols:
         return df.iloc[0:0]
 
@@ -149,6 +144,7 @@ def init_state() -> None:
         "selected_candidates": pd.DataFrame(),
         "selected_history": pd.DataFrame(),
     }
+
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
@@ -157,24 +153,17 @@ def init_state() -> None:
 def reset_jd_library_form() -> None:
     st.session_state["_clear_jd_form"] = True
 
+
 def reset_screening_session() -> None:
-    import pandas as pd
-    import streamlit as st
+    st.session_state.results_df = pd.DataFrame()
+    st.session_state.email_results = []
+    st.session_state.selected_candidates = pd.DataFrame()
+    st.session_state.selected_history = pd.DataFrame()
 
-    st.session_state["results_df"] = pd.DataFrame()
-    st.session_state["email_results"] = []
-    st.session_state["selected_candidates"] = pd.DataFrame()
-    st.session_state["selected_history"] = pd.DataFrame()
-
-    st.session_state["last_role"] = ""
-    st.session_state["last_jd"] = ""
-    st.session_state["last_keywords"] = []
-    st.session_state["last_client_company"] = ""
-
-    st.session_state["typed_jd_text"] = ""
-    st.session_state["role_input"] = ""
-    st.session_state["client_company_input"] = ""
-    st.session_state["extra_keywords"] = ""
+    st.session_state.last_role = ""
+    st.session_state.last_jd = ""
+    st.session_state.last_keywords = []
+    st.session_state.last_client_company = ""
 
     st.session_state["_pending_jd_text"] = None
     st.session_state["_pending_role_input"] = None
@@ -185,20 +174,23 @@ def reset_screening_session() -> None:
     st.session_state["_persona_profile"] = {}
     st.session_state["_persona_save_status"] = None
 
+    st.session_state["typed_jd_text"] = ""
+    st.session_state["role_input"] = ""
+    st.session_state["extra_keywords"] = ""
+    st.session_state["client_company_input"] = ""
+
     st.session_state.pop("client_picker", None)
-    st.session_state.pop("email_editor", None)
+    st.session_state.pop("email_subject", None)
     st.session_state.pop("edited_email_preview", None)
     st.session_state.pop("_email_fingerprint", None)
 
-    st.session_state.pop("history_editor", None)
-    st.session_state.pop("history_email_preview", None)
-    st.session_state.pop("_history_fingerprint", None)
-    st.session_state.pop("history_subject", None)
-    st.session_state.pop("history_questions", None)
-    st.session_state.pop("history_note", None)
-    st.session_state.pop("history_confirm", None)
-    
-    st.session_state["upload_session"] = st.session_state.get("upload_session", 0) + 1
+    st.session_state["jd_save_role"] = ""
+    st.session_state["jd_save_text"] = ""
+    st.session_state["jd_save_tags"] = ""
+
+    st.session_state.upload_session = st.session_state.get("upload_session", 0) + 1
+
+
 # ============================================================
 # Authentication (Google OAuth + Manual Whitelist)
 # ============================================================
@@ -227,6 +219,7 @@ def is_user_allowed(email: str) -> bool:
 
     admins = {e.strip().lower() for e in admin_raw.split(",") if e.strip()}
     allowed = {e.strip().lower() for e in allowed_raw.split(",") if e.strip()}
+
     return email in admins or email in allowed
 
 
@@ -265,284 +258,301 @@ def logout_user() -> None:
 # ============================================================
 def inject_elite_theme() -> None:
     st.markdown(
-        """
+        f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap');
+            :root {{
+                --bg: #0b1020;
+                --panel: #12192b;
+                --panel-2: #0f1727;
+                --panel-3: #1a2236;
+                --line: rgba(95, 113, 145, 0.34);
+                --line-soft: rgba(95, 113, 145, 0.18);
+                --ink: #eef2ff;
+                --muted: #9aa8c7;
+                --accent: #42e8d0;
+                --accent-soft: rgba(66, 232, 208, 0.14);
+                --danger: #ff6b7a;
+                --success: #49d17d;
+                --radius-lg: 22px;
+                --radius-md: 16px;
+                --radius-sm: 12px;
+                --shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+            }}
 
-        :root {
-            --bg: #05060a;
-            --panel: rgba(255,255,255,0.03);
-            --panel-strong: #0d0f14;
-            --line: rgba(255,255,255,0.08);
-            --ink: #f2f4f7;
-            --muted: #9aa1b2;
-            --muted-2: #5c6377;
-            --accent: #35e0c1;
-            --accent-soft: rgba(53,224,193,0.14);
-            --bad: #ff6b6b;
-            --bad-soft: rgba(255,90,90,0.15);
-            --radius: 14px;
-            --radius-sm: 10px;
-            --shadow: 0 8px 30px rgba(0,0,0,0.35);
-        }
+            .stApp {{
+                background:
+                    radial-gradient(circle at top left, rgba(66, 232, 208, 0.08), transparent 26%),
+                    radial-gradient(circle at top right, rgba(112, 92, 255, 0.09), transparent 28%),
+                    linear-gradient(180deg, #08101f 0%, #0b1020 100%);
+                color: var(--ink);
+            }}
 
-        html, body, [class*="css"], .stApp {
-            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            color: var(--ink);
-        }
+            .block-container {{
+                padding-top: 2rem;
+                padding-bottom: 2rem;
+                max-width: 1380px;
+            }}
 
-        .stApp {
-            background: radial-gradient(circle at 15% 0%, #0d1420 0%, var(--bg) 55%);
-        }
+            h1, h2, h3, h4, h5, h6,
+            p, span, label, div {{
+                color: var(--ink);
+            }}
 
-        .block-container {
-            max-width: 1180px;
-            padding-top: 2rem;
-            padding-bottom: 3rem;
-        }
+            .hero {{
+                position: relative;
+                padding: 30px 34px;
+                border-radius: 28px;
+                background:
+                    linear-gradient(135deg, rgba(19, 27, 44, 0.96), rgba(10, 17, 30, 0.94)),
+                    linear-gradient(135deg, rgba(66, 232, 208, 0.08), rgba(112, 92, 255, 0.05));
+                border: 1px solid rgba(95, 113, 145, 0.24);
+                box-shadow: var(--shadow);
+                overflow: hidden;
+                margin-bottom: 1.2rem;
+            }}
 
-        hr { display: none !important; }
+            .eyebrow {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 7px 12px;
+                border-radius: 999px;
+                background: rgba(66, 232, 208, 0.1);
+                color: var(--accent);
+                font-size: 0.82rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 700;
+                margin-bottom: 14px;
+            }}
 
-        h1, h2, h3 {
-            font-family: 'Newsreader', Georgia, serif !important;
-            font-weight: 650 !important;
-            letter-spacing: -0.01em;
-            color: var(--ink);
-        }
+            .hero-title {{
+                font-size: clamp(2.2rem, 3.6vw, 4rem);
+                line-height: 1.04;
+                font-weight: 800;
+                margin: 0 0 12px 0;
+                letter-spacing: -0.03em;
+            }}
 
-        .hero {
-            padding: 2.2rem 2.4rem;
-            border-radius: var(--radius);
-            background: linear-gradient(135deg, rgba(53,224,193,0.08), rgba(255,255,255,0.02));
-            border: 1px solid var(--line);
-            margin-bottom: 1.6rem;
-        }
-        .eyebrow {
-            display: inline-block;
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: var(--accent);
-            background: var(--accent-soft);
-            padding: 4px 10px;
-            border-radius: 6px;
-            margin-bottom: 12px;
-        }
-        .hero-title {
-            font-size: clamp(2rem, 5vw, 3rem);
-            line-height: 1.05;
-            margin: 0 0 10px 0;
-        }
-        .hero-copy {
-            color: var(--muted);
-            font-size: 1rem;
-            line-height: 1.6;
-            max-width: 660px;
-            margin: 0;
-        }
+            .hero-copy {{
+                max-width: 760px;
+                color: var(--muted) !important;
+                font-size: 1rem;
+                line-height: 1.75;
+                margin: 0;
+            }}
 
-        section[data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0b0d14 0%, var(--bg) 100%);
-            border-right: 1px solid var(--line);
-        }
-        section[data-testid="stSidebar"] h1 {
-            font-family: 'Inter', sans-serif !important;
-            font-size: 1.3rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            color: var(--ink);
-            margin-bottom: 2px;
-        }
-        section[data-testid="stSidebar"] p,
-        section[data-testid="stSidebar"] .stCaptionContainer {
-            color: var(--muted) !important;
-        }
+            section[data-testid="stSidebar"] {{
+                background:
+                    linear-gradient(180deg, rgba(11, 16, 32, 0.98), rgba(14, 22, 40, 0.98));
+                border-right: 1px solid var(--line-soft);
+            }}
 
-        div[data-baseweb="tab-list"] {
-            gap: 6px;
-            border-bottom: 1px solid var(--line);
-        }
-        button[data-baseweb="tab"] {
-            font-weight: 600;
-            font-size: 0.92rem;
-            color: var(--muted);
-            padding: 10px 18px;
-        }
-        button[data-baseweb="tab"][aria-selected="true"] {
-            color: var(--accent) !important;
-        }
-        div[data-baseweb="tab-highlight"] {
-            background-color: var(--accent) !important;
-            height: 2.5px !important;
-        }
-        div[data-baseweb="tab-border"] { display: none; }
+            [data-testid="stSidebar"] .block-container {{
+                padding-top: 1.5rem;
+            }}
 
-        .stButton > button, .stDownloadButton > button,
-        [data-testid="stFormSubmitButton"] button {
-            border-radius: var(--radius-sm) !important;
-            font-weight: 600 !important;
-            border: 1px solid var(--line) !important;
-            transition: all 0.15s ease;
-        }
-        .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {
-            background: var(--ink) !important;
-            color: #05070c !important;
-            border: none !important;
-            box-shadow: 0 4px 14px rgba(255,255,255,0.10);
-        }
-        .stButton > button[kind="primary"]:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(255,255,255,0.18);
-            background: #ffffff !important;
-        }
-        .stButton > button[kind="secondary"] {
-            background: var(--panel) !important;
-            color: var(--ink) !important;
-        }
-        div[data-baseweb="input"] {
-          background: var(--panel) !important;
-          border: 1px solid var(--line) !important;
-          border-radius: var(--radius-sm) !important;
-          box-shadow: none !important;
-        }
-        
-        div[data-baseweb="input"] > div {
-          border: none !important;
-          box-shadow: none !important;
-          background: transparent !important;
-        }
-        
-        div[data-baseweb="input"] input {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-          color: var(--ink) !important;
-        }
-        
-        div[data-baseweb="input"]:focus-within {
-          border-color: var(--accent) !important;
-          box-shadow: 0 0 0 1px var(--accent) !important;
-        }
-        
-        div[data-baseweb="input"] input:focus {
-          outline: none !important;
-          box-shadow: none !important;
-        }
+            [data-testid="stSidebar"] h1,
+            [data-testid="stSidebar"] h2,
+            [data-testid="stSidebar"] h3,
+            [data-testid="stSidebar"] p,
+            [data-testid="stSidebar"] span,
+            [data-testid="stSidebar"] label,
+            [data-testid="stSidebar"] div {{
+                color: var(--ink);
+            }}
 
-        .stButton > button[kind="secondary"]:hover {
-            border-color: var(--accent) !important;
-            color: var(--accent) !important;
-        }
+            div[data-baseweb="tab-list"] {{
+                gap: 10px;
+                margin-top: 8px;
+                margin-bottom: 20px;
+                background: transparent;
+            }}
 
-        textarea, input, div[data-baseweb="select"] > div {
-            background: var(--panel) !important;
-            border: 1px solid var(--line) !important;
-            border-radius: var(--radius-sm) !important;
-            color: var(--ink) !important;
-        }
-        textarea:focus, input:focus {
-            border-color: var(--accent) !important;
-            box-shadow: 0 0 0 1px var(--accent) !important;
-        }
-        [data-testid="stExpander"] textarea {
-            min-height: 110px !important;
-            line-height: 1.55 !important;
-            padding: 12px 14px !important;
-            resize: vertical !important;
-        }
-        [data-baseweb="tag"] {
-            background: var(--accent-soft) !important;
-            border: 1px solid rgba(53,224,193,0.35) !important;
-            border-radius: 8px !important;
-            color: var(--ink) !important;
-        }
+            button[data-baseweb="tab"] {{
+                background: rgba(255, 255, 255, 0.03) !important;
+                border: 1px solid var(--line-soft) !important;
+                color: var(--muted) !important;
+                border-radius: 999px !important;
+                padding: 10px 18px !important;
+                font-weight: 700 !important;
+            }}
 
-        div[data-testid="stTextInput"] > div {
-            background: var(--panel) !important;
-            border: 1px solid var(--line) !important;
-            border-radius: var(--radius-sm) !important;
-        }
-        div[data-testid="stTextInput"] [data-baseweb="input"] {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stTextInput"] input {
-            background: transparent !important;
-            color: var(--ink) !important;
-        }
-        div[data-testid="stTextInput"] button {
-            background: transparent !important;
-            color: var(--muted) !important;
-            border: none !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stTextInput"] > div:focus-within {
-            border-color: var(--accent) !important;
-            box-shadow: 0 0 0 1px var(--accent) !important;
-        }
+            button[data-baseweb="tab"][aria-selected="true"] {{
+                color: #07131f !important;
+                background: linear-gradient(135deg, var(--accent), #75f3e2) !important;
+                border-color: transparent !important;
+                box-shadow: 0 10px 30px rgba(66, 232, 208, 0.22);
+            }}
 
-        [data-testid="stFileUploaderDropzone"] {
-            background: var(--panel);
-            border: 1.5px dashed var(--line);
-            border-radius: var(--radius);
-        }
-        [data-testid="stFileUploaderDropzone"]:hover { border-color: var(--accent); }
-        [data-testid="stFileUploaderDropzone"] * { color: var(--muted) !important; }
+            .stButton > button {{
+                border-radius: 14px !important;
+                border: 1px solid transparent !important;
+                font-weight: 700 !important;
+                padding: 0.72rem 1rem !important;
+                transition: all 180ms ease;
+                box-shadow: none !important;
+            }}
 
-        div[data-testid="stExpander"] {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-        }
-        .joy-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 16px;
-            box-shadow: var(--shadow);
-        }
+            .stButton > button[kind="primary"] {{
+                color: #04121a !important;
+                background: linear-gradient(135deg, var(--accent), #79f0df) !important;
+            }}
 
-        [data-testid="stMetric"] {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 14px 18px;
-            box-shadow: var(--shadow);
-        }        
-        [data-testid="stMetricValue"] { color: var(--ink) !important; font-weight: 800; }
-        [data-testid="stMetricLabel"] p { color: var(--muted) !important; font-size: 0.78rem !important; }
+            .stButton > button[kind="primary"]:hover {{
+                transform: translateY(-1px);
+                box-shadow: 0 12px 28px rgba(66, 232, 208, 0.24) !important;
+            }}
 
-        div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
-            border-radius: var(--radius);
-            border: 1px solid var(--line);
-            overflow: hidden;
-            box-shadow: var(--shadow);
-        }
+            .stButton > button[kind="secondary"] {{
+                background: rgba(255, 255, 255, 0.04) !important;
+                color: var(--ink) !important;
+                border: 1px solid var(--line) !important;
+            }}
 
-        div[data-testid="stAlert"] { border-radius: var(--radius-sm); border: 1px solid var(--line); }
+            .stButton > button[kind="secondary"]:hover {{
+                border-color: rgba(66, 232, 208, 0.45) !important;
+                background: rgba(66, 232, 208, 0.08) !important;
+            }}
 
-        .timeline-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 14px 18px;
-            margin-bottom: 10px;
-        }
-        .timeline-card .tc-role { font-weight: 700; color: var(--ink); font-size: 0.98rem; }
-        .timeline-card .tc-meta { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
-        .timeline-card .tc-badge {
-            display: inline-block;
-            font-size: 0.72rem;
-            font-weight: 700;
-            padding: 2px 9px;
-            border-radius: 6px;
-            margin-top: 6px;
-        }
-        .badge-good { background: rgba(53,224,193,0.14); color: #35e0c1; }
-        .badge-bad { background: rgba(255,90,90,0.15); color: #ff6b6b; }
-        .badge-pending { background: rgba(255,255,255,0.06); color: #9aa1b2; }
+            .stTextInput label,
+            .stTextArea label,
+            .stSelectbox label,
+            .stMultiSelect label,
+            .stNumberInput label,
+            .stFileUploader label {{
+                font-weight: 700 !important;
+                color: var(--ink) !important;
+            }}
+
+            .stCaption,
+            [data-testid="stCaptionContainer"],
+            [data-testid="stCaptionContainer"] * {{
+                color: var(--muted) !important;
+            }}
+
+            .stAlert {{
+                border-radius: 16px !important;
+                border: 1px solid var(--line-soft) !important;
+                background: rgba(18, 25, 43, 0.92) !important;
+            }}
+
+            .stMetric {{
+                border-radius: 18px;
+                background: linear-gradient(180deg, rgba(18, 25, 43, 0.95), rgba(14, 20, 35, 0.95));
+                border: 1px solid var(--line-soft);
+                padding: 16px 18px;
+                box-shadow: var(--shadow);
+            }}
+
+            [data-testid="stExpander"] {{
+                border-radius: 20px !important;
+                border: 1px solid var(--line-soft) !important;
+                background: rgba(18, 25, 43, 0.9) !important;
+                overflow: hidden;
+            }}
+
+            [data-testid="stExpander"] details summary {{
+                background: rgba(255, 255, 255, 0.02);
+            }}
+
+            .stDataFrame,
+            [data-testid="stDataEditor"] {{
+                border-radius: 20px !important;
+                overflow: hidden !important;
+                border: 1px solid var(--line-soft) !important;
+                background: rgba(18, 25, 43, 0.92) !important;
+            }}
+
+            /* Single clean border for text and password inputs */
+            div[data-baseweb="input"] {{
+                background: var(--panel) !important;
+                border: 1px solid var(--line) !important;
+                border-radius: var(--radius-md) !important;
+                box-shadow: none !important;
+                overflow: hidden !important;
+            }}
+
+            div[data-baseweb="input"] > div {{
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+            }}
+
+            div[data-baseweb="input"] input {{
+                background: transparent !important;
+                border: none !important;
+                outline: none !important;
+                box-shadow: none !important;
+                color: var(--ink) !important;
+            }}
+
+            div[data-baseweb="input"]:focus-within {{
+                border-color: var(--accent) !important;
+                box-shadow: 0 0 0 1px var(--accent) !important;
+            }}
+
+            div[data-baseweb="input"] [role="button"] {{
+                border: none !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }}
+
+            div[data-baseweb="input"] > div:last-child {{
+                border-left: none !important;
+                box-shadow: none !important;
+            }}
+
+            div[data-baseweb="base-input"] {{
+                border: none !important;
+                box-shadow: none !important;
+            }}
+
+            .stTextArea textarea {{
+                background: var(--panel) !important;
+                color: var(--ink) !important;
+                border: 1px solid var(--line) !important;
+                border-radius: var(--radius-md) !important;
+                box-shadow: none !important;
+            }}
+
+            .stTextArea textarea:focus {{
+                border-color: var(--accent) !important;
+                box-shadow: 0 0 0 1px var(--accent) !important;
+            }}
+
+            div[data-baseweb="select"] > div,
+            .stNumberInput div[data-baseweb="input"] {{
+                background: var(--panel) !important;
+                color: var(--ink) !important;
+                border-radius: var(--radius-md) !important;
+            }}
+
+            [data-testid="stFileUploader"] {{
+                border-radius: 18px !important;
+                border: 1px dashed rgba(66, 232, 208, 0.35) !important;
+                background: rgba(16, 23, 38, 0.75) !important;
+            }}
+
+            hr {{
+                border-color: var(--line-soft) !important;
+            }}
+
+            .joy-card {{
+                border-radius: 20px;
+                border: 1px solid var(--line-soft);
+                background: linear-gradient(180deg, rgba(18, 25, 43, 0.96), rgba(13, 20, 34, 0.96));
+                box-shadow: var(--shadow);
+                padding: 18px 20px;
+            }}
+
+            .joy-muted {{
+                color: var(--muted) !important;
+            }}
+
+            [data-testid="stToolbar"] {{
+                visibility: hidden;
+            }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -568,27 +578,21 @@ def inject_multiselect_chip_fix() -> None:
     _inject_html(
         """
         <script>
-        (function() {
-            const doc = window.parent.document;
-            function fixChipPadding() {
-                const controls = doc.querySelectorAll('div[data-baseweb="select"]');
-                controls.forEach((control) => {
-                    const tag = control.querySelector('[data-baseweb="tag"]');
-                    if (!tag || !tag.parentElement) return;
-                    const row = tag.parentElement;
-                    if (row.dataset.joyPadded !== "1") {
-                        row.style.paddingLeft = "10px";
-                        row.style.boxSizing = "border-box";
-                        row.dataset.joyPadded = "1";
-                    }
-                });
-            }
-            fixChipPadding();
-            const observer = new MutationObserver(fixChipPadding);
-            observer.observe(doc.body, { childList: true, subtree: true });
-        })();
+        const applyChipFix = () => {
+          const roots = window.parent.document.querySelectorAll('[data-baseweb="select"]');
+          roots.forEach(root => {
+            root.style.minHeight = "52px";
+          });
+        };
+        applyChipFix();
+        new MutationObserver(applyChipFix).observe(window.parent.document.body, {
+          childList: true,
+          subtree: true
+        });
         </script>
         """,
+        height=0,
+        width=0,
     )
 
 
@@ -596,27 +600,23 @@ def inject_clear_icon_fix() -> None:
     _inject_html(
         """
         <script>
-        (function() {
-            const doc = window.parent.document;
-            function fixClearIcon() {
-                const controls = doc.querySelectorAll('div[data-baseweb="select"]');
-                controls.forEach((control) => {
-                    const buttons = control.querySelectorAll('[role="button"]');
-                    buttons.forEach((btn) => {
-                        if (btn.dataset.joyCleared !== "1") {
-                            btn.style.background = "transparent";
-                            btn.style.borderRadius = "999px";
-                            btn.dataset.joyCleared = "1";
-                        }
-                    });
-                });
-            }
-            fixClearIcon();
-            const observer = new MutationObserver(fixClearIcon);
-            observer.observe(doc.body, { childList: true, subtree: true });
-        })();
+        const applyClearFix = () => {
+          const buttons = window.parent.document.querySelectorAll('button[aria-label="Clear value"]');
+          buttons.forEach(btn => {
+            btn.style.border = "none";
+            btn.style.boxShadow = "none";
+            btn.style.background = "transparent";
+          });
+        };
+        applyClearFix();
+        new MutationObserver(applyClearFix).observe(window.parent.document.body, {
+          childList: true,
+          subtree: true
+        });
         </script>
         """,
+        height=0,
+        width=0,
     )
 
 
@@ -624,100 +624,38 @@ def inject_keepalive() -> None:
     _inject_html(
         """
         <script>
-        const ping = () => {
+        setInterval(() => {
           try {
-            fetch(window.parent.location.href, {cache: "no-store", mode: "no-cors"});
+            const parentDoc = window.parent.document;
+            parentDoc.dispatchEvent(new MouseEvent("mousemove", {bubbles: true}));
+            parentDoc.dispatchEvent(new KeyboardEvent("keydown", {bubbles: true, key: "Shift"}));
           } catch (e) {}
-        };
-        setInterval(ping, 240000);
+        }, 240000);
         </script>
         """,
+        height=0,
+        width=0,
     )
 
 
 def show_results_summary(df: pd.DataFrame) -> None:
-    if df.empty:
+    if df is None or df.empty or "Final Score" not in df.columns:
         return
 
+    work = df.copy()
+    work["Final Score"] = pd.to_numeric(work["Final Score"], errors="coerce")
+    work = work.dropna(subset=["Final Score"])
+
+    if work.empty:
+        return
+
+    total = len(work)
+    avg_score = round(float(work["Final Score"].mean()), 1)
+    strong_fit = int((work["Final Score"] >= 75).sum())
+    possible_fit = int(((work["Final Score"] >= 60) & (work["Final Score"] < 75)).sum())
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Screened", len(df))
-    c2.metric("Strong Fit", int((df["Verdict"] == "Strong Fit").sum()) if "Verdict" in df.columns else 0)
-    c3.metric("Good Fit", int((df["Verdict"] == "Good Fit").sum()) if "Verdict" in df.columns else 0)
-    c4.metric("Average Score", round(float(df["Final Score"].mean()), 1) if "Final Score" in df.columns else 0)
-
-    display_cols = [
-        col for col in [
-            "Send",
-            "Name",
-            "Email",
-            "Phone",
-            "Experience",
-            "Education",
-            "Final Score",
-            "Feedback",
-            "Verdict",
-            "Industry Match",
-            "Candidate Industry",
-            "Matched Keywords",
-            "Missing Keywords",
-            "Source File",
-        ]
-        if col in df.columns
-    ]
-
-    display_df = df[display_cols].copy()
-
-    if "Feedback" not in display_df.columns:
-        display_df["Feedback"] = "Pending"
-    display_df["Feedback"] = (
-        display_df["Feedback"]
-        .fillna("Pending")
-        .astype(str)
-        .replace({"": "Pending", "nan": "Pending"})
-    )
-
-    if "Name" in display_df.columns:
-        display_df["Name"] = display_df["Name"].astype(str).str.title()
-
-    if "Candidate Industry" in display_df.columns:
-        display_df["Candidate Industry"] = (
-            display_df["Candidate Industry"]
-            .fillna("")
-            .astype(str)
-            .replace({"": "Others / Not Detected", "nan": "Others / Not Detected"})
-        )
-
-    if "Industry Match" in display_df.columns:
-        display_df["Industry Match"] = (
-            display_df["Industry Match"]
-            .fillna("NA")
-            .astype(str)
-            .replace({"NA": "N/A", "": "N/A", "nan": "N/A"})
-        )
-
-    display_df = format_experience_years(display_df)
-    display_df = format_industry_fit(display_df)
-    display_df = order_columns_first(
-        display_df,
-        [
-            "Send",
-            "Name",
-            "Email",
-            "Phone",
-            "Experience",
-            "Education",
-            "Final Score",
-            "Feedback",
-            "Verdict",
-        ],
-    )
-
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    st.download_button(
-        "Download screening CSV",
-        df.to_csv(index=False).encode("utf-8"),
-        "joy_screening_results.csv",
-        "text/csv",
-        use_container_width=False,
-    )
+    c1.metric("Candidates", total)
+    c2.metric("Average score", avg_score)
+    c3.metric("Strong fit", strong_fit)
+    c4.metric("Possible fit", possible_fit)
