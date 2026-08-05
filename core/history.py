@@ -142,7 +142,7 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
     to_save["Role"] = role
     to_save["JD"] = jd_text
     to_save["Screened At"] = batch
-    to_save = _clean_phone_column(to_save)
+    to_save = _clean_phone_column(to_save)  # keep phones tidy
     to_save = _ensure_profile_key(to_save)
 
     old = load_history(user_key)
@@ -166,7 +166,10 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
         if "Feedback" not in to_save.columns:
             to_save["Feedback"] = ""
         to_save["Feedback"] = to_save.apply(
-            lambda row: feedback_map.get((row["Profile Key"], row["Role"]), row.get("Feedback", "")),
+            lambda row: feedback_map.get(
+                (row["Profile Key"], row["Role"]),
+                row.get("Feedback", ""),
+            ),
             axis=1,
         )
 
@@ -186,20 +189,19 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
 
     if supabase:
         try:
-            supabase.table("candidate_history").delete().eq("user_key", user_key).execute()
-
             records = []
             for _, row in combined.iterrows():
                 safe_data = _row_to_safe_dict(row)
                 records.append({
                     "user_key": user_key,
-                    "role": role,
-                    "jd_text": jd_text,
-                    "screened_at": batch,
-                    "data": safe_data
+                    "role": row.get("Role", role),
+                    "jd_text": row.get("JD", jd_text),
+                    "screened_at": row.get("Screened At", batch),
+                    "data": safe_data,
                 })
 
             if records:
+                # Append new batch without deleting existing rows first
                 supabase.table("candidate_history").insert(records).execute()
 
             print(f"✅ History saved to Supabase for user: {user_key}")
@@ -215,7 +217,6 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
             print(f"✅ History saved locally to Excel for user: {user_key}")
         except Exception as e:
             print(f"❌ Local save also failed: {e}")
-
 
 def clear_history(user_key: str) -> None:
     if supabase:
