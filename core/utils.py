@@ -472,6 +472,24 @@ def inject_elite_theme() -> None:
             [data-testid="stToolbar"] {
                 visibility: hidden;
             }
+            /* FORCE readable primary button text */
+            button[kind="primary"],
+            button[kind="primary"] span,
+            .stButton > button,
+            .stButton > button span {
+                color: #041815 !important;
+                -webkit-text-fill-color: #041815 !important;
+                opacity: 1 !important;
+            }
+            
+            button[kind="secondary"],
+            button[kind="secondary"] span,
+            .stButton > button[kind="secondary"],
+            .stButton > button[kind="secondary"] span {
+                color: #dbe7f3 !important;
+                -webkit-text-fill-color: #dbe7f3 !important;
+                opacity: 1 !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
