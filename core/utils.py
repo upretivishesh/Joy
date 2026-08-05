@@ -508,6 +508,16 @@ def inject_multiselect_chip_fix() -> None:
           childList: true,
           subtree: true
         });
+        /* FINAL OVERRIDE: button text color */
+        .stButton > button[kind="primary"],
+        .stButton > button[kind="primary"] span {
+            color: #031716 !important;  /* much darker text */
+        }
+        
+        .stButton > button[kind="secondary"],
+        .stButton > button[kind="secondary"] span {
+            color: #dfe7f5 !important;
+        }
         </script>
         """,
         height=0,
