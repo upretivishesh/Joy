@@ -269,15 +269,75 @@ def inject_elite_theme() -> None:
                 --ink: #eef2ff;
                 --muted: #9aa8c7;
                 --accent: #42e8d0;
+                --accent-soft: rgba(66, 232, 208, 0.14);
                 --radius-md: 16px;
+                --shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
             }
 
             .stApp {
-                background: linear-gradient(180deg, #060b16 0%, #040712 100%);
+                background:
+                    radial-gradient(circle at top left, rgba(66, 232, 208, 0.08), transparent 28%),
+                    radial-gradient(circle at top right, rgba(112, 92, 255, 0.09), transparent 30%),
+                    linear-gradient(180deg, #060b16 0%, #040712 100%);
                 color: var(--ink);
             }
 
-            /* Tabs */
+            .block-container {
+                padding-top: 2rem;
+                padding-bottom: 2rem;
+                max-width: 1380px;
+            }
+
+            h1, h2, h3, h4, h5, h6,
+            p, span, label, div {
+                color: var(--ink);
+            }
+
+            .hero {
+                position: relative;
+                padding: 30px 34px;
+                border-radius: 28px;
+                background:
+                    linear-gradient(135deg, rgba(19, 27, 44, 0.96), rgba(10, 17, 30, 0.94)),
+                    linear-gradient(135deg, rgba(66, 232, 208, 0.08), rgba(112, 92, 255, 0.05));
+                border: 1px solid rgba(95, 113, 145, 0.24);
+                box-shadow: var(--shadow);
+                overflow: hidden;
+                margin-bottom: 1.2rem;
+            }
+
+            .eyebrow {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 7px 12px;
+                border-radius: 999px;
+                background: rgba(66, 232, 208, 0.1);
+                color: var(--accent);
+                font-size: 0.82rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 700;
+                margin-bottom: 14px;
+            }
+
+            .hero-title {
+                font-size: clamp(2.2rem, 3.6vw, 4rem);
+                line-height: 1.04;
+                font-weight: 800;
+                margin: 0 0 12px 0;
+                letter-spacing: -0.03em;
+            }
+
+            .hero-copy {
+                max-width: 760px;
+                color: var(--muted) !important;
+                font-size: 1rem;
+                line-height: 1.75;
+                margin: 0;
+            }
+
+            /* Tabs — keep pill style, remove underline */
             div[data-baseweb="tab-list"] {
                 gap: 10px;
                 margin-top: 8px;
@@ -294,7 +354,6 @@ def inject_elite_theme() -> None:
                 padding: 10px 18px !important;
                 font-weight: 700 !important;
                 box-shadow: none !important;
-                position: relative !important;
             }
 
             button[data-baseweb="tab"][aria-selected="true"] {
@@ -307,9 +366,12 @@ def inject_elite_theme() -> None:
                 display: none !important;
             }
 
-            /* If Streamlit adds its own indicator bar */
-            div[data-baseweb="tab-panel"] {
-                border-top: none !important;
+            [role="tablist"] {
+                border-bottom: none !important;
+            }
+
+            [role="tab"] {
+                border-bottom: none !important;
             }
 
             /* Buttons */
@@ -338,7 +400,6 @@ def inject_elite_theme() -> None:
                 border: 1px solid var(--line) !important;
             }
 
-            /* Single clean border only for text/password inputs */
             div[data-baseweb="input"],
             div[data-baseweb="base-input"] {
                 background: var(--panel) !important;
@@ -373,7 +434,6 @@ def inject_elite_theme() -> None:
                 background: transparent !important;
             }
 
-            /* Textareas */
             .stTextArea textarea {
                 background: var(--panel) !important;
                 color: var(--ink) !important;
@@ -387,7 +447,6 @@ def inject_elite_theme() -> None:
                 box-shadow: 0 0 0 1px rgba(66, 232, 208, 0.35) !important;
             }
 
-            /* Labels */
             .stTextInput label,
             .stTextArea label,
             .stSelectbox label,
@@ -411,7 +470,6 @@ def inject_elite_theme() -> None:
         """,
         unsafe_allow_html=True,
     )
-
 def render_css() -> None:
     inject_elite_theme()
 
