@@ -395,23 +395,22 @@ def inject_elite_theme() -> None:
                 box-shadow: none !important;
             }
 
-            .stButton > button[kind="primary"] {
+           .stButton > button[kind="primary"] {
                 background: linear-gradient(135deg, #4fd6c4, #67e3d4) !important;
-                color: #0a2724 !important;
+                color: #08211f !important;
                 border-color: rgba(66, 232, 208, 0.16) !important;
             }
-
+            
             .stButton > button[kind="primary"]:hover {
                 background: linear-gradient(135deg, #45ccb9, #5fdacb) !important;
-                color: #071f1d !important;
+                color: #041815 !important;
             }
-
+            
             .stButton > button[kind="secondary"] {
                 background: rgba(255, 255, 255, 0.04) !important;
-                color: #eef2ff !important;
+                color: #dfe7f5 !important;
                 border: 1px solid rgba(95, 113, 145, 0.28) !important;
             }
-
             /* Inputs (unchanged shape, just keep them clean) */
             div[data-baseweb="input"],
             div[data-baseweb="base-input"] {
