@@ -264,162 +264,72 @@ def inject_elite_theme() -> None:
                 --bg: #060b16;
                 --panel: #111828;
                 --panel-2: #0e1624;
-                --panel-3: #161f33;
-                --line: rgba(95, 113, 145, 0.34);
-                --line-soft: rgba(95, 113, 145, 0.18);
+                --line: rgba(95, 113, 145, 0.28);
+                --line-soft: rgba(95, 113, 145, 0.16);
                 --ink: #eef2ff;
                 --muted: #9aa8c7;
                 --accent: #42e8d0;
-                --accent-soft: rgba(66, 232, 208, 0.14);
-                --danger: #ff6b7a;
-                --success: #49d17d;
-                --radius-lg: 22px;
                 --radius-md: 16px;
-                --radius-sm: 12px;
-                --shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
             }
 
             .stApp {
-                background:
-                    radial-gradient(circle at top left, rgba(66, 232, 208, 0.08), transparent 28%),
-                    radial-gradient(circle at top right, rgba(112, 92, 255, 0.09), transparent 30%),
-                    linear-gradient(180deg, #060b16 0%, #040712 100%);
+                background: linear-gradient(180deg, #060b16 0%, #040712 100%);
                 color: var(--ink);
             }
 
-            .block-container {
-                padding-top: 2rem;
-                padding-bottom: 2rem;
-                max-width: 1380px;
-            }
-
-            h1, h2, h3, h4, h5, h6,
-            p, span, label, div {
-                color: var(--ink);
-            }
-
-            /* Hero */
-            .hero {
-                position: relative;
-                padding: 30px 34px;
-                border-radius: 28px;
-                background:
-                    linear-gradient(135deg, rgba(19, 27, 44, 0.96), rgba(10, 17, 30, 0.94)),
-                    linear-gradient(135deg, rgba(66, 232, 208, 0.08), rgba(112, 92, 255, 0.05));
-                border: 1px solid rgba(95, 113, 145, 0.24);
-                box-shadow: var(--shadow);
-                overflow: hidden;
-                margin-bottom: 1.2rem;
-            }
-
-            .eyebrow {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                padding: 7px 12px;
-                border-radius: 999px;
-                background: rgba(66, 232, 208, 0.1);
-                color: var(--accent);
-                font-size: 0.82rem;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                font-weight: 700;
-                margin-bottom: 14px;
-            }
-
-            .hero-title {
-                font-size: clamp(2.2rem, 3.6vw, 4rem);
-                line-height: 1.04;
-                font-weight: 800;
-                margin: 0 0 12px 0;
-                letter-spacing: -0.03em;
-            }
-
-            .hero-copy {
-                max-width: 760px;
-                color: var(--muted) !important;
-                font-size: 1rem;
-                line-height: 1.75;
-                margin: 0;
-            }
-
-            /* Sidebar */
-            section[data-testid="stSidebar"] {
-                background:
-                    linear-gradient(180deg, rgba(11, 16, 32, 0.98), rgba(14, 22, 40, 0.98));
-                border-right: 1px solid var(--line-soft);
-            }
-
-            [data-testid="stSidebar"] .block-container {
-                padding-top: 1.5rem;
-            }
-
-            [data-testid="stSidebar"] h1,
-            [data-testid="stSidebar"] h2,
-            [data-testid="stSidebar"] h3,
-            [data-testid="stSidebar"] p,
-            [data-testid="stSidebar"] span,
-            [data-testid="stSidebar"] label,
-            [data-testid="stSidebar"] div {
-                color: var(--ink);
-            }
-
-            /* Tabs – remove red underline, use pill tabs */
-            div[data-baseweb="tab-list"],
-            [role="tablist"] {
+            /* Tabs */
+            div[data-baseweb="tab-list"] {
                 gap: 10px;
                 margin-top: 8px;
-                margin-bottom: 20px;
+                margin-bottom: 14px;
                 background: transparent;
                 border-bottom: none !important;
             }
 
-            button[data-baseweb="tab"],
-            [role="tab"] {
+            button[data-baseweb="tab"] {
                 background: rgba(255, 255, 255, 0.03) !important;
-                border-radius: 999px !important;
                 border: 1px solid var(--line-soft) !important;
+                border-radius: 999px !important;
                 color: var(--muted) !important;
                 padding: 10px 18px !important;
                 font-weight: 700 !important;
                 box-shadow: none !important;
-                border-bottom: none !important;
+                position: relative !important;
             }
 
-            button[data-baseweb="tab"][aria-selected="true"],
-            [role="tab"][aria-selected="true"] {
-                color: #07131f !important;
-                background: linear-gradient(135deg, var(--accent), #75f3e2) !important;
-                border-color: transparent !important;
-                box-shadow: 0 10px 30px rgba(66, 232, 208, 0.22);
+            button[data-baseweb="tab"][aria-selected="true"] {
+                background: rgba(66, 232, 208, 0.14) !important;
+                border-color: rgba(66, 232, 208, 0.32) !important;
+                color: var(--ink) !important;
             }
 
-            button[data-baseweb="tab"]::after,
-            [role="tab"]::after {
+            button[data-baseweb="tab"]::after {
                 display: none !important;
             }
 
-            /* Buttons – softer mint, darker text */
+            /* If Streamlit adds its own indicator bar */
+            div[data-baseweb="tab-panel"] {
+                border-top: none !important;
+            }
+
+            /* Buttons */
             .stButton > button {
                 border-radius: 14px !important;
                 border: 1px solid transparent !important;
                 font-weight: 700 !important;
                 padding: 0.72rem 1rem !important;
-                transition: all 180ms ease;
                 box-shadow: none !important;
             }
 
             .stButton > button[kind="primary"] {
-                background: linear-gradient(135deg, #58e7d2, #7bf1df) !important;
-                color: #0b2b28 !important; /* darker teal text */
+                background: linear-gradient(135deg, #57dfcb, #74eadc) !important;
+                color: #0b2b28 !important;
                 border-color: rgba(66, 232, 208, 0.18) !important;
             }
 
             .stButton > button[kind="primary"]:hover {
-                background: linear-gradient(135deg, #4fdec9, #6be7d7) !important;
+                background: linear-gradient(135deg, #4fd6c4, #68e1d2) !important;
                 color: #07211f !important;
-                box-shadow: 0 12px 28px rgba(66, 232, 208, 0.24) !important;
-                transform: translateY(-1px);
             }
 
             .stButton > button[kind="secondary"] {
@@ -428,19 +338,13 @@ def inject_elite_theme() -> None:
                 border: 1px solid var(--line) !important;
             }
 
-            .stButton > button[kind="secondary"]:hover {
-                border-color: rgba(66, 232, 208, 0.45) !important;
-                background: rgba(66, 232, 208, 0.08) !important;
-            }
-
-            /* Inputs – single clean border, no dotted lines */
+            /* Single clean border only for text/password inputs */
             div[data-baseweb="input"],
             div[data-baseweb="base-input"] {
                 background: var(--panel) !important;
-                border-radius: var(--radius-md) !important;
                 border: 1px solid var(--line) !important;
+                border-radius: var(--radius-md) !important;
                 box-shadow: none !important;
-                outline: none !important;
                 overflow: hidden !important;
             }
 
@@ -459,19 +363,14 @@ def inject_elite_theme() -> None:
             }
 
             div[data-baseweb="input"]:focus-within {
-                border-color: var(--accent) !important;
-                box-shadow: 0 0 0 1px var(--accent) !important;
+                border-color: rgba(66, 232, 208, 0.7) !important;
+                box-shadow: 0 0 0 1px rgba(66, 232, 208, 0.35) !important;
             }
 
             div[data-baseweb="input"] [role="button"] {
                 border: none !important;
                 box-shadow: none !important;
                 background: transparent !important;
-            }
-
-            div[data-baseweb="input"] > div:last-child {
-                border-left: none !important;
-                box-shadow: none !important;
             }
 
             /* Textareas */
@@ -484,24 +383,11 @@ def inject_elite_theme() -> None:
             }
 
             .stTextArea textarea:focus {
-                border-color: var(--accent) !important;
-                box-shadow: 0 0 0 1px var(--accent) !important;
+                border-color: rgba(66, 232, 208, 0.7) !important;
+                box-shadow: 0 0 0 1px rgba(66, 232, 208, 0.35) !important;
             }
 
-            /* File uploader – remove dashed green, use soft solid border */
-            [data-testid="stFileUploader"] {
-                border-radius: 18px !important;
-                border: 1px solid rgba(95, 113, 145, 0.24) !important;
-                background: rgba(16, 23, 38, 0.90) !important;
-                box-shadow: none !important;
-            }
-
-            [data-testid="stFileUploader"] * {
-                border-style: solid !important;
-                outline: none !important;
-            }
-
-            /* Labels & captions */
+            /* Labels */
             .stTextInput label,
             .stTextArea label,
             .stSelectbox label,
@@ -518,7 +404,6 @@ def inject_elite_theme() -> None:
                 color: var(--muted) !important;
             }
 
-            /* Hide Streamlit toolbar */
             [data-testid="stToolbar"] {
                 visibility: hidden;
             }
