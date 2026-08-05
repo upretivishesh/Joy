@@ -466,6 +466,31 @@ def inject_elite_theme() -> None:
             [data-testid="stToolbar"] {
                 visibility: hidden;
             }
+            div[data-baseweb="tab-list"] {
+                border-bottom: none !important;
+                box-shadow: none !important;
+            }
+
+            div[data-baseweb="tab-list"] > button::after {
+                display: none !important;
+                content: none !important;
+            }
+
+            [role="tablist"] {
+                border-bottom: none !important;
+                box-shadow: none !important;
+            }
+
+            [role="tab"],
+            [role="tab"][aria-selected="true"] {
+                border-bottom: none !important;
+                box-shadow: none !important;
+            }
+
+            /* some builds draw the underline inside a child span */
+            [role="tab"] span {
+                border-bottom: none !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
