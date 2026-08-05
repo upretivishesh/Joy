@@ -1028,106 +1028,86 @@ with history_tab:
                 )
                 
 # ====================== JD LIBRARY TAB ======================
+# ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
-
-    if "show_jd_form" not in st.session_state:
-        st.session_state["show_jd_form"] = False
 
     if st.session_state.pop("_clear_jd_form", False):
         st.session_state["jd_save_role"] = ""
         st.session_state["jd_save_text"] = ""
         st.session_state["jd_save_tags"] = ""
-        st.session_state["show_jd_form"] = False
-
-    add_new_jd_clicked = st.button(
-        "Add new JD",
-        type="primary",
-        use_container_width=False,
-        key="add_new_jd_btn",
-    )
-
-    st.caption("Create and store a JD once, then reuse it for future resume screening.")
-
-    if add_new_jd_clicked:
-        st.session_state["jd_save_role"] = st.session_state.get("last_role", "")
-        st.session_state["jd_save_text"] = st.session_state.get("last_jd", "")
-        st.session_state["jd_save_tags"] = ""
-        st.session_state["show_jd_form"] = True
-        st.rerun()
-
-    if st.session_state["show_jd_form"]:
-        st.markdown("### New JD")
-
-        jd_save_role = st.text_input(
-            "Role",
-            value=st.session_state.get("jd_save_role", st.session_state.get("last_role", "")),
-            key="jd_save_role",
-            placeholder="e.g. Area Sales Manager",
-        )
-
-        jd_save_text = st.text_area(
-            "JD Text",
-            value=st.session_state.get("jd_save_text", st.session_state.get("last_jd", "")),
-            height=220,
-            key="jd_save_text",
-            placeholder="Paste the full job description here...",
-        )
-
-        jd_save_tags = st.text_input(
-            "Tags",
-            value=st.session_state.get("jd_save_tags", ""),
-            placeholder="e.g. sales, agrochemical, west india",
-            key="jd_save_tags",
-        )
-
-        form_col1, form_col2 = st.columns(2)
-
-        with form_col1:
-            save_jd_clicked = st.button("Save JD", type="primary", use_container_width=True)
-            if save_jd_clicked:
-                if not jd_save_role.strip() or not jd_save_text.strip():
-                    st.error("Role and JD text are required.")
-                else:
-                    if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
-                        st.success("JD saved.")
-                        reset_jd_library_form()
-                        st.rerun()
-                    else:
-                        st.error("Could not save JD.")
-
-        with form_col2:
-            if st.button("Cancel", type="secondary", use_container_width=True):
-                st.session_state["show_jd_form"] = False
-                st.rerun()
-
-        st.divider()
 
     jd_df = load_jd_library(user_key)
-
-    st.subheader("Saved JDs")
 
     if jd_df.empty:
         st.info("No saved JDs yet.")
     else:
-        st.dataframe(jd_df, use_container_width=True, hide_index=True)
+        jd_view = jd_df.copy()
+        for col in jd_view.columns:
+            jd_view[col] = jd_view[col].fillna("").astype(str)
+        st.dataframe(jd_view, use_container_width=True, hide_index=True)
+
+    with st.expander("Save current JD", expanded=False):
+        default_role = st.session_state.get("last_role", "")
+        default_jd = st.session_state.get("last_jd", "")
+
+        if "jd_save_role" not in st.session_state:
+            st.session_state["jd_save_role"] = default_role
+        if "jd_save_text" not in st.session_state:
+            st.session_state["jd_save_text"] = default_jd
+        if "jd_save_tags" not in st.session_state:
+            st.session_state["jd_save_tags"] = ""
+
+        jd_save_role = st.text_input(
+            "Role",
+            key="jd_save_role",
+        )
+        jd_save_text = st.text_area(
+            "JD Text",
+            height=220,
+            key="jd_save_text",
+        )
+        jd_save_tags = st.text_input(
+            "Tags",
+            placeholder="e.g. sales, agrochemical, west india",
+            key="jd_save_tags",
+        )
+
+        save_jd_clicked = st.button("Save JD", type="primary")
+        if save_jd_clicked:
+            if not jd_save_role.strip() or not jd_save_text.strip():
+                st.error("Role and JD text are required.")
+            else:
+                if save_jd(user_key, jd_save_role, jd_save_text, jd_save_tags):
+                    st.success("JD saved.")
+                    reset_jd_library_form()
+                    st.rerun()
+                else:
+                    st.error("Could not save JD.")
+
+    if not jd_df.empty:
+        st.divider()
+        st.subheader("Manage saved JDs")
 
         jd_options = [
             f"{row['Role']} · {str(row.get('Saved At', ''))[:19]}"
             for _, row in jd_df.iterrows()
         ]
-
-        picked_label = st.selectbox("Select a saved JD", jd_options)
+        picked_label = st.selectbox("Saved JDs", jd_options, key="jd_picker")
         picked_index = jd_options.index(picked_label)
         picked_row = jd_df.iloc[picked_index]
 
-        preview_role = str(picked_row.get("Role", "")).strip()
-        preview_tags = str(picked_row.get("Tags", "")).strip()
-        preview_saved_at = str(picked_row.get("Saved At", "")).strip()
+        st.caption(
+            f"Tags: {picked_row.get('Tags', '') or '—'}"
+        )
 
-        meta_parts = [part for part in [preview_role, preview_tags, preview_saved_at] if part]
-        if meta_parts:
-            st.caption(" • ".join(meta_parts))
+        preview_jd = str(picked_row.get("JD Text", "") or "")
+        st.text_area(
+            "Saved JD preview",
+            value=preview_jd,
+            height=260,
+            disabled=True,
+        )
 
         action_col1, action_col2 = st.columns(2)
 
@@ -1140,8 +1120,20 @@ with jd_tab:
 
         with action_col2:
             if st.button("Delete JD", use_container_width=True, type="secondary"):
-                confirm_delete_jd(
-                    user_key,
-                    str(picked_row.get("Role", "")),
-                    str(picked_row.get("Saved At", "")),
-                )
+                role_label = str(picked_row.get("Role", "")).strip()
+
+                @st.dialog(f"Delete JD for '{role_label}'?")
+                def delete_jd_dialog():
+                    st.warning(
+                        f"This will permanently delete the saved JD for **{role_label}**."
+                    )
+                    st.write("This action cannot be undone.")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Cancel", use_container_width=True):
+                            st.rerun()
+                    with col2:
+                        if st.button("Yes, Delete JD", type="primary", use_container_width=True):
+                            confirm_delete_jd(user_key, role_label)
+
+                delete_jd_dialog()
