@@ -183,29 +183,16 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
     if "Profile Key" in combined.columns:
         combined = combined.drop_duplicates(subset=["Profile Key", "Role"], keep="last")
 
+    # Supabase writes temporarily disabled; always save locally
     saved = False
 
     if supabase:
         try:
-            # safer: store a single JSON blob per screening row
-            records = []
-            for _, row in to_save.iterrows():
-                records.append({
-                    "user_key": user_key,
-                    "role": row.get("Role", role),
-                    "jd_text": row.get("JD", jd_text),
-                    "screened_at": row.get("Screened At", batch),
-                    "data": _row_to_safe_dict(row),
-                })
-
-            if records:
-                supabase.table("candidate_history").insert(records).execute()
-
-            print(f"✅ History saved to Supabase for user: {user_key}")
-            saved = True
-
+            print(f"Supabase present, but skipping save_history write for user: {user_key}")
+            saved = False
         except Exception as e:
-            print(f"❌ Supabase save_history failed: {e}")
+            print(f"Supabase save_history error (skipped): {e}")
+            saved = False
 
     if not saved:
         try:
@@ -214,7 +201,6 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
             print(f"✅ History saved locally to Excel for user: {user_key}")
         except Exception as e:
             print(f"❌ Local save also failed: {e}")
-
 
 def clear_history(user_key: str) -> None:
     if supabase:
