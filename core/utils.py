@@ -490,6 +490,18 @@ def inject_elite_theme() -> None:
                 -webkit-text-fill-color: #dbe7f3 !important;
                 opacity: 1 !important;
             }
+            div[data-baseweb="input"],
+            div[data-baseweb="base-input"],
+            .stTextArea textarea {
+                border: 1px solid rgba(66, 232, 208, 0.55) !important;
+                box-shadow: none !important;
+            }
+            
+            div[data-baseweb="input"]:focus-within,
+            .stTextArea textarea:focus {
+                border-color: rgba(66, 232, 208, 0.85) !important;
+                box-shadow: 0 0 0 1px rgba(66, 232, 208, 0.25) !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
