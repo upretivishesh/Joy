@@ -1,4 +1,3 @@
-# core/history.py
 import pandas as pd
 import numpy as np
 import json
@@ -142,11 +141,10 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
     to_save["Role"] = role
     to_save["JD"] = jd_text
     to_save["Screened At"] = batch
-    to_save = _clean_phone_column(to_save)  # keep phones tidy
+    to_save = _clean_phone_column(to_save)
     to_save = _ensure_profile_key(to_save)
 
     old = load_history(user_key)
-
     if not old.empty:
         old = _ensure_profile_key(old)
 
@@ -189,19 +187,18 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
 
     if supabase:
         try:
+            # safer: store a single JSON blob per screening row
             records = []
-            for _, row in combined.iterrows():
-                safe_data = _row_to_safe_dict(row)
+            for _, row in to_save.iterrows():
                 records.append({
                     "user_key": user_key,
                     "role": row.get("Role", role),
                     "jd_text": row.get("JD", jd_text),
                     "screened_at": row.get("Screened At", batch),
-                    "data": safe_data,
+                    "data": _row_to_safe_dict(row),
                 })
 
             if records:
-                # Append new batch without deleting existing rows first
                 supabase.table("candidate_history").insert(records).execute()
 
             print(f"✅ History saved to Supabase for user: {user_key}")
@@ -218,6 +215,7 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
         except Exception as e:
             print(f"❌ Local save also failed: {e}")
 
+
 def clear_history(user_key: str) -> None:
     if supabase:
         try:
@@ -232,25 +230,17 @@ def clear_history(user_key: str) -> None:
 
 
 def clear_role_history(user_key: str, role: str) -> None:
-    """
-    Delete all history for a single role. Transaction-safe: re-inserts the
-    kept records BEFORE deleting the old ones, so a network failure never
-    leaves the user with zero history for every role.
-    """
     if supabase:
         try:
             response = supabase.table("candidate_history").select("*").eq("user_key", user_key).execute()
             all_records = response.data or []
 
-            kept_records = []
             target_ids = []
             for record in all_records:
                 data = record.get("data", {}) or {}
                 stored_role = str(data.get("Role", "")).strip().lower()
                 if stored_role == role.strip().lower():
                     target_ids.append(record["id"])
-                else:
-                    kept_records.append(record)
 
             if not target_ids:
                 print(f"No records found for role: '{role}'")
@@ -259,7 +249,7 @@ def clear_role_history(user_key: str, role: str) -> None:
             for rid in target_ids:
                 supabase.table("candidate_history").delete().eq("id", rid).execute()
 
-            print(f"✅ Successfully deleted history for role: '{role}' (kept {len(kept_records)} records)")
+            print(f"✅ Successfully deleted history for role: '{role}'")
             return
 
         except Exception as e:
