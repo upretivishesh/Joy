@@ -293,6 +293,7 @@ def inject_elite_theme() -> None:
                 color: var(--ink);
             }
 
+            /* Hero / Joy AI Recruiter */
             .hero {
                 position: relative;
                 padding: 30px 34px;
@@ -337,44 +338,55 @@ def inject_elite_theme() -> None:
                 margin: 0;
             }
 
-            /* Tabs — keep pill style, remove underline */
+            /* Tabs: plain words + underline */
             div[data-baseweb="tab-list"] {
-                gap: 10px;
-                margin-top: 8px;
-                margin-bottom: 14px;
-                background: transparent;
-                border-bottom: none !important;
-            }
-
-            button[data-baseweb="tab"] {
-                background: rgba(255, 255, 255, 0.03) !important;
-                border: 1px solid var(--line-soft) !important;
-                border-radius: 999px !important;
-                color: var(--muted) !important;
-                padding: 10px 18px !important;
-                font-weight: 700 !important;
+                gap: 28px !important;
+                margin-top: 8px !important;
+                margin-bottom: 14px !important;
+                background: transparent !important;
+                border-bottom: 1px solid rgba(95, 113, 145, 0.22) !important;
                 box-shadow: none !important;
             }
 
-            button[data-baseweb="tab"][aria-selected="true"] {
-                background: rgba(66, 232, 208, 0.14) !important;
-                border-color: rgba(66, 232, 208, 0.32) !important;
-                color: var(--ink) !important;
+            div[data-baseweb="tab-list"] > button {
+                background: transparent !important;
+                border: none !important;
+                border-radius: 0 !important;
+                color: #9aa8c7 !important;
+                padding: 10px 2px !important;
+                font-weight: 700 !important;
+                box-shadow: none !important;
+                position: relative !important;
+                margin: 0 !important;
             }
 
-            button[data-baseweb="tab"]::after {
-                display: none !important;
+            div[data-baseweb="tab-list"] > button[aria-selected="true"] {
+                color: #eef2ff !important;
+                background: transparent !important;
+                box-shadow: none !important;
             }
 
-            [role="tablist"] {
-                border-bottom: none !important;
+            div[data-baseweb="tab-list"] > button::after {
+                display: block !important;
+                content: "";
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: -14px;
+                height: 3px;
+                border-radius: 999px;
+                background: transparent !important;
             }
 
-            [role="tab"] {
-                border-bottom: none !important;
+            div[data-baseweb="tab-list"] > button[aria-selected="true"]::after {
+                background: #ff5a52 !important;
             }
 
-            /* Buttons */
+            div[data-baseweb="tab-panel"] {
+                border-top: none !important;
+            }
+
+            /* Buttons: softer teal with darker text */
             .stButton > button {
                 border-radius: 14px !important;
                 border: 1px solid transparent !important;
@@ -384,22 +396,23 @@ def inject_elite_theme() -> None:
             }
 
             .stButton > button[kind="primary"] {
-                background: linear-gradient(135deg, #57dfcb, #74eadc) !important;
-                color: #0b2b28 !important;
-                border-color: rgba(66, 232, 208, 0.18) !important;
+                background: linear-gradient(135deg, #4fd6c4, #67e3d4) !important;
+                color: #0a2724 !important;
+                border-color: rgba(66, 232, 208, 0.16) !important;
             }
 
             .stButton > button[kind="primary"]:hover {
-                background: linear-gradient(135deg, #4fd6c4, #68e1d2) !important;
-                color: #07211f !important;
+                background: linear-gradient(135deg, #45ccb9, #5fdacb) !important;
+                color: #071f1d !important;
             }
 
             .stButton > button[kind="secondary"] {
                 background: rgba(255, 255, 255, 0.04) !important;
-                color: var(--ink) !important;
-                border: 1px solid var(--line) !important;
+                color: #eef2ff !important;
+                border: 1px solid rgba(95, 113, 145, 0.28) !important;
             }
 
+            /* Inputs (unchanged shape, just keep them clean) */
             div[data-baseweb="input"],
             div[data-baseweb="base-input"] {
                 background: var(--panel) !important;
@@ -426,12 +439,6 @@ def inject_elite_theme() -> None:
             div[data-baseweb="input"]:focus-within {
                 border-color: rgba(66, 232, 208, 0.7) !important;
                 box-shadow: 0 0 0 1px rgba(66, 232, 208, 0.35) !important;
-            }
-
-            div[data-baseweb="input"] [role="button"] {
-                border: none !important;
-                box-shadow: none !important;
-                background: transparent !important;
             }
 
             .stTextArea textarea {
@@ -466,35 +473,12 @@ def inject_elite_theme() -> None:
             [data-testid="stToolbar"] {
                 visibility: hidden;
             }
-            div[data-baseweb="tab-list"] {
-                border-bottom: none !important;
-                box-shadow: none !important;
-            }
-
-            div[data-baseweb="tab-list"] > button::after {
-                display: none !important;
-                content: none !important;
-            }
-
-            [role="tablist"] {
-                border-bottom: none !important;
-                box-shadow: none !important;
-            }
-
-            [role="tab"],
-            [role="tab"][aria-selected="true"] {
-                border-bottom: none !important;
-                box-shadow: none !important;
-            }
-
-            /* some builds draw the underline inside a child span */
-            [role="tab"] span {
-                border-bottom: none !important;
-            }
         </style>
         """,
         unsafe_allow_html=True,
     )
+    
+
 def render_css() -> None:
     inject_elite_theme()
 
