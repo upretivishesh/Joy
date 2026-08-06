@@ -111,7 +111,7 @@ def load_history(user_key: str) -> pd.DataFrame:
                 records = [row["data"] for row in response.data]
                 df = pd.DataFrame(records)
                 return _clean_phone_column(df)
-            return pd.DataFrame()
+            # fall through to local if cloud is empty
         except Exception as e:
             print(f"Supabase load_history error: {e}")
 
@@ -124,7 +124,6 @@ def load_history(user_key: str) -> pd.DataFrame:
         print(f"[load_history] reading legacy {legacy}")
         return _clean_phone_column(pd.read_csv(legacy))
     return pd.DataFrame()
-
 
 def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
     if "Profile Key" not in df.columns:
@@ -341,7 +340,7 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                     }
                 )
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
-            return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
+            # fall through to local if cloud is empty
         except Exception as e:
             print(f"Supabase load_jd_library error: {e}")
 
@@ -350,7 +349,6 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
         print(f"[load_jd_library] reading {path}")
         return pd.read_excel(path)
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
-
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     if not jd_text.strip() or not role.strip():
@@ -424,9 +422,34 @@ def get_jd(user_key: str, role: str) -> str:
 
 
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
-    if not supabase:
-        return False
     if not profile_key_value:
+        return False
+
+    # Prefer local when cloud writes are disabled
+    path = history_path(user_key)
+    if path.exists():
+        try:
+            df = pd.read_excel(path)
+            if "Profile Key" not in df.columns or "Role" not in df.columns:
+                return False
+            mask = (
+                (df["Profile Key"].astype(str) == str(profile_key_value))
+                & (df["Role"].astype(str) == str(role))
+            )
+            if not mask.any():
+                return False
+            if "Feedback" not in df.columns:
+                df["Feedback"] = "Pending"
+            df.loc[mask, "Feedback"] = feedback
+            df = _clean_phone_column(df)
+            df.to_excel(path, index=False)
+            return True
+        except Exception as e:
+            print(f"❌ Local update_feedback error: {e}")
+            return False
+
+    # Cloud path (only if you re-enable writes later)
+    if not supabase:
         return False
     try:
         response = (
@@ -436,7 +459,6 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
             .eq("role", role)
             .execute()
         )
-
         for row in response.data or []:
             data = row.get("data", {}) or {}
             if str(data.get("Profile Key", "")) == str(profile_key_value):
@@ -447,7 +469,6 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
     except Exception as e:
         print(f"❌ Supabase update_feedback error: {e}")
         return False
-
 
 def confirm_delete_role_history(user_key: str, role: str):
     clear_role_history(user_key, role)
