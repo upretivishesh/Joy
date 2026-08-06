@@ -1,3 +1,4 @@
+# core/history.py
 import pandas as pd
 import numpy as np
 import json
@@ -100,7 +101,12 @@ def jd_library_path(user_key: str):
 def load_history(user_key: str) -> pd.DataFrame:
     if supabase:
         try:
-            response = supabase.table("candidate_history").select("data").eq("user_key", user_key).execute()
+            response = (
+                supabase.table("candidate_history")
+                .select("data")
+                .eq("user_key", user_key)
+                .execute()
+            )
             if response.data:
                 records = [row["data"] for row in response.data]
                 df = pd.DataFrame(records)
@@ -111,9 +117,11 @@ def load_history(user_key: str) -> pd.DataFrame:
 
     path = history_path(user_key)
     if path.exists():
+        print(f"[load_history] reading {path}")
         return _clean_phone_column(pd.read_excel(path))
     legacy = legacy_history_path(user_key)
     if legacy.exists():
+        print(f"[load_history] reading legacy {legacy}")
         return _clean_phone_column(pd.read_csv(legacy))
     return pd.DataFrame()
 
@@ -137,6 +145,8 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
         return
 
     batch = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[save_history] user_key={user_key}, role={role}, rows={len(df)}, batch={batch}")
+
     to_save = df.copy()
     to_save["Role"] = role
     to_save["JD"] = jd_text
@@ -184,23 +194,18 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
         combined = combined.drop_duplicates(subset=["Profile Key", "Role"], keep="last")
 
     # Supabase writes temporarily disabled; always save locally
-    saved = False
-
     if supabase:
-        try:
-            print(f"Supabase present, but skipping save_history write for user: {user_key}")
-            saved = False
-        except Exception as e:
-            print(f"Supabase save_history error (skipped): {e}")
-            saved = False
+        print(f"[save_history] Supabase present, skipping cloud write for user_key={user_key}")
 
-    if not saved:
-        try:
-            DATA_DIR.mkdir(exist_ok=True)
-            combined.to_excel(history_path(user_key), index=False)
-            print(f"✅ History saved locally to Excel for user: {user_key}")
-        except Exception as e:
-            print(f"❌ Local save also failed: {e}")
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        path = history_path(user_key)
+        print(f"[save_history] writing {path}")
+        combined.to_excel(path, index=False)
+        print(f"✅ History saved locally to Excel for user: {user_key}")
+    except Exception as e:
+        print(f"❌ Local save also failed: {e}")
+
 
 def clear_history(user_key: str) -> None:
     if supabase:
@@ -218,7 +223,12 @@ def clear_history(user_key: str) -> None:
 def clear_role_history(user_key: str, role: str) -> None:
     if supabase:
         try:
-            response = supabase.table("candidate_history").select("*").eq("user_key", user_key).execute()
+            response = (
+                supabase.table("candidate_history")
+                .select("*")
+                .eq("user_key", user_key)
+                .execute()
+            )
             all_records = response.data or []
 
             target_ids = []
@@ -314,13 +324,22 @@ def filter_history_by_search(hist: pd.DataFrame, query: str) -> pd.DataFrame:
 def load_jd_library(user_key: str) -> pd.DataFrame:
     if supabase:
         try:
-            response = supabase.table("jd_library").select("*").eq("user_key", user_key).execute()
+            response = (
+                supabase.table("jd_library")
+                .select("*")
+                .eq("user_key", user_key)
+                .execute()
+            )
             if response.data:
                 df = pd.DataFrame(response.data)
-                df = df.rename(columns={
-                    "role": "Role", "jd_text": "JD Text",
-                    "saved_at": "Saved At", "tags": "Tags"
-                })
+                df = df.rename(
+                    columns={
+                        "role": "Role",
+                        "jd_text": "JD Text",
+                        "saved_at": "Saved At",
+                        "tags": "Tags",
+                    }
+                )
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
             return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
         except Exception as e:
@@ -328,50 +347,57 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
 
     path = jd_library_path(user_key)
     if path.exists():
+        print(f"[load_jd_library] reading {path}")
         return pd.read_excel(path)
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
 
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     if not jd_text.strip() or not role.strip():
+        print("[save_jd] Missing role or JD text")
         return False
 
-    if supabase:
-        try:
-            data = {
-                "user_key": user_key,
-                "role": role.strip(),
-                "jd_text": jd_text.strip(),
-                "saved_at": pd.Timestamp.now().isoformat(),
-                "tags": tags.strip()
-            }
+    print(f"[save_jd] user_key={user_key}, role={role}")
+    path = jd_library_path(user_key)
+    print(f"[save_jd] jd_library_path={path}")
 
-            supabase.table("jd_library").upsert(data, on_conflict="user_key,role").execute()
-            return True
-        except Exception as e:
-            print(f"Supabase save_jd error: {e}")
-            return False
+    if supabase:
+        print(f"[save_jd] Supabase present, skipping cloud write for user_key={user_key}")
 
     DATA_DIR.mkdir(exist_ok=True)
     existing = load_jd_library(user_key)
-    new_entry = pd.DataFrame([{
-        "Role": role.strip(),
-        "JD Text": jd_text.strip(),
-        "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Tags": tags.strip(),
-    }])
+    new_entry = pd.DataFrame(
+        [
+            {
+                "Role": role.strip(),
+                "JD Text": jd_text.strip(),
+                "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Tags": tags.strip(),
+            }
+        ]
+    )
+
     if not existing.empty and "Role" in existing.columns:
-        existing = existing[existing["Role"].astype(str).str.lower().str.strip() != role.lower().strip()]
+        existing = existing[
+            existing["Role"].astype(str).str.lower().str.strip() != role.lower().strip()
+        ]
+
     combined = pd.concat([existing, new_entry], ignore_index=True)
-    combined.to_excel(jd_library_path(user_key), index=False)
-    return True
+    try:
+        print(f"[save_jd] writing {path}")
+        combined.to_excel(path, index=False)
+        print(f"✅ JD saved locally for user: {user_key}")
+        return True
+    except Exception as e:
+        print(f"❌ Local JD save failed: {e}")
+        return False
 
 
 def delete_jd(user_key: str, role: str) -> None:
     if supabase:
         try:
             supabase.table("jd_library").delete().eq("user_key", user_key).ilike("role", role.strip()).execute()
-            print(f"✅ Deleted JD: {role}")
+            print(f"✅ Deleted JD (cloud): {role}")
             return
         except Exception as e:
             print(f"Supabase delete_jd error: {e}")
@@ -384,6 +410,7 @@ def delete_jd(user_key: str, role: str) -> None:
         return
     df = df[df["Role"].astype(str).str.lower().str.strip() != role.lower().strip()]
     df.to_excel(path, index=False)
+    print(f"✅ Deleted JD (local): {role}")
 
 
 def get_jd(user_key: str, role: str) -> str:
