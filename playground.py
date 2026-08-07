@@ -200,32 +200,25 @@ with screen_tab:
 
     with title_col:
         st.subheader("Job")
-
+    
     with button_col:
-        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
-        new_search = st.button("New", key="new_search_btn", use_container_width=True)
-
-    if new_search:
-        reset_screening_session()
-        st.session_state["client_picker"] = "+ New client"
-        st.rerun()
-
-    # ---------- Sample Data Button ----------
-    with button_col:
-        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
+        
         col_new, col_demo = st.columns(2)
+        
         with col_new:
             new_search = st.button("New", key="new_search_btn", use_container_width=True)
+        
         with col_demo:
-            load_demo = st.button("Demo Data", key="load_demo_btn", use_container_width=True)
+            load_demo = st.button("Demo", key="load_demo_btn", use_container_width=True)
     
+    # Handle the buttons
     if new_search:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
         st.rerun()
     
     if load_demo:
-        # --- Sample JD (realistic Indian agency style) ---
         sample_jd = """Job Title: Sales Manager - Agrochemicals (West India)
     
     We are looking for an experienced Sales Manager for our Agrochemical division covering Maharashtra, Gujarat & Rajasthan.
@@ -246,16 +239,12 @@ with screen_tab:
     
     CTC: 12–18 LPA + incentives
     """
-    
         st.session_state["typed_jd_text"] = sample_jd
         st.session_state["role_input"] = "Sales Manager - Agrochemicals"
         st.session_state["client_company_input"] = "Atomgrid"
         st.session_state["client_picker"] = "Atomgrid"
         st.session_state["extra_keywords"] = "agrochemical, distributor management, SAP MM, crop protection"
-        
-        # Force re-render with sample
         st.session_state["_demo_loaded"] = True
-        st.success("Demo JD loaded! Now upload the sample resumes below (or use the 5 sample texts).")
         st.rerun()
         
     jd_upload = st.file_uploader(
