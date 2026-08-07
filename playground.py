@@ -216,31 +216,33 @@ with screen_tab:
         st.rerun()
     
     if load_demo:
-        sample_jd = """Job Title: Sales Manager - Agrochemicals (West India)
+        sample_jd = """R&D Team Leader | Organic Chemistry
     
-    We are looking for an experienced Sales Manager for our Agrochemical division covering Maharashtra, Gujarat & Rajasthan.
+    Location: Bengaluru
     
-    Key Responsibilities:
-    - Drive sales of crop protection products (insecticides, fungicides, herbicides)
-    - Manage and grow distributor network
-    - Achieve monthly & quarterly targets
-    - Conduct field visits and farmer meetings
-    - Strong knowledge of SAP MM preferred
+    Key Responsibilities
+    Lead and mentor a team of R&D scientists.
+    Drive process development, optimization, validation, and scale-up.
+    Develop cost-effective, commercially viable, and non-infringing manufacturing processes.
+    Troubleshoot reaction pathways, process impurities, and purification methods.
+    Support technology transfer from R&D to manufacturing.
+    Interpret analytical data using NMR, HPLC, GC, Mass Spectrometry, etc.
+    Conduct literature and patent searches using SciFinder/Reaxys.
+    Prepare technical documentation, cost analysis, and risk assessments.
+    Ensure compliance with lab safety, quality, and IP confidentiality.
     
-    Requirements:
-    - 5–9 years of experience in agrochemical / agri-input sales
-    - B.Sc Agriculture or B.Tech preferred
-    - Excellent knowledge of West India market
-    - Strong distributor management skills
-    - Location: Pune / Mumbai (travel intensive)
+    Requirements
+    Ph.D. in Organic Chemistry with 3–5 years of industry experience, or M.Sc. in Chemistry with 12–15 years of industry experience.
+    Strong experience in Agrochemical R&D or Process Development.
+    Expertise in process optimization, scale-up, and technology transfer.
+    Hands-on experience with analytical techniques and purification methods.
+    Strong leadership, problem-solving, and project management skills."""
     
-    CTC: 12–18 LPA + incentives
-    """
         st.session_state["typed_jd_text"] = sample_jd
-        st.session_state["role_input"] = "Sales Manager - Agrochemicals"
+        st.session_state["role_input"] = "R&D Team Leader | Organic Chemistry"
         st.session_state["client_company_input"] = "Atomgrid"
         st.session_state["client_picker"] = "Atomgrid"
-        st.session_state["extra_keywords"] = "agrochemical, distributor management, SAP MM, crop protection"
+        st.session_state["extra_keywords"] = "organic chemistry, process development, scale-up, NMR, HPLC, agrochemical, SciFinder"
         st.session_state["_demo_loaded"] = True
         st.rerun()
         
@@ -269,38 +271,32 @@ with screen_tab:
             jd_text = uploaded_jd_text
             st.caption(f"Using uploaded JD: {jd_upload.name}")
 
-    # ---------- JD Preview Card ----------
-if jd_text and jd_text.strip():
-    detected_role = (
-        extract_role_from_jd(jd_text, role_input)
-        if (jd_text.strip() or role_input.strip())
-        else "Open Role"
-    )
-    
-    # Extract quick keywords for preview
-    preview_keywords = extract_keywords(jd_text, limit=10)
-    
-    with st.container(border=True):
-        st.markdown(
-            f"""
-            <div style="padding: 4px 0;">
-                <span style="color:#42e8d0; font-weight:700; font-size:0.85rem; letter-spacing:0.05em;">DETECTED ROLE</span>
-                <h3 style="margin:6px 0 10px 0; color:#eef2ff;">{detected_role}</h3>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        
-        if preview_keywords:
-            st.caption("Key requirements extracted:")
-            # Nice chips
-            chips = "  ".join([f"`{kw}`" for kw in preview_keywords[:8]])
-            st.markdown(chips)
-        
-        # Optional min exp detection
-        min_exp_detected = parse_min_experience(jd_text)
-        if min_exp_detected > 0:
-            st.caption(f"Minimum experience detected: **{min_exp_detected:g}+ years**")
+        # ---------- JD Preview Card (SAFE VERSION) ----------
+        if jd_text and jd_text.strip():
+            # Always get role safely from session_state
+            current_role_input = st.session_state.get("role_input", "")
+            
+            detected_role = extract_role_from_jd(jd_text, current_role_input)
+            
+            preview_keywords = extract_keywords(jd_text, limit=10)
+            
+            with st.container(border=True):
+                st.markdown(
+                    f"""
+                    <div style="padding: 4px 0 2px 0;">
+                        <span style="color:#42e8d0; font-weight:700; font-size:0.82rem; letter-spacing:0.06em;">DETECTED ROLE</span>
+                        <h3 style="margin:6px 0 8px 0; color:#eef2ff; font-size:1.35rem;">{detected_role}</h3>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                
+                if preview_keywords:
+                    st.caption("Key requirements:  " + "  ·  ".join(preview_keywords[:8]))
+                
+                min_exp_detected = parse_min_experience(jd_text)
+                if min_exp_detected > 0:
+                    st.caption(f"Minimum experience detected: **{min_exp_detected:g}+ years**")
 
     with st.expander("Optional screening controls + Persona", expanded=False):
         role_input = st.text_input(
