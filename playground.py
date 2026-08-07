@@ -196,7 +196,7 @@ with screen_tab:
     if pending_role is not None:
         st.session_state["role_input"] = pending_role
 
-    title_col, button_col = st.columns([8.5, 1.5], vertical_alignment="center")
+    title_col, button_col = st.columns([7.5, 2.5], vertical_alignment="center")
 
     with title_col:
         st.subheader("Job")
@@ -204,15 +204,12 @@ with screen_tab:
     with button_col:
         st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
         
-        col_new, col_demo = st.columns(2)
-        
-        with col_new:
+        b1, b2 = st.columns(2)
+        with b1:
             new_search = st.button("New", key="new_search_btn", use_container_width=True)
-        
-        with col_demo:
+        with b2:
             load_demo = st.button("Demo", key="load_demo_btn", use_container_width=True)
     
-    # Handle the buttons
     if new_search:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
