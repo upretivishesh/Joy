@@ -194,69 +194,51 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
 
 
 def clear_history(user_key: str) -> None:
+    """Delete ALL history for a user"""
     if supabase:
         try:
-            supabase.table("candidate_history").delete().eq("user_key", user_key).execute()
+            supabase.table("screening_history").delete().eq("user_key", user_key).execute()
+            print(f"✅ All history deleted from Supabase for {user_key}")
             return
         except Exception as e:
-            print(f"Supabase clear_history error: {e}")
+            print(f"❌ Supabase clear_history error: {e}")
 
+    # Fallback local
     for path in [history_path(user_key), legacy_history_path(user_key)]:
         if path.exists():
             path.unlink()
+            print(f"✅ Local history file deleted: {path}")
 
 
 def clear_role_history(user_key: str, role: str) -> None:
+    """Delete all history for a specific role"""
+    if not role:
+        return
+
     if supabase:
         try:
-            response = (
-                supabase.table("candidate_history")
-                .select("*")
-                .eq("user_key", user_key)
+            supabase.table("screening_history")\
+                .delete()\
+                .eq("user_key", user_key)\
+                .eq("role", role)\
                 .execute()
-            )
-            all_records = response.data or []
-
-            target_ids = []
-            for record in all_records:
-                data = record.get("data", {}) or {}
-                stored_role = str(data.get("Role", "")).strip().lower()
-                if stored_role == role.strip().lower():
-                    target_ids.append(record["id"])
-
-            if not target_ids:
-                print(f"No records found for role: '{role}'")
-                return
-
-            for rid in target_ids:
-                supabase.table("candidate_history").delete().eq("id", rid).execute()
-
-            print(f"✅ Successfully deleted history for role: '{role}'")
+            print(f"✅ Deleted history for role '{role}' from Supabase")
             return
-
         except Exception as e:
             print(f"❌ Supabase clear_role_history error: {e}")
 
+    # Fallback local
     path = history_path(user_key)
-    if not path.exists():
-        legacy = legacy_history_path(user_key)
-        if not legacy.exists():
-            return
-        df = pd.read_csv(legacy)
-        write_excel = False
-    else:
-        df = pd.read_excel(path)
-        write_excel = True
-
-    if "Role" not in df.columns:
-        return
-    df = df[df["Role"].astype(str) != str(role)]
-    df = _clean_phone_column(df)
-
-    if write_excel:
-        df.to_excel(path, index=False)
-    else:
-        df.to_csv(legacy_history_path(user_key), index=False)
+    if path.exists():
+        try:
+            df = pd.read_excel(path)
+            if "Role" in df.columns:
+                df = df[df["Role"].astype(str) != str(role)]
+                df = _clean_phone_column(df)
+                df.to_excel(path, index=False)
+                print(f"✅ Deleted local history for role: {role}")
+        except Exception as e:
+            print(f"❌ Local clear_role_history error: {e}")
 
 
 def mark_batch_duplicates(rows: list[dict]) -> list[dict]:
@@ -359,24 +341,33 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
 
 
 def delete_jd(user_key: str, role: str) -> None:
+    """Delete a specific JD from the library"""
+    if not role:
+        return
+
     if supabase:
         try:
-            supabase.table("jd_library").delete().eq("user_key", user_key).ilike("role", role.strip()).execute()
-            print(f"✅ Deleted JD (cloud): {role}")
+            supabase.table("jd_library")\
+                .delete()\
+                .eq("user_key", user_key)\
+                .eq("role", role.strip())\
+                .execute()
+            print(f"✅ Deleted JD from Supabase: {role}")
             return
         except Exception as e:
-            print(f"Supabase delete_jd error: {e}")
+            print(f"❌ Supabase delete_jd error: {e}")
 
+    # Fallback local
     path = jd_library_path(user_key)
-    if not path.exists():
-        return
-    df = pd.read_excel(path)
-    if "Role" not in df.columns:
-        return
-    df = df[df["Role"].astype(str).str.lower().str.strip() != role.lower().strip()]
-    df.to_excel(path, index=False)
-    print(f"✅ Deleted JD (local): {role}")
-
+    if path.exists():
+        try:
+            df = pd.read_excel(path)
+            if "Role" in df.columns:
+                df = df[df["Role"].astype(str).str.lower().str.strip() != role.lower().strip()]
+                df.to_excel(path, index=False)
+                print(f"✅ Deleted JD locally: {role}")
+        except Exception as e:
+            print(f"❌ Local delete_jd error: {e}")
 
 def get_jd(user_key: str, role: str) -> str:
     df = load_jd_library(user_key)
@@ -389,24 +380,47 @@ def get_jd(user_key: str, role: str) -> str:
 
 
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
-    if not profile_key_value:
+    """Update feedback for a specific candidate + role"""
+    if not profile_key_value or not role:
         return False
 
-    # Prefer local when cloud writes are disabled
+    if supabase:
+        try:
+            # Update the matching row
+            result = (
+                supabase.table("screening_history")
+                .update({"feedback": feedback})
+                .eq("user_key", user_key)
+                .eq("profile_key", str(profile_key_value))
+                .eq("role", role)
+                .execute()
+            )
+            if result.data:
+                print(f"✅ Feedback updated in Supabase: {feedback}")
+                return True
+            else:
+                print("No matching record found in Supabase for feedback update")
+        except Exception as e:
+            print(f"❌ Supabase update_feedback error: {e}")
+
+    # Fallback to local file
     path = history_path(user_key)
     if path.exists():
         try:
             df = pd.read_excel(path)
             if "Profile Key" not in df.columns or "Role" not in df.columns:
                 return False
+
             mask = (
                 (df["Profile Key"].astype(str) == str(profile_key_value))
                 & (df["Role"].astype(str) == str(role))
             )
             if not mask.any():
                 return False
+
             if "Feedback" not in df.columns:
                 df["Feedback"] = "Pending"
+
             df.loc[mask, "Feedback"] = feedback
             df = _clean_phone_column(df)
             df.to_excel(path, index=False)
@@ -415,33 +429,7 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
             print(f"❌ Local update_feedback error: {e}")
             return False
 
-    # Cloud path (only if you re-enable writes later)
-    if not supabase:
-        return False
-    try:
-        response = (
-            supabase.table("candidate_history")
-            .select("id, data")
-            .eq("user_key", user_key)
-            .eq("role", role)
-            .execute()
-        )
-        for row in response.data or []:
-            data = row.get("data", {}) or {}
-            if str(data.get("Profile Key", "")) == str(profile_key_value):
-                data["Feedback"] = feedback
-                supabase.table("candidate_history").update({"data": data}).eq("id", row["id"]).execute()
-                return True
-        return False
-    except Exception as e:
-        print(f"❌ Supabase update_feedback error: {e}")
-        return False
-
-def confirm_delete_role_history(user_key: str, role: str):
-    clear_role_history(user_key, role)
-    st.success(f"Deleted all history for role: {role}")
-    st.rerun()
-
+    return False
 
 def confirm_delete_all_history(user_key: str):
     clear_history(user_key)
@@ -449,7 +437,13 @@ def confirm_delete_all_history(user_key: str):
     st.rerun()
 
 
+def confirm_delete_role_history(user_key: str, role: str):
+    clear_role_history(user_key, role)
+    st.success(f"Deleted all history for role: **{role}**")
+    st.rerun()
+
+
 def confirm_delete_jd(user_key: str, role: str):
     delete_jd(user_key, role)
-    st.success(f"Deleted JD: {role}")
+    st.success(f"Deleted JD: **{role}**")
     st.rerun()
