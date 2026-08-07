@@ -209,6 +209,54 @@ with screen_tab:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
         st.rerun()
+
+    # ---------- Sample Data Button ----------
+    with button_col:
+        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
+        col_new, col_demo = st.columns(2)
+        with col_new:
+            new_search = st.button("New", key="new_search_btn", use_container_width=True)
+        with col_demo:
+            load_demo = st.button("Demo Data", key="load_demo_btn", use_container_width=True)
+    
+    if new_search:
+        reset_screening_session()
+        st.session_state["client_picker"] = "+ New client"
+        st.rerun()
+    
+    if load_demo:
+        # --- Sample JD (realistic Indian agency style) ---
+        sample_jd = """Job Title: Sales Manager - Agrochemicals (West India)
+    
+    We are looking for an experienced Sales Manager for our Agrochemical division covering Maharashtra, Gujarat & Rajasthan.
+    
+    Key Responsibilities:
+    - Drive sales of crop protection products (insecticides, fungicides, herbicides)
+    - Manage and grow distributor network
+    - Achieve monthly & quarterly targets
+    - Conduct field visits and farmer meetings
+    - Strong knowledge of SAP MM preferred
+    
+    Requirements:
+    - 5–9 years of experience in agrochemical / agri-input sales
+    - B.Sc Agriculture or B.Tech preferred
+    - Excellent knowledge of West India market
+    - Strong distributor management skills
+    - Location: Pune / Mumbai (travel intensive)
+    
+    CTC: 12–18 LPA + incentives
+    """
+    
+        st.session_state["typed_jd_text"] = sample_jd
+        st.session_state["role_input"] = "Sales Manager - Agrochemicals"
+        st.session_state["client_company_input"] = "Atomgrid"
+        st.session_state["client_picker"] = "Atomgrid"
+        st.session_state["extra_keywords"] = "agrochemical, distributor management, SAP MM, crop protection"
+        
+        # Force re-render with sample
+        st.session_state["_demo_loaded"] = True
+        st.success("Demo JD loaded! Now upload the sample resumes below (or use the 5 sample texts).")
+        st.rerun()
         
     jd_upload = st.file_uploader(
         "Upload JD",
@@ -234,6 +282,39 @@ with screen_tab:
         if uploaded_jd_text.strip():
             jd_text = uploaded_jd_text
             st.caption(f"Using uploaded JD: {jd_upload.name}")
+
+    # ---------- JD Preview Card ----------
+if jd_text and jd_text.strip():
+    detected_role = (
+        extract_role_from_jd(jd_text, role_input)
+        if (jd_text.strip() or role_input.strip())
+        else "Open Role"
+    )
+    
+    # Extract quick keywords for preview
+    preview_keywords = extract_keywords(jd_text, limit=10)
+    
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div style="padding: 4px 0;">
+                <span style="color:#42e8d0; font-weight:700; font-size:0.85rem; letter-spacing:0.05em;">DETECTED ROLE</span>
+                <h3 style="margin:6px 0 10px 0; color:#eef2ff;">{detected_role}</h3>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        
+        if preview_keywords:
+            st.caption("Key requirements extracted:")
+            # Nice chips
+            chips = "  ".join([f"`{kw}`" for kw in preview_keywords[:8]])
+            st.markdown(chips)
+        
+        # Optional min exp detection
+        min_exp_detected = parse_min_experience(jd_text)
+        if min_exp_detected > 0:
+            st.caption(f"Minimum experience detected: **{min_exp_detected:g}+ years**")
 
     with st.expander("Optional screening controls + Persona", expanded=False):
         role_input = st.text_input(
