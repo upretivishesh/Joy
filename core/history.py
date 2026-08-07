@@ -102,27 +102,33 @@ def load_history(user_key: str) -> pd.DataFrame:
     if supabase:
         try:
             response = (
-                supabase.table("candidate_history")
-                .select("data")
+                supabase.table("screening_history")
+                .select("*")
                 .eq("user_key", user_key)
+                .order("created_at", desc=True)
                 .execute()
             )
             if response.data:
-                records = [row["data"] for row in response.data]
-                df = pd.DataFrame(records)
+                df = pd.DataFrame(response.data)
+                # Rename columns to match your original style
+                rename_map = {
+                    "final_score": "Final Score",
+                    "industry_match": "Industry Match",
+                    "candidate_industry": "Candidate Industry",
+                    "matched_keywords": "Matched Keywords",
+                    "missing_keywords": "Missing Keywords",
+                    "source_file": "Source File",
+                    "profile_key": "Profile Key",
+                }
+                df = df.rename(columns=rename_map)
                 return _clean_phone_column(df)
-            # fall through to local if cloud is empty
         except Exception as e:
             print(f"Supabase load_history error: {e}")
 
+    # Fallback to local
     path = history_path(user_key)
     if path.exists():
-        print(f"[load_history] reading {path}")
         return _clean_phone_column(pd.read_excel(path))
-    legacy = legacy_history_path(user_key)
-    if legacy.exists():
-        print(f"[load_history] reading legacy {legacy}")
-        return _clean_phone_column(pd.read_csv(legacy))
     return pd.DataFrame()
 
 def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
@@ -140,70 +146,51 @@ def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
 
 def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> None:
     if df.empty:
-        print("save_history skipped: DataFrame is empty")
         return
-
-    batch = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[save_history] user_key={user_key}, role={role}, rows={len(df)}, batch={batch}")
 
     to_save = df.copy()
     to_save["Role"] = role
     to_save["JD"] = jd_text
-    to_save["Screened At"] = batch
     to_save = _clean_phone_column(to_save)
     to_save = _ensure_profile_key(to_save)
 
-    old = load_history(user_key)
-    if not old.empty:
-        old = _ensure_profile_key(old)
-
-    if "Feedback" in old.columns:
-        feedback_source = old[
-            old["Feedback"].notna()
-            & (old["Feedback"] != "")
-            & (old["Feedback"] != "Pending")
-        ]
-        feedback_map = (
-            feedback_source
-            .drop_duplicates(subset=["Profile Key", "Role"], keep="last")
-            .set_index(["Profile Key", "Role"])["Feedback"]
-            .to_dict()
-        )
-
-        if "Feedback" not in to_save.columns:
-            to_save["Feedback"] = ""
-        to_save["Feedback"] = to_save.apply(
-            lambda row: feedback_map.get(
-                (row["Profile Key"], row["Role"]),
-                row.get("Feedback", ""),
-            ),
-            axis=1,
-        )
-
-        seen = set(old["Profile Key"].dropna().astype(str))
-        to_save["Duplicate"] = to_save["Profile Key"].astype(str).isin(seen)
-        combined = pd.concat([old, to_save], ignore_index=True)
-    else:
-        to_save["Duplicate"] = to_save.duplicated("Profile Key", keep="first")
-        combined = to_save
-
-    combined = combined.loc[:, ~combined.columns.duplicated()].fillna("")
-    combined = _clean_phone_column(combined)
-    if "Profile Key" in combined.columns:
-        combined = combined.drop_duplicates(subset=["Profile Key", "Role"], keep="last")
-
-    # Supabase writes temporarily disabled; always save locally
     if supabase:
-        print(f"[save_history] Supabase present, skipping cloud write for user_key={user_key}")
+        records = []
+        for _, row in to_save.iterrows():
+            records.append({
+                "user_key": user_key,
+                "role": role,
+                "profile_key": str(row.get("Profile Key", "")),
+                "name": str(row.get("Name", "")),
+                "email": str(row.get("Email", "")),
+                "phone": str(row.get("Phone", "")),
+                "experience": float(row.get("Experience", 0) or 0),
+                "education": str(row.get("Education", "")),
+                "final_score": float(row.get("Final Score", 0) or 0),
+                "verdict": str(row.get("Verdict", "")),
+                "industry_match": str(row.get("Industry Match", "")),
+                "candidate_industry": str(row.get("Candidate Industry", "")),
+                "matched_keywords": str(row.get("Matched Keywords", "")),
+                "missing_keywords": str(row.get("Missing Keywords", "")),
+                "skills": str(row.get("Skills", "")),
+                "reason": str(row.get("Reason", "")),
+                "feedback": str(row.get("Feedback", "Pending")),
+                "client": str(row.get("Client", "")),
+                "source_file": str(row.get("Source File", "")),
+                "jd": (jd_text or "")[:4000],
+            })
+        try:
+            supabase.table("screening_history").insert(records).execute()
+            print(f"✅ History saved to Supabase ({len(records)} rows)")
+            return
+        except Exception as e:
+            print(f"❌ Supabase save_history failed: {e}")
 
-    try:
-        DATA_DIR.mkdir(exist_ok=True)
-        path = history_path(user_key)
-        print(f"[save_history] writing {path}")
-        combined.to_excel(path, index=False)
-        print(f"✅ History saved locally to Excel for user: {user_key}")
-    except Exception as e:
-        print(f"❌ Local save also failed: {e}")
+    # Fallback local save
+    path = history_path(user_key)
+    DATA_DIR.mkdir(exist_ok=True)
+    to_save.to_excel(path, index=False)
+    print(f"✅ History saved locally")
 
 
 def clear_history(user_key: str) -> None:
@@ -327,68 +314,48 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                 supabase.table("jd_library")
                 .select("*")
                 .eq("user_key", user_key)
+                .order("created_at", desc=True)
                 .execute()
             )
             if response.data:
                 df = pd.DataFrame(response.data)
-                df = df.rename(
-                    columns={
-                        "role": "Role",
-                        "jd_text": "JD Text",
-                        "saved_at": "Saved At",
-                        "tags": "Tags",
-                    }
-                )
+                df = df.rename(columns={
+                    "role": "Role",
+                    "jd_text": "JD Text",
+                    "tags": "Tags",
+                    "created_at": "Saved At"
+                })
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
-            # fall through to local if cloud is empty
         except Exception as e:
             print(f"Supabase load_jd_library error: {e}")
 
+    # Fallback
     path = jd_library_path(user_key)
     if path.exists():
-        print(f"[load_jd_library] reading {path}")
         return pd.read_excel(path)
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
-    if not jd_text.strip() or not role.strip():
-        print("[save_jd] Missing role or JD text")
+    if not role.strip() or not jd_text.strip():
         return False
-
-    print(f"[save_jd] user_key={user_key}, role={role}")
-    path = jd_library_path(user_key)
-    print(f"[save_jd] jd_library_path={path}")
 
     if supabase:
-        print(f"[save_jd] Supabase present, skipping cloud write for user_key={user_key}")
+        try:
+            # Delete old version of same role first (optional)
+            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role.strip()).execute()
+            
+            supabase.table("jd_library").insert({
+                "user_key": user_key,
+                "role": role.strip(),
+                "jd_text": jd_text.strip(),
+                "tags": tags.strip()
+            }).execute()
+            print(f"✅ JD saved to Supabase: {role}")
+            return True
+        except Exception as e:
+            print(f"❌ Supabase save_jd failed: {e}")
 
-    DATA_DIR.mkdir(exist_ok=True)
-    existing = load_jd_library(user_key)
-    new_entry = pd.DataFrame(
-        [
-            {
-                "Role": role.strip(),
-                "JD Text": jd_text.strip(),
-                "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Tags": tags.strip(),
-            }
-        ]
-    )
-
-    if not existing.empty and "Role" in existing.columns:
-        existing = existing[
-            existing["Role"].astype(str).str.lower().str.strip() != role.lower().strip()
-        ]
-
-    combined = pd.concat([existing, new_entry], ignore_index=True)
-    try:
-        print(f"[save_jd] writing {path}")
-        combined.to_excel(path, index=False)
-        print(f"✅ JD saved locally for user: {user_key}")
-        return True
-    except Exception as e:
-        print(f"❌ Local JD save failed: {e}")
-        return False
+    return False
 
 
 def delete_jd(user_key: str, role: str) -> None:
