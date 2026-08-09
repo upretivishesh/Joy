@@ -558,6 +558,24 @@ with screen_tab:
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
 
+        # Quick ranked view (read-only)
+        display_cols = [c for c in [
+            "Rank", "Name", "Email", "Phone", "Experience",
+            "Final Score", "Verdict", "Industry Match", "Matched Keywords"
+        ] if c in st.session_state.results_df.columns]
+
+        preview_df = st.session_state.results_df[display_cols].copy()
+        preview_df = format_experience_years(preview_df)
+        preview_df = format_industry_fit(preview_df)
+
+        st.dataframe(
+            preview_df,
+            use_container_width=True,
+            hide_index=True,
+            height=380,
+        )
+        st.caption("Go to the **Email** tab to select candidates and send outreach.")
+
 
 # ====================== EMAIL TAB ======================
 with email_tab:
