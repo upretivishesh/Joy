@@ -462,8 +462,8 @@ def filename_name_candidate(filename: str) -> str:
     stem = re.sub(r"\d+", " ", stem)
     clean = clean_name_candidate(stem)
     words = clean.split()
-    if 2 <= len(words) <= 5 and not any(word.lower() in NAME_STOPWORDS for word in words):
-        return clean.title()
+    if 1 <= len(words) <= 5 and not any(w.lower() in NAME_STOPWORDS for w in words):
+        return clean
     return ""
 
 
@@ -600,7 +600,7 @@ def extract_name_ner(text: str) -> str:
             if any(w.lower() in BAD_NAME_WORDS for w in words):
                 continue
             # Prefer entities near the top of the document
-            pos = text.find(ent.text)
+            pos = ent.start_char      
             position_score = 0
             if pos < 200:
                 position_score = 40
