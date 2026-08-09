@@ -426,30 +426,32 @@ def repair_letter_spaced_text(line: str) -> str:
 def clean_name_candidate(value: str) -> str:
     if not value:
         return ""
-
     value = repair_letter_spaced_text(value)
     value = normalize_email_text(value)
     value = re.sub(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b", " ", value)
     value = re.sub(r"(?:\+91)?[6-9]\d{9}", " ", value)
     value = re.sub(r"https?://\S+|www\.\S+", " ", value, flags=re.I)
-    value = re.sub(r"^(id|name|candidate|applicant)\s*[:\-]?\s*", "", value, flags=re.I)
-    value = re.sub(r"^(mr|mrs|ms|miss|mx|dr|shri|smt|er|eng|prof|capt|col)\.?\s+", "", value, flags=re.I)
+    value = re.sub(r"^(id|name|candidate|applicant|full\s*name)\s*[:\-]?\s*", "", value, flags=re.I)
     value = re.sub(
-        r"\b(?:email|e-mail|mail|mobile|phone|contact|tel|telephone|linkedin|github|portfolio|address|location)\b",
-        " ",
-        value,
-        flags=re.I,
+        r"^(mr|mrs|ms|miss|mx|dr|shri|smt|er|eng|prof|capt|col|sir|madam)\.?\s+",
+        "", value, flags=re.I,
+    )
+    value = re.sub(
+        r"\b(?:email|e-mail|mail|mobile|phone|contact|tel|telephone|linkedin|github|portfolio|address|location|dob|date of birth)\b",
+        " ", value, flags=re.I,
     )
     value = re.sub(r"[^A-Za-z .'-]", " ", value)
     value = normalize_whitespace(value)
-
     if not value:
         return ""
-
-    value = value.title()
-    value = value.strip(" .'-")
-    return value
-
+    # Preserve natural casing for mixed names, then title-case cleanly
+    parts = []
+    for p in value.split():
+        if p.isupper() and len(p) > 1:
+            parts.append(p.title())
+        else:
+            parts.append(p[0].upper() + p[1:] if p else p)
+    return " ".join(parts).strip(" .'-")
 
 def filename_name_candidate(filename: str) -> str:
     if not filename:
@@ -473,8 +475,9 @@ def extract_name_from_email(text: str) -> str:
     if local in GENERIC_EMAIL_PREFIXES:
         return ""
     name = name_from_email_address(email)
-    parts = [part for part in name.split() if part.lower() not in GENERIC_EMAIL_PREFIXES and len(part) > 1]
-    return " ".join(parts) if len(parts) >= 2 else ""
+    parts = [p for p in name.split() if p.lower() not in GENERIC_EMAIL_PREFIXES and len(p) > 1]
+    # Allow single strong token now (used as last resort)
+    return " ".join(parts) if parts else ""
 
 
 COMMON_INDIAN_NAME_TOKENS = {
@@ -516,66 +519,100 @@ def score_name_candidate(candidate: str, position: int, email_tokens: set[str], 
         return -999
 
     words = candidate.split()
-    if not (2 <= len(words) <= 4):
+    if not (1 <= len(words) <= 5):          # allow single first name + strong email signal
         return -999
-    if any(char.isdigit() for char in candidate):
+    if any(c.isdigit() for c in candidate) or len(candidate) > 55:
         return -999
-    if len(candidate) > 50:
+    if any(w.lower() in BAD_NAME_WORDS for w in words):
         return -999
-    if any(word in BAD_NAME_WORDS for word in candidate.lower().split()):
+    if any(w.lower() in NAME_STOPWORDS for w in words):
         return -999
 
     score = 0
 
+    # Position bias (name almost always in first few lines)
     if position == 0:
-        score += 60
+        score += 75
     elif position <= 2:
-        score += 45
+        score += 55
     elif position <= 5:
-        score += 30
-    elif position <= 10:
+        score += 35
+    elif position <= 12:
         score += 15
-    elif position <= 25:
-        score += 5
     else:
-        score -= 10
+        score -= 5
 
+    # Length preference
     if len(words) == 2:
-        score += 30
+        score += 40
     elif len(words) == 3:
-        score += 25
+        score += 32
     elif len(words) == 4:
-        score += 10
+        score += 18
+    elif len(words) == 1:
+        score += 5   # only useful with strong email overlap
 
-    overlaps = sum(word.lower() in email_tokens for word in words)
-    score += overlaps * 35
+    # Title-case / proper-name look
+    if all(w[0].isupper() for w in words if w):
+        score += 25
+
+    # Email overlap (very strong signal)
+    lower_words = [w.lower() for w in words]
+    overlaps = sum(1 for w in lower_words if w in email_tokens)
+    score += overlaps * 50
+    if overlaps >= 2:
+        score += 40
 
     if overlaps == 0 and email_local:
-        substring_hits = sum(1 for word in words if len(word) >= 3 and word.lower() in email_local)
-        score += substring_hits * 20
+        hits = sum(1 for w in words if len(w) >= 3 and w.lower() in email_local)
+        score += hits * 28
 
-    indian_hits = sum(1 for word in words if word.lower() in COMMON_INDIAN_NAME_TOKENS)
-    score += indian_hits * 8
+    # Common Indian surname/first-name boost
+    indian_hits = sum(1 for w in lower_words if w in COMMON_INDIAN_NAME_TOKENS)
+    score += indian_hits * 12
 
     return score
 
 
 def extract_name_ner(text: str) -> str:
+    """Return the *best* PERSON entity, not the first one."""
     if NLP is None:
         return ""
     try:
-        doc = NLP(text[:3000])
+        doc = NLP(text[:3500])
+        best = ""
+        best_score = -999
+        email = extract_email(text)
+        email_tokens = set()
+        email_local = ""
+        if email:
+            email_name = name_from_email_address(email)
+            email_tokens = {t.lower() for t in email_name.split()}
+            email_local = email.split("@")[0].lower()
+
         for ent in doc.ents:
             if ent.label_ != "PERSON":
                 continue
             candidate = clean_name_candidate(ent.text)
             words = candidate.split()
-            if 2 <= len(words) <= 4 and not any(word.lower() in BAD_NAME_WORDS for word in words):
-                return candidate
+            if not (1 <= len(words) <= 4):
+                continue
+            if any(w.lower() in BAD_NAME_WORDS for w in words):
+                continue
+            # Prefer entities near the top of the document
+            pos = text.find(ent.text)
+            position_score = 0
+            if pos < 200:
+                position_score = 40
+            elif pos < 600:
+                position_score = 20
+            score = score_name_candidate(candidate, 2, email_tokens, email_local) + position_score
+            if score > best_score:
+                best_score = score
+                best = candidate
+        return best if best_score >= 40 else ""
     except Exception:
         return ""
-    return ""
-
 
 def extract_name(text: str, filename: str = "") -> str:
     text = text or ""
@@ -586,45 +623,68 @@ def extract_name(text: str, filename: str = "") -> str:
     ]
 
     email_name = extract_name_from_email(text)
-    email_tokens = {token.lower() for token in email_name.split()}
+    email_tokens = {t.lower() for t in email_name.split()} if email_name else set()
     detected_email = extract_email(text)
     email_local = detected_email.split("@", 1)[0].lower() if detected_email else ""
+
     candidates = []
 
+    # 1. Explicit labels (highest priority)
     patterns = [
-        r"(?:full\s*name|candidate\s*name|applicant\s*name|employee\s*name|name)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{3,60})",
-        r"(?:i\s+am|my\s+name\s+is)\s+([A-Za-z][A-Za-z .'-]{3,60})",
+        r"(?:full\s*name|candidate\s*name|applicant\s*name|employee\s*name|name)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{2,60})",
+        r"(?:i\s+am|my\s+name\s+is)\s+([A-Za-z][A-Za-z .'-]{2,60})",
     ]
-
     for pattern in patterns:
-        for match in re.finditer(pattern, text, flags=re.I):
-            name = match.group(1)
-            candidates.append((score_name_candidate(name, 0, email_tokens, email_local) + 50, name))
+        for m in re.finditer(pattern, text, flags=re.I):
+            candidates.append(
+                (score_name_candidate(m.group(1), 0, email_tokens, email_local) + 90, m.group(1))
+            )
             break
 
+    # 2. spaCy NER (now picks best entity)
     ner_name = extract_name_ner(text)
     if ner_name:
-        candidates.append((score_name_candidate(ner_name, 1, email_tokens, email_local) + 40, ner_name))
+        candidates.append(
+            (score_name_candidate(ner_name, 1, email_tokens, email_local) + 60, ner_name)
+        )
 
-    for idx, line in enumerate(lines[:40]):
-        score = score_name_candidate(line, idx, email_tokens, email_local)
-        if score > 0:
-            candidates.append((score, line))
+    # 3. Top lines – also strip trailing designation noise
+    for idx, line in enumerate(lines[:50]):
+        raw = line
+        # Remove common trailing role/title after name
+        cleaned_line = re.split(
+            r"\s*[–—\-|•]\s*|\s{2,}|\s+(?:R&D|Scientist|Manager|Engineer|Lead|Head|Director|Executive)\b",
+            raw, maxsplit=1, flags=re.I
+        )[0]
+        if cleaned_line.lower().rstrip(":") in BAD_NAME_WORDS or len(cleaned_line) > 55:
+            continue
+        score = score_name_candidate(cleaned_line, idx, email_tokens, email_local)
+        if score > 25:
+            candidates.append((score, cleaned_line))
 
+    # 4. Email-derived
     if email_name:
-        candidates.append((score_name_candidate(email_name, 5, email_tokens, email_local) + 10, email_name))
+        candidates.append(
+            (score_name_candidate(email_name, 6, email_tokens, email_local) + 35, email_name)
+        )
 
+    # 5. Filename
     file_name = filename_name_candidate(filename)
     if file_name:
-        candidates.append((score_name_candidate(file_name, 10, email_tokens, email_local), file_name))
+        candidates.append(
+            (score_name_candidate(file_name, 10, email_tokens, email_local) + 20, file_name)
+        )
 
     if candidates:
-        candidates.sort(reverse=True, key=lambda x: x[0])
+        candidates.sort(key=lambda x: x[0], reverse=True)
         best_score, best_name = candidates[0]
-        if best_score >= 40:
-            best_name = clean_name_candidate(best_name)
-            if best_name:
-                return best_name
+        cleaned = clean_name_candidate(best_name)
+        if cleaned and best_score >= 48:
+            return cleaned
+
+    # Last resort – even a single strong token from email is better than Unknown
+    if email_name:
+        return clean_name_candidate(email_name)
 
     return "Unknown Candidate"
 
