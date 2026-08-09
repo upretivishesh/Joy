@@ -321,24 +321,48 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     if not role.strip() or not jd_text.strip():
         return False
 
+    role = role.strip()
+    jd_text = jd_text.strip()
+    tags = (tags or "").strip()
+
     if supabase:
         try:
-            # Delete old version of same role first (optional)
-            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role.strip()).execute()
-            
+            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role).execute()
             supabase.table("jd_library").insert({
                 "user_key": user_key,
-                "role": role.strip(),
-                "jd_text": jd_text.strip(),
-                "tags": tags.strip()
+                "role": role,
+                "jd_text": jd_text,
+                "tags": tags,
             }).execute()
             print(f"✅ JD saved to Supabase: {role}")
             return True
         except Exception as e:
             print(f"❌ Supabase save_jd failed: {e}")
 
-    return False
+    # Local fallback (Excel) — this was missing
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        existing = load_jd_library(user_key)
 
+        new_entry = pd.DataFrame([{
+            "Role": role,
+            "JD Text": jd_text,
+            "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Tags": tags,
+        }])
+
+        if not existing.empty and "Role" in existing.columns:
+            existing = existing[
+                existing["Role"].astype(str).str.lower().str.strip() != role.lower()
+            ]
+
+        combined = pd.concat([existing, new_entry], ignore_index=True)
+        combined.to_excel(jd_library_path(user_key), index=False)
+        print(f"✅ JD saved locally: {role}")
+        return True
+    except Exception as e:
+        print(f"❌ Local save_jd failed: {e}")
+        return False
 
 def delete_jd(user_key: str, role: str) -> None:
     """Delete a specific JD from the library"""
