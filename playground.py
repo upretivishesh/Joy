@@ -16,7 +16,7 @@ from core.history import (
     update_feedback,
 )
 from core.ocr import read_uploaded_file
-from core.parser import extract_role_from_jd
+from core.parser import extract_role_from_jd, extract_keywords, parse_min_experience
 from core.persona_options import INDUSTRY_OPTIONS, LANGUAGE_OPTIONS, merge_with_custom
 from core.screening import run_screening
 from core.utils import (
@@ -261,42 +261,34 @@ with screen_tab:
 
     jd_text = typed_jd_text
     if jd_upload:
-        uploaded_jd_text, jd_error = read_uploaded_file(
-            jd_upload.name,
-            jd_upload.getvalue(),
-        )
+        uploaded_jd_text, jd_error = read_uploaded_file(jd_upload.name, jd_upload.getvalue())
         if jd_error:
             st.warning(f"JD upload: {jd_error}")
         if uploaded_jd_text.strip():
             jd_text = uploaded_jd_text
             st.caption(f"Using uploaded JD: {jd_upload.name}")
-
-        # ---------- JD Preview Card (SAFE VERSION) ----------
-        if jd_text and jd_text.strip():
-            # Always get role safely from session_state
-            current_role_input = st.session_state.get("role_input", "")
-            
-            detected_role = extract_role_from_jd(jd_text, current_role_input)
-            
-            preview_keywords = extract_keywords(jd_text, limit=10)
-            
-            with st.container(border=True):
-                st.markdown(
-                    f"""
-                    <div style="padding: 4px 0 2px 0;">
-                        <span style="color:#42e8d0; font-weight:700; font-size:0.82rem; letter-spacing:0.06em;">DETECTED ROLE</span>
-                        <h3 style="margin:6px 0 8px 0; color:#eef2ff; font-size:1.35rem;">{detected_role}</h3>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                
-                if preview_keywords:
-                    st.caption("Key requirements:  " + "  ·  ".join(preview_keywords[:8]))
-                
-                min_exp_detected = parse_min_experience(jd_text)
-                if min_exp_detected > 0:
-                    st.caption(f"Minimum experience detected: **{min_exp_detected:g}+ years**")
+    
+    # ---------- JD Preview Card (now works for paste + upload) ----------
+    if jd_text and jd_text.strip():
+        current_role_input = st.session_state.get("role_input", "")
+        detected_role = extract_role_from_jd(jd_text, current_role_input)
+        preview_keywords = extract_keywords(jd_text, limit=10)
+    
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                <div style="padding: 4px 0 2px 0;">
+                    <span style="color:#42e8d0; font-weight:700; font-size:0.82rem; letter-spacing:0.06em;">DETECTED ROLE</span>
+                    <h3 style="margin:6px 0 8px 0; color:#eef2ff; font-size:1.35rem;">{detected_role}</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if preview_keywords:
+                st.caption("Key requirements:  " + "  ·  ".join(preview_keywords[:8]))
+            min_exp_detected = parse_min_experience(jd_text)
+            if min_exp_detected > 0:
+                st.caption(f"Minimum experience detected: **{min_exp_detected:g}+ years**")
 
     with st.expander("Optional screening controls + Persona", expanded=False):
         role_input = st.text_input(
@@ -1090,7 +1082,6 @@ with history_tab:
                     hide_index=True,
                 )
                 
-# ====================== JD LIBRARY TAB ======================
 # ====================== JD LIBRARY TAB ======================
 with jd_tab:
     st.subheader("JD Library")
