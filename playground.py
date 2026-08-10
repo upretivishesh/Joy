@@ -486,23 +486,26 @@ with screen_tab:
             st.session_state.last_client_company = client_company_input
 
             try:
-            from core.history import save_history
-        
-            if (
-                st.session_state.results_df is not None
-                and not st.session_state.results_df.empty
-            ):
-                ok = save_history(
-                    st.session_state.results_df,
-                    detected_role,
-                    user_key,
-                    jd_text,
-                )
-                if not ok:
-                    st.warning("Screening finished, but history was **not** saved. Check logs / Supabase.")
-        except Exception as _hist_err:
-            st.warning(f"History save failed: {_hist_err}")
+                from core.history import save_history
 
+                if (
+                    st.session_state.results_df is not None
+                    and not st.session_state.results_df.empty
+                ):
+                    ok = save_history(
+                        st.session_state.results_df,
+                        detected_role,
+                        user_key,
+                        jd_text,
+                    )
+                    if not ok:
+                        st.warning(
+                            "Screening finished, but history was **not** saved. "
+                            "Check logs / Supabase."
+                        )
+            except Exception as _hist_err:
+                st.warning(f"History save failed: {_hist_err}")
+                
             st.success(f"Screened {len(results)} resume(s) for {detected_role}.")
             for error in read_errors:
                 st.warning(error)
