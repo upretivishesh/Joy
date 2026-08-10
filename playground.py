@@ -203,54 +203,17 @@ with screen_tab:
     
     with button_col:
         st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-        
-        b1, b2 = st.columns(2)
-        with b1:
-            new_search = st.button("New", key="new_search_btn", use_container_width=True)
-        with b2:
-            load_demo = st.button("Demo", key="load_demo_btn", use_container_width=True)
+        new_search = st.button("New", key="new_search_btn", use_container_width=True)
     
     if new_search:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
-        st.rerun()
-    
-    if load_demo:
-        sample_jd = """R&D Team Leader | Organic Chemistry
-    
-    Location: Bengaluru
-    
-    Key Responsibilities
-    Lead and mentor a team of R&D scientists.
-    Drive process development, optimization, validation, and scale-up.
-    Develop cost-effective, commercially viable, and non-infringing manufacturing processes.
-    Troubleshoot reaction pathways, process impurities, and purification methods.
-    Support technology transfer from R&D to manufacturing.
-    Interpret analytical data using NMR, HPLC, GC, Mass Spectrometry, etc.
-    Conduct literature and patent searches using SciFinder/Reaxys.
-    Prepare technical documentation, cost analysis, and risk assessments.
-    Ensure compliance with lab safety, quality, and IP confidentiality.
-    
-    Requirements
-    Ph.D. in Organic Chemistry with 3–5 years of industry experience, or M.Sc. in Chemistry with 12–15 years of industry experience.
-    Strong experience in Agrochemical R&D or Process Development.
-    Expertise in process optimization, scale-up, and technology transfer.
-    Hands-on experience with analytical techniques and purification methods.
-    Strong leadership, problem-solving, and project management skills."""
-    
-        st.session_state["typed_jd_text"] = sample_jd
-        st.session_state["role_input"] = "R&D Team Leader | Organic Chemistry"
-        st.session_state["client_company_input"] = "Atomgrid"
-        st.session_state["client_picker"] = "Atomgrid"
-        st.session_state["extra_keywords"] = "organic chemistry, process development, scale-up, NMR, HPLC, agrochemical, SciFinder"
-        st.session_state["_demo_loaded"] = True
-        st.rerun()
-        
-    jd_upload = st.file_uploader(
-        "Upload JD",
-        type=["pdf", "docx", "txt"],
-        key=f"jd_upload_{st.session_state.upload_session}",
-    )
+        st.rerun()        
+        jd_upload = st.file_uploader(
+            "Upload JD",
+            type=["pdf", "docx", "txt"],
+            key=f"jd_upload_{st.session_state.upload_session}",
+        )
 
     typed_jd_text = st.text_area(
         "Or paste JD",
