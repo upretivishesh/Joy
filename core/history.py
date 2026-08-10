@@ -317,51 +317,80 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
         return pd.read_excel(path)
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
 
-def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
-    if not role.strip() or not jd_text.strip():
+def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> bool:
+    """
+    Returns True if saved successfully (Supabase or local), False otherwise.
+    """
+    if df is None or df.empty:
         return False
 
-    role = role.strip()
-    jd_text = jd_text.strip()
-    tags = (tags or "").strip()
+    to_save = df.copy()
+    to_save["Role"] = role
+    to_save["JD"] = jd_text
+    to_save = _clean_phone_column(to_save)
+    to_save = _ensure_profile_key(to_save)
 
+    # ---------- Supabase ----------
     if supabase:
-        try:
-            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role).execute()
-            supabase.table("jd_library").insert({
+        records = []
+        for _, row in to_save.iterrows():
+            records.append({
                 "user_key": user_key,
-                "role": role,
-                "jd_text": jd_text,
-                "tags": tags,
-            }).execute()
-            print(f"✅ JD saved to Supabase: {role}")
+                "role": str(role),
+                "profile_key": str(row.get("Profile Key", "")),
+                "name": str(row.get("Name", "")),
+                "email": str(row.get("Email", "")),
+                "phone": str(row.get("Phone", "")),
+                "experience": float(row.get("Experience", 0) or 0),
+                "education": str(row.get("Education", "")),
+                "final_score": float(row.get("Final Score", 0) or 0),
+                "verdict": str(row.get("Verdict", "")),
+                "industry_match": str(row.get("Industry Match", "")),
+                "candidate_industry": str(row.get("Candidate Industry", "")),
+                "matched_keywords": str(row.get("Matched Keywords", "")),
+                "missing_keywords": str(row.get("Missing Keywords", "")),
+                "skills": str(row.get("Skills", "")),
+                "reason": str(row.get("Reason", "")),
+                "feedback": str(row.get("Feedback", "Pending") or "Pending"),
+                "client": str(row.get("Client", "") or row.get("client_company", "")),
+                "source_file": str(row.get("Source File", "")),
+                "jd": (jd_text or "")[:4000],
+            })
+
+        try:
+            # Use upsert so re-screening the same people doesn't crash
+            # (requires a unique constraint on user_key + profile_key + role)
+            supabase.table("screening_history").upsert(
+                records,
+                on_conflict="user_key,profile_key,role"   # adjust if your unique key is different
+            ).execute()
+            print(f"✅ History saved to Supabase ({len(records)} rows)")
             return True
         except Exception as e:
-            print(f"❌ Supabase save_jd failed: {e}")
+            print(f"❌ Supabase save_history failed: {e}")
+            # fall through to local
 
-    # Local fallback (Excel) — this was missing
+    # ---------- Local fallback ----------
     try:
+        path = history_path(user_key)
         DATA_DIR.mkdir(exist_ok=True)
-        existing = load_jd_library(user_key)
 
-        new_entry = pd.DataFrame([{
-            "Role": role,
-            "JD Text": jd_text,
-            "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Tags": tags,
-        }])
+        existing = pd.DataFrame()
+        if path.exists():
+            existing = pd.read_excel(path)
 
-        if not existing.empty and "Role" in existing.columns:
-            existing = existing[
-                existing["Role"].astype(str).str.lower().str.strip() != role.lower()
-            ]
+        combined = pd.concat([existing, to_save], ignore_index=True)
+        # optional: drop exact duplicates
+        if "Profile Key" in combined.columns and "Role" in combined.columns:
+            combined = combined.drop_duplicates(
+                subset=["Profile Key", "Role"], keep="last"
+            )
 
-        combined = pd.concat([existing, new_entry], ignore_index=True)
-        combined.to_excel(jd_library_path(user_key), index=False)
-        print(f"✅ JD saved locally: {role}")
+        combined.to_excel(path, index=False)
+        print(f"✅ History saved locally → {path}")
         return True
     except Exception as e:
-        print(f"❌ Local save_jd failed: {e}")
+        print(f"❌ Local save_history failed: {e}")
         return False
 
 def delete_jd(user_key: str, role: str) -> None:
