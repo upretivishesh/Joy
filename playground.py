@@ -196,7 +196,7 @@ with screen_tab:
     if pending_role is not None:
         st.session_state["role_input"] = pending_role
 
-    title_col, button_col = st.columns([7.5, 2.5], vertical_alignment="center")
+        title_col, button_col = st.columns([7.5, 2.5], vertical_alignment="center")
 
     with title_col:
         st.subheader("Job")
@@ -208,12 +208,13 @@ with screen_tab:
     if new_search:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
-        st.rerun()        
-        jd_upload = st.file_uploader(
-            "Upload JD",
-            type=["pdf", "docx", "txt"],
-            key=f"jd_upload_{st.session_state.upload_session}",
-        )
+        st.rerun()
+
+    jd_upload = st.file_uploader(
+        "Upload JD",
+        type=["pdf", "docx", "txt"],
+        key=f"jd_upload_{st.session_state.upload_session}",
+    )
 
     typed_jd_text = st.text_area(
         "Or paste JD",
