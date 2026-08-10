@@ -881,6 +881,7 @@ with history_tab:
             history_editable["Name"] = history_editable["Name"].str.title()
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
+       # Drop internal columns you don't want to show
         history_editable = history_editable.drop(
             columns=[
                 "Reason",
@@ -888,29 +889,31 @@ with history_tab:
                 "Duplicate",
                 "Keyword Score",
                 "Semantic Score",
+                "id",
+                "user_key",
+                "created_at",
             ],
             errors="ignore",
         )
-
+        
+        # Format industry match badge
         history_editable = format_industry_fit(history_editable)
-
-        history_editable = order_columns_first(
-            history_editable,
-            [
-                "Rank",
-                "Send",
-                "Name",
-                "Email",
-                "Phone",
-                "Experience",
-                "Education",
-                "Final Score",
-                "Feedback",
-                "Verdict",
-            ],
-        )
-
+        
+        # Format experience as "13 yrs" instead of plain numbers
         history_editable = format_experience_years(history_editable)
+        
+        # Preferred user-facing column order
+        preferred_order = [
+            "Name",
+            "Email",
+            "Phone",
+            "Experience",
+            "Education",
+            "Verdict",
+            "Feedback",
+        ]
+        
+        history_editable = order_columns_first(history_editable, preferred_order)
 
         if "Phone" in history_editable.columns:
             history_editable["Phone"] = (
