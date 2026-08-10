@@ -187,6 +187,7 @@ st.markdown(
 screen_tab, email_tab, history_tab, jd_tab = st.tabs(["Screen", "Email", "History", "JD Library"])
 
 # ====================== SCREEN TAB ======================
+# ====================== SCREEN TAB ======================
 with screen_tab:
 
     pending_jd = st.session_state.pop("_pending_jd_text", None)
@@ -196,15 +197,15 @@ with screen_tab:
     if pending_role is not None:
         st.session_state["role_input"] = pending_role
 
-        title_col, button_col = st.columns([7.5, 2.5], vertical_alignment="center")
+    title_col, button_col = st.columns([7.5, 2.5], vertical_alignment="center")
 
     with title_col:
         st.subheader("Job")
-    
+
     with button_col:
         st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
         new_search = st.button("New", key="new_search_btn", use_container_width=True)
-    
+
     if new_search:
         reset_screening_session()
         st.session_state["client_picker"] = "+ New client"
