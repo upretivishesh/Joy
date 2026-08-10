@@ -515,6 +515,46 @@ def render_css() -> None:
 def inject_premium_persona_css() -> None:
     inject_elite_theme()
 
+    st.markdown(
+        """
+        <style>
+        /* ===== Clean Min / Max Experience number inputs ===== */
+        div[data-testid="stNumberInput"] > div {
+            background-color: #0f172a !important;
+            border: 1px solid #1e293b !important;
+            border-radius: 12px !important;
+            transition: all 0.2s ease;
+        }
+
+        div[data-testid="stNumberInput"] > div:focus-within {
+            border-color: #42e8d0 !important;
+            box-shadow: 0 0 0 1px #42e8d0 !important;
+        }
+
+        div[data-testid="stNumberInput"] input {
+            color: #e2e8f0 !important;
+            font-weight: 500 !important;
+            background: transparent !important;
+        }
+
+        /* +/- buttons */
+        div[data-testid="stNumberInput"] button {
+            background-color: #1e293b !important;
+            border: none !important;
+            color: #94a3b8 !important;
+            border-radius: 8px !important;
+            transition: all 0.15s ease;
+        }
+
+        div[data-testid="stNumberInput"] button:hover {
+            background-color: #334155 !important;
+            color: #42e8d0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def _inject_html(html_string: str, height: int = 0, width: int = 0) -> None:
     try:
