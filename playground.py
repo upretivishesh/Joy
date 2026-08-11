@@ -618,14 +618,12 @@ with history_tab:
                 placeholder="All roles — pick one or more to filter",
                 key="role_multiselect",
             )
+            # Keep selected_role for downstream delete/JD-load logic which expects a single value
             selected_role = selected_roles[0] if len(selected_roles) == 1 else "all"
 
             show_limit = st.slider("Show last records", min_value=50, max_value=500, value=150, step=50)
 
-            if selected_roles:
-                shown = hist[hist["Role"].isin(selected_roles)]
-            else:
-                shown = hist
+            shown = hist[hist["Role"].isin(selected_roles)] if selected_roles else hist
             shown = shown.tail(show_limit) if len(shown) > show_limit else shown
 
             if selected_role != "all" and "JD" in shown.columns:
