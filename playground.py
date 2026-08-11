@@ -768,99 +768,115 @@ with history_tab:
         )
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
-        search_query = st.text_input(
+                        search_query = st.text_input(
             "Search all candidates",
             placeholder="Name, email, phone, skill, or role — searches your entire history at once",
             key="candidate_search",
         )
 
         selected_role = "all"
-        if search_query.strip():
-            shown = filter_history_by_search(hist, search_query)
-            st.caption(f'{len(shown)} match(es) across all roles for "{search_query.strip()}"')
-        elif "Role" in hist.columns:
-            roles = ["all"] + sorted(hist["Role"].dropna().unique().tolist())
-            selected_role = st.selectbox("Role filter", roles)
+        shown = hist.copy()
 
+        if "Role" in hist.columns:
+            roles = ["all"] + sorted(
+                [r for r in hist["Role"].dropna().astype(str).unique().tolist() if r.strip()]
+            )
+            selected_role = st.selectbox("Role filter", roles, key="history_role_filter")
+
+            if selected_role != "all":
+                shown = shown[shown["Role"].astype(str) == selected_role]
+
+        if search_query.strip():
+            shown = filter_history_by_search(shown, search_query)
+            st.caption(f'{len(shown)} match(es) for "{search_query.strip()}"')
+
+        if not shown.empty:
+            max_rows = max(len(shown), 50)
+            default_rows = min(150, max_rows)
             show_limit = st.slider(
                 "Show last records",
                 min_value=50,
-                max_value=500,
-                value=150,
+                max_value=max(500, max_rows),
+                value=default_rows,
                 step=50,
+                key="history_show_limit",
             )
-
-            shown = hist if selected_role == "all" else hist[hist["Role"] == selected_role]
             shown = shown.tail(show_limit) if len(shown) > show_limit else shown
 
-            if selected_role != "all" and "JD" in shown.columns:
-                saved_jds = shown["JD"].dropna().astype(str)
-                saved_jds = saved_jds[saved_jds.str.strip() != ""]
-                if not saved_jds.empty:
-                    latest_jd = saved_jds.iloc[-1]
-                    already_loaded = (
-                        st.session_state.get("_history_loaded_role") == selected_role
-                        and st.session_state.get("_history_loaded_jd") == latest_jd
-                    )
-                    if not already_loaded:
-                        st.session_state["_pending_jd_text"] = latest_jd
-                        st.session_state["_pending_role_input"] = selected_role
-                        st.session_state["_history_loaded_role"] = selected_role
-                        st.session_state["_history_loaded_jd"] = latest_jd
-                        st.rerun()
+        if selected_role != "all" and "JD" in shown.columns:
+            saved_jds = shown["JD"].dropna().astype(str)
+            saved_jds = saved_jds[saved_jds.str.strip() != ""]
+            if not saved_jds.empty:
+                latest_jd = saved_jds.iloc[-1]
+                already_loaded = (
+                    st.session_state.get("_history_loaded_role") == selected_role
+                    and st.session_state.get("_history_loaded_jd") == latest_jd
+                )
+                if not already_loaded:
+                    st.session_state["_pending_jd_text"] = latest_jd
+                    st.session_state["_pending_role_input"] = selected_role
+                    st.session_state["_history_loaded_role"] = selected_role
+                    st.session_state["_history_loaded_jd"] = latest_jd
+                    st.rerun()
 
-            delete_col1, delete_col2 = st.columns(2)
+        delete_col1, delete_col2 = st.columns(2)
 
-            with delete_col1:
-                if selected_role != "all":
-                    if st.button(
-                        f"Delete {selected_role} history",
-                        use_container_width=True,
-                        type="secondary",
-                    ):
-                        @st.dialog(f"Delete history for '{selected_role}'?")
-                        def delete_role_dialog():
-                            st.warning(
-                                f"This will permanently delete **all screenings** for the role **{selected_role}**."
-                            )
-                            st.write("This action cannot be undone.")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("Cancel", use_container_width=True):
-                                    st.rerun()
-                            with col2:
-                                if st.button("Yes", type="primary", use_container_width=True):
-                                    confirm_delete_role_history(user_key, selected_role)
-
-                        delete_role_dialog()
-
-            with delete_col2:
+        with delete_col1:
+            if selected_role != "all":
                 if st.button(
-                    "Delete all history",
+                    f"Delete “{selected_role}” history",
                     use_container_width=True,
                     type="secondary",
+                    key="btn_delete_role_hist",
                 ):
-                    @st.dialog("Delete ALL history?")
-                    def delete_all_dialog():
-                        st.error(
-                            "**Warning:** This will permanently delete **all** screening history."
+                    @st.dialog(f"Delete history for '{selected_role}'?")
+                    def delete_role_dialog():
+                        st.warning(
+                            f"This will permanently delete **all screenings** for **{selected_role}**."
                         )
                         st.write("This action cannot be undone.")
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button("Cancel", use_container_width=True):
+                            if st.button("Cancel", use_container_width=True, key="cancel_del_role"):
                                 st.rerun()
                         with col2:
                             if st.button(
-                                "Yes, Delete Everything",
+                                "Yes, delete role",
                                 type="primary",
                                 use_container_width=True,
+                                key="confirm_del_role",
                             ):
-                                confirm_delete_all_history(user_key)
+                                confirm_delete_role_history(user_key, selected_role)
 
-                    delete_all_dialog()
-        else:
-            shown = hist
+                    delete_role_dialog()
+
+        with delete_col2:
+            if st.button(
+                "Delete ALL history",
+                use_container_width=True,
+                type="secondary",
+                key="btn_delete_all_hist",
+            ):
+                @st.dialog("Delete ALL history?")
+                def delete_all_dialog():
+                    st.error(
+                        "**Warning:** This permanently deletes **all** screening history."
+                    )
+                    st.write("This action cannot be undone.")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Cancel", use_container_width=True, key="cancel_del_all"):
+                            st.rerun()
+                    with col2:
+                        if st.button(
+                            "Yes, Delete Everything",
+                            type="primary",
+                            use_container_width=True,
+                            key="confirm_del_all",
+                        ):
+                            confirm_delete_all_history(user_key)
+
+                delete_all_dialog()
 
         history_editable = shown.copy()
 
