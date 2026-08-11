@@ -40,10 +40,6 @@ def _get_supabase_client() -> Optional[Client]:
     return None
 
 
-# Supabase client is now fetched lazily inside each function,
-# not at module import time when st.secrets is not yet available.
-
-
 def _json_safe(value):
     """Convert a single value into something json.dumps / PostgREST can accept."""
     if value is None:
@@ -88,6 +84,7 @@ def jd_library_path(user_key: str):
 
 # ─── Candidate History functions ────────────────────────────────────────────
 def load_history(user_key: str) -> pd.DataFrame:
+
     supabase = _get_supabase_client()
     if supabase:
         try:
@@ -122,6 +119,7 @@ def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> None:
+
     supabase = _get_supabase_client()
     if df.empty:
         print("save_history skipped: DataFrame is empty")
@@ -208,6 +206,7 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
 
 
 def clear_history(user_key: str) -> None:
+
     supabase = _get_supabase_client()
     if supabase:
         try:
@@ -222,6 +221,7 @@ def clear_history(user_key: str) -> None:
 
 
 def clear_role_history(user_key: str, role: str) -> None:
+
     supabase = _get_supabase_client()
     """
     Delete all history for a single role. Transaction-safe: re-inserts the
@@ -341,6 +341,7 @@ def filter_history_by_search(hist: pd.DataFrame, query: str) -> pd.DataFrame:
 
 # ─── JD Library functions ───────────────────────────────────────────────────
 def load_jd_library(user_key: str) -> pd.DataFrame:
+
     supabase = _get_supabase_client()
     if supabase:
         try:
@@ -363,6 +364,7 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
 
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
+
     supabase = _get_supabase_client()
     if not jd_text.strip() or not role.strip():
         return False
@@ -398,6 +400,7 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
 
 
 def delete_jd(user_key: str, role: str) -> None:
+
     supabase = _get_supabase_client()
     if supabase:
         try:
@@ -428,6 +431,7 @@ def get_jd(user_key: str, role: str) -> str:
 
 
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
+
     supabase = _get_supabase_client()
     """
     Tag a specific candidate history record with outcome feedback (Good Hire /
