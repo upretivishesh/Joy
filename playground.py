@@ -26,7 +26,7 @@ from core.utils import (
     get_secret,
     init_state,
     inject_clear_icon_fix,
-    inject_keepalive,
+    #inject_keepalive,
     inject_multiselect_chip_fix,
     inject_premium_persona_css,
     is_auth_configured,
