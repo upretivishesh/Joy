@@ -619,22 +619,7 @@ def inject_clear_icon_fix() -> None:
     )
 
 
-def inject_keepalive() -> None:
-    _inject_html(
-        """
-        <script>
-        setInterval(() => {
-          try {
-            const parentDoc = window.parent.document;
-            parentDoc.dispatchEvent(new MouseEvent("mousemove", {bubbles: true}));
-            parentDoc.dispatchEvent(new KeyboardEvent("keydown", {bubbles: true, key: "Shift"}));
-          } catch (e) {}
-        }, 240000);
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
+#def inject_keepalive() -> None:
 
 
 def show_results_summary(df: pd.DataFrame) -> None:
