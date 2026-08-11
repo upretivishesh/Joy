@@ -141,6 +141,7 @@ def load_history(user_key: str) -> pd.DataFrame:
                     "client": "Client",
                     "skills": "Skills",
                     "reason": "Reason",
+                    "created_at": "Screened At",
                 }
                 df = df.rename(columns=rename_map)
                 return _clean_phone_column(df)
@@ -158,6 +159,10 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
     """
     Save screening results to Supabase (screening_history) and to local Excel.
     Returns True if at least one of them succeeds.
+
+    NOTE: uses plain insert() (not upsert) so it does not depend on a
+    unique constraint on (user_key, profile_key, role). Re-screening the
+    same candidate/role will create a new row rather than update the old one.
     """
     if df is None or df.empty:
         print("[save_history] skipped: empty df")
@@ -198,11 +203,7 @@ def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") 
             })
 
         try:
-            # Requires a UNIQUE constraint on (user_key, profile_key, role)
-            supabase.table("screening_history").upsert(
-                records,
-                on_conflict="user_key,profile_key,role",
-            ).execute()
+            supabase.table("screening_history").insert(records).execute()
             print(f"✅ save_history Supabase ok — {len(records)} rows")
             supabase_ok = True
         except Exception as e:
