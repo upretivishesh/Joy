@@ -353,7 +353,7 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     if not jd_text.strip() or not role.strip():
-        print("[save_jd] missing role or JD")
+        print("[save_jd] missing role or JD text")
         return False
 
     role = role.strip()
@@ -362,9 +362,15 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
 
     supabase_ok = False
 
-    if supabase:
+    if supabase is not None:
         try:
-            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role).execute()
+            # Delete old JD for this role/user to avoid duplicates
+            supabase.table("jd_library")\
+                .delete()\
+                .eq("user_key", user_key)\
+                .eq("role", role)\
+                .execute()
+
             supabase.table("jd_library").insert({
                 "user_key": user_key,
                 "role": role,
@@ -376,6 +382,7 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
         except Exception as e:
             print(f"❌ save_jd Supabase failed: {e}")
 
+    # Local Excel fallback
     local_ok = False
     try:
         DATA_DIR.mkdir(exist_ok=True)
@@ -390,7 +397,9 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
         }])
 
         if not existing.empty and "Role" in existing.columns:
-            existing = existing[existing["Role"].astype(str).str.lower().str.strip() != role.lower()]
+            existing = existing[
+                existing["Role"].astype(str).str.lower().str.strip() != role.lower()
+            ]
 
         combined = pd.concat([existing, new_entry], ignore_index=True)
         combined.to_excel(path, index=False)
