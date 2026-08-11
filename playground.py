@@ -768,7 +768,7 @@ with history_tab:
         )
         c3.metric("Roles", hist["Role"].nunique() if "Role" in hist.columns else 0)
 
-                        search_query = st.text_input(
+        search_query = st.text_input(
             "Search all candidates",
             placeholder="Name, email, phone, skill, or role — searches your entire history at once",
             key="candidate_search",
@@ -897,7 +897,8 @@ with history_tab:
             history_editable["Name"] = history_editable["Name"].str.title()
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
-       # Drop internal columns you don't want to show
+                # Drop internal columns you don't want to show
+        
         history_editable = history_editable.drop(
             columns=[
                 "Reason",
