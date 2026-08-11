@@ -47,7 +47,7 @@ render_css()
 inject_premium_persona_css()
 inject_multiselect_chip_fix()
 inject_clear_icon_fix()
-inject_keepalive()
+#inject_keepalive()
 init_state()
 
 # ---------- Google OAuth + Manual Whitelist ----------
