@@ -330,7 +330,6 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                 supabase.table("jd_library")
                 .select("*")
                 .eq("user_key", user_key)
-                .order("created_at", desc=True)
                 .execute()
             )
             if response.data:
@@ -339,11 +338,12 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                     "role": "Role",
                     "jd_text": "JD Text",
                     "tags": "Tags",
-                    "created_at": "Saved At",
                 })
-                for col in ["Role", "JD Text", "Saved At", "Tags"]:
+                for col in ["Role", "JD Text", "Tags"]:
                     if col not in df.columns:
                         df[col] = ""
+                if "Saved At" not in df.columns:
+                    df["Saved At"] = ""
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
             return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
         except Exception as e:
