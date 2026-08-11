@@ -105,6 +105,17 @@ if not st.session_state.gmail_authenticated or st.session_state.sender_email != 
         google_name,
         st.session_state.get("company_name", DEFAULT_COMPANY),
     )
+from core.history import supabase
+
+st.write("Supabase is", "connected" if supabase else "NOT connected")
+
+if supabase:
+    st.write(
+        supabase.table("jd_library")
+        .select("*")
+        .limit(5)
+        .execute()
+    )
 
 if not st.session_state.sender_password:
     with st.expander("Gmail App Password required for sending emails", expanded=True):
