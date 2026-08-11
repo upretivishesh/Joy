@@ -116,7 +116,25 @@ if supabase:
         .limit(5)
         .execute()
     )
+from core.history import save_jd, load_jd_library
 
+if st.button("Save JD to library"):
+    role = st.session_state.get("jd_save_role", "").strip()
+    jd_text = st.session_state.get("jd_save_text", "").strip()
+    tags = st.session_state.get("jd_save_tags", "").strip()
+
+    st.write("DEBUG: saving JD", {"role": role, "len": len(jd_text)})
+
+    ok = save_jd(user_key=user_key, role=role, jd_text=jd_text, tags=tags)
+
+    st.write("DEBUG: save_jd returned", ok)
+
+    if ok:
+        st.success("Saved to JD Library.")
+        st.session_state.jd_library_df = load_jd_library(user_key)
+    else:
+        st.error("Could not save JD — see logs.")
+        
 if not st.session_state.sender_password:
     with st.expander("Gmail App Password required for sending emails", expanded=True):
         st.caption(
