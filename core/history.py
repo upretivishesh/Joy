@@ -18,9 +18,7 @@ except ImportError:
 
 from supabase import create_client, Client
 
-
 def _get_supabase_client() -> Optional[Client]:
-    """Safely get Supabase client. Never crashes on import."""
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
 
@@ -36,8 +34,9 @@ def _get_supabase_client() -> Optional[Client]:
             return create_client(url, key)
         except Exception as e:
             print(f"Supabase connection failed: {e}")
-            return None
     return None
+
+supabase: Optional[Client] = _get_supabase_client()
 
 
 def _json_safe(value):
