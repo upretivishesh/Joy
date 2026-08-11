@@ -364,10 +364,10 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
 
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
-
-    supabase = _get_supabase_client()
     if not jd_text.strip() or not role.strip():
         return False
+
+    supabase = _get_supabase_client()
 
     if supabase:
         try:
@@ -376,27 +376,44 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
                 "role": role.strip(),
                 "jd_text": jd_text.strip(),
                 "saved_at": pd.Timestamp.now().isoformat(),
-                "tags": tags.strip()
+                "tags": tags.strip(),
             }
-            supabase.table("jd_library").upsert(data, on_conflict="user_key,role").execute()
+            # Prefer upsert if unique constraint exists; plain insert is safer if not
+            supabase.table("jd_library").upsert(
+                data, on_conflict="user_key,role"
+            ).execute()
             return True
         except Exception as e:
             print(f"Supabase save_jd error: {e}")
-            return False
+            # fall through to local save
 
-    DATA_DIR.mkdir(exist_ok=True)
-    existing = load_jd_library(user_key)
-    new_entry = pd.DataFrame([{
-        "Role": role.strip(),
-        "JD Text": jd_text.strip(),
-        "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Tags": tags.strip(),
-    }])
-    if not existing.empty and "Role" in existing.columns:
-        existing = existing[existing["Role"].astype(str).str.lower().str.strip() != role.lower().strip()]
-    combined = pd.concat([existing, new_entry], ignore_index=True)
-    combined.to_excel(jd_library_path(user_key), index=False)
-    return True
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        existing = load_jd_library(user_key)
+        # If load_jd_library also hits broken Supabase, force empty frame
+        if existing is None or not isinstance(existing, pd.DataFrame):
+            existing = pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
+
+        new_entry = pd.DataFrame([{
+            "Role": role.strip(),
+            "JD Text": jd_text.strip(),
+            "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Tags": tags.strip(),
+        }])
+
+        if not existing.empty and "Role" in existing.columns:
+            existing = existing[
+                existing["Role"].astype(str).str.lower().str.strip()
+                != role.lower().strip()
+            ]
+
+        combined = pd.concat([existing, new_entry], ignore_index=True)
+        combined.to_excel(jd_library_path(user_key), index=False)
+        print(f"✅ JD saved locally for user: {user_key}")
+        return True
+    except Exception as e:
+        print(f"❌ Local save_jd also failed: {e}")
+        return False
 
 
 def delete_jd(user_key: str, role: str) -> None:
