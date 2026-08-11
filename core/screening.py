@@ -12,7 +12,7 @@ from core.parser import (
     parse_required_education_level,
 )
 from core.scoring import score_resume, verdict_from_score
-from core.history import load_history
+from core.history import load_history, save_history
 
 
 POSITIVE_FEEDBACK = {"Interviewed", "Shortlisted", "Hired"}
@@ -207,6 +207,7 @@ def run_screening(
     min_exp: float = 0,
     max_exp: float = 15,
     preferred_industries: Optional[List[str]] = None,
+    save_results: bool = False,
 ):
     read_errors = []
     preferred_industries = preferred_industries or []
@@ -342,5 +343,11 @@ def run_screening(
 
     if not df.empty and "Final Score" in df.columns:
         df = df.sort_values("Final Score", ascending=False).reset_index(drop=True)
+
+    if save_results and not df.empty:
+        try:
+            save_history(df=df, role=role, user_key=user_key, jd_text=jd_text)
+        except Exception as e:
+            st.error(f"Failed to save screening history: {e}")
 
     return df, read_errors
