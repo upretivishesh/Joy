@@ -354,55 +354,53 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
 
 def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     if not jd_text.strip() or not role.strip():
+        print("[save_jd] missing role or JD")
         return False
 
-    supabase = _get_supabase_client()
+    role = role.strip()
+    jd_text = jd_text.strip()
+    tags = (tags or "").strip()
+
+    supabase_ok = False
 
     if supabase:
         try:
-            data = {
+            supabase.table("jd_library").delete().eq("user_key", user_key).eq("role", role).execute()
+            supabase.table("jd_library").insert({
                 "user_key": user_key,
-                "role": role.strip(),
-                "jd_text": jd_text.strip(),
-                "saved_at": pd.Timestamp.now().isoformat(),
-                "tags": tags.strip(),
-            }
-            # Prefer upsert if unique constraint exists; plain insert is safer if not
-            supabase.table("jd_library").upsert(
-                data, on_conflict="user_key,role"
-            ).execute()
-            return True
+                "role": role,
+                "jd_text": jd_text,
+                "tags": tags,
+            }).execute()
+            print(f"✅ save_jd Supabase ok — {role}")
+            supabase_ok = True
         except Exception as e:
-            print(f"Supabase save_jd error: {e}")
-            # fall through to local save
+            print(f"❌ save_jd Supabase failed: {e}")
 
+    local_ok = False
     try:
         DATA_DIR.mkdir(exist_ok=True)
+        path = jd_library_path(user_key)
         existing = load_jd_library(user_key)
-        # If load_jd_library also hits broken Supabase, force empty frame
-        if existing is None or not isinstance(existing, pd.DataFrame):
-            existing = pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
 
         new_entry = pd.DataFrame([{
-            "Role": role.strip(),
-            "JD Text": jd_text.strip(),
+            "Role": role,
+            "JD Text": jd_text,
             "Saved At": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Tags": tags.strip(),
+            "Tags": tags,
         }])
 
         if not existing.empty and "Role" in existing.columns:
-            existing = existing[
-                existing["Role"].astype(str).str.lower().str.strip()
-                != role.lower().strip()
-            ]
+            existing = existing[existing["Role"].astype(str).str.lower().str.strip() != role.lower()]
 
         combined = pd.concat([existing, new_entry], ignore_index=True)
-        combined.to_excel(jd_library_path(user_key), index=False)
-        print(f"✅ JD saved locally for user: {user_key}")
-        return True
+        combined.to_excel(path, index=False)
+        print(f"✅ save_jd local ok → {path}")
+        local_ok = True
     except Exception as e:
-        print(f"❌ Local save_jd also failed: {e}")
-        return False
+        print(f"❌ save_jd local failed: {e}")
+
+    return supabase_ok or local_ok
 
 
 def delete_jd(user_key: str, role: str) -> None:
