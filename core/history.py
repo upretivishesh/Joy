@@ -118,91 +118,80 @@ def _ensure_profile_key(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> None:
+def save_history(df: pd.DataFrame, role: str, user_key: str, jd_text: str = "") -> bool:
+    """
+    Save screening results to Supabase (screening_history) and to local Excel.
+    Returns True if at least one of them succeeds.
+    """
+    if df is None or df.empty:
+        print("[save_history] skipped: empty df")
+        return False
 
-    supabase = _get_supabase_client()
-    if df.empty:
-        print("save_history skipped: DataFrame is empty")
-        return
-
-    batch = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     to_save = df.copy()
     to_save["Role"] = role
     to_save["JD"] = jd_text
-    to_save["Screened At"] = batch
+    to_save = _clean_phone_column(to_save)
     to_save = _ensure_profile_key(to_save)
 
-    old = load_history(user_key)
-
-    if not old.empty:
-        old = _ensure_profile_key(old)
-
-        # Preserve recruiter feedback across re-screenings of the same candidate + role.
-        # Without this, re-screening a candidate would wipe out prior "Good Hire" /
-        # "Bad Hire" tags, breaking the learning system's long-term memory.
-        if "Feedback" in old.columns:
-            feedback_source = old[
-                old["Feedback"].notna()
-                & (old["Feedback"] != "")
-                & (old["Feedback"] != "Pending")
-            ]
-            feedback_map = (
-                feedback_source
-                .drop_duplicates(subset=["Profile Key", "Role"], keep="last")
-                .set_index(["Profile Key", "Role"])["Feedback"]
-                .to_dict()
-            )
-            if "Feedback" not in to_save.columns:
-                to_save["Feedback"] = ""
-            to_save["Feedback"] = to_save.apply(
-                lambda row: feedback_map.get((row["Profile Key"], row["Role"]), row.get("Feedback", "")),
-                axis=1,
-            )
-
-        seen = set(old["Profile Key"].dropna().astype(str))
-        to_save["Duplicate"] = to_save["Profile Key"].astype(str).isin(seen)
-        combined = pd.concat([old, to_save], ignore_index=True)
-    else:
-        to_save["Duplicate"] = to_save.duplicated("Profile Key", keep="first")
-        combined = to_save
-
-    combined = combined.loc[:, ~combined.columns.duplicated()].fillna("")
-    if "Profile Key" in combined.columns:
-        combined = combined.drop_duplicates(subset=["Profile Key", "Role"], keep="last")
-
-    saved = False
+    supabase_ok = False
 
     if supabase:
+        records = []
+        for _, row in to_save.iterrows():
+            records.append({
+                "user_key": user_key,
+                "role": str(role),
+                "profile_key": str(row.get("Profile Key", "")),
+                "name": str(row.get("Name", "")),
+                "email": str(row.get("Email", "")),
+                "phone": str(row.get("Phone", "")),
+                "experience": float(row.get("Experience", 0) or 0),
+                "education": str(row.get("Education", "")),
+                "final_score": float(row.get("Final Score", 0) or 0),
+                "verdict": str(row.get("Verdict", "")),
+                "industry_match": str(row.get("Industry Match", "")),
+                "candidate_industry": str(row.get("Candidate Industry", "")),
+                "matched_keywords": str(row.get("Matched Keywords", "")),
+                "missing_keywords": str(row.get("Missing Keywords", "")),
+                "skills": str(row.get("Skills", "")),
+                "reason": str(row.get("Reason", "")),
+                "feedback": str(row.get("Feedback", "Pending") or "Pending"),
+                "client": str(row.get("Client", "") or row.get("client_company", "")),
+                "source_file": str(row.get("Source File", "")),
+                "jd": (jd_text or "")[:4000],
+            })
+
         try:
-            supabase.table("candidate_history").delete().eq("user_key", user_key).execute()
-
-            records = []
-            for _, row in combined.iterrows():
-                safe_data = _row_to_safe_dict(row)
-                records.append({
-                    "user_key": user_key,
-                    "role": role,
-                    "jd_text": jd_text,
-                    "screened_at": batch,
-                    "data": safe_data
-                })
-
-            if records:
-                supabase.table("candidate_history").insert(records).execute()
-
-            print(f"✅ History saved to Supabase for user: {user_key}")
-            saved = True
-
+            # NOTE: this requires a UNIQUE constraint on (user_key, profile_key, role)
+            supabase.table("screening_history").upsert(
+                records,
+                on_conflict="user_key,profile_key,role",
+            ).execute()
+            print(f"✅ save_history Supabase ok — {len(records)} rows")
+            supabase_ok = True
         except Exception as e:
-            print(f"❌ Supabase save_history failed: {e}")
+            print(f"❌ save_history Supabase failed: {e}")
 
-    if not saved:
-        try:
-            DATA_DIR.mkdir(exist_ok=True)
-            combined.to_excel(history_path(user_key), index=False)
-            print(f"✅ History saved locally to Excel for user: {user_key}")
-        except Exception as e:
-            print(f"❌ Local save also failed: {e}")
+    # Local Excel save (always try)
+    local_ok = False
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        path = history_path(user_key)
+        existing = pd.DataFrame()
+        if path.exists():
+            existing = pd.read_excel(path)
+
+        combined = pd.concat([existing, to_save], ignore_index=True)
+        if "Profile Key" in combined.columns and "Role" in combined.columns:
+            combined = combined.drop_duplicates(subset=["Profile Key", "Role"], keep="last")
+
+        combined.to_excel(path, index=False)
+        print(f"✅ save_history local ok → {path}")
+        local_ok = True
+    except Exception as e:
+        print(f"❌ save_history local failed: {e}")
+
+    return supabase_ok or local_ok
 
 
 def clear_history(user_key: str) -> None:
