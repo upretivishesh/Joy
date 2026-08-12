@@ -1136,6 +1136,7 @@ with jd_tab:
 
         save_jd_clicked = st.button("Save JD", type="primary")
         if save_jd_clicked:
+            st.write("DEBUG: Save JD clicked", {"role": jd_save_role, "len": len(jd_save_text)})
             if not jd_save_role.strip() or not jd_save_text.strip():
                 st.error("Role and JD text are required.")
             else:
