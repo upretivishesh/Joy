@@ -324,6 +324,8 @@ def filter_history_by_search(hist: pd.DataFrame, query: str) -> pd.DataFrame:
 # ─── JD Library functions ───────────────────────────────────────────────────
 
 def load_jd_library(user_key: str) -> pd.DataFrame:
+    # Prefer Supabase when it actually has rows; otherwise fall through to local Excel.
+    # This fixes the "Supabase client exists but table empty → JD appears never saved" bug.
     if supabase:
         try:
             response = (
@@ -339,19 +341,27 @@ def load_jd_library(user_key: str) -> pd.DataFrame:
                     "jd_text": "JD Text",
                     "tags": "Tags",
                 })
-                for col in ["Role", "JD Text", "Tags"]:
+                # Map created_at if present
+                if "created_at" in df.columns and "Saved At" not in df.columns:
+                    df["Saved At"] = df["created_at"]
+                for col in ["Role", "JD Text", "Tags", "Saved At"]:
                     if col not in df.columns:
                         df[col] = ""
-                if "Saved At" not in df.columns:
-                    df["Saved At"] = ""
                 return df[["Role", "JD Text", "Saved At", "Tags"]]
-            return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
+            # empty response → fall through to local (do NOT return empty here)
         except Exception as e:
             print(f"Supabase load_jd_library error: {e}")
 
     path = jd_library_path(user_key)
     if path.exists():
-        return pd.read_excel(path)
+        try:
+            df = pd.read_excel(path)
+            for col in ["Role", "JD Text", "Saved At", "Tags"]:
+                if col not in df.columns:
+                    df[col] = ""
+            return df[["Role", "JD Text", "Saved At", "Tags"]]
+        except Exception as e:
+            print(f"Local load_jd_library error: {e}")
     return pd.DataFrame(columns=["Role", "JD Text", "Saved At", "Tags"])
 
 
@@ -365,9 +375,9 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
     tags = (tags or "").strip()
 
     supabase_ok = False
-
     if supabase:
         try:
+            # delete-then-insert (keeps one JD per role)
             supabase.table("jd_library")\
                 .delete()\
                 .eq("user_key", user_key)\
@@ -385,11 +395,18 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
         except Exception as e:
             print(f"❌ save_jd Supabase failed: {e}")
 
+    # Local Excel — ALWAYS independent of Supabase / load_jd_library
     local_ok = False
     try:
         DATA_DIR.mkdir(exist_ok=True)
         path = jd_library_path(user_key)
-        existing = load_jd_library(user_key)
+
+        existing = pd.DataFrame()
+        if path.exists():
+            try:
+                existing = pd.read_excel(path)
+            except Exception:
+                existing = pd.DataFrame()
 
         new_entry = pd.DataFrame([{
             "Role": role,
@@ -404,6 +421,11 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
             ]
 
         combined = pd.concat([existing, new_entry], ignore_index=True)
+        # ensure columns exist
+        for col in ["Role", "JD Text", "Saved At", "Tags"]:
+            if col not in combined.columns:
+                combined[col] = ""
+        combined = combined[["Role", "JD Text", "Saved At", "Tags"]]
         combined.to_excel(path, index=False)
         print(f"✅ save_jd local ok → {path}")
         local_ok = True
@@ -411,7 +433,6 @@ def save_jd(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
         print(f"❌ save_jd local failed: {e}")
 
     return supabase_ok or local_ok
-
 
 def delete_jd(user_key: str, role: str) -> None:
     if not role:
