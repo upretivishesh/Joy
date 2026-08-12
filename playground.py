@@ -14,6 +14,7 @@ from core.history import (
     confirm_delete_all_history,
     confirm_delete_jd,
     update_feedback,
+    save_history,   # <-- add this
 )
 from core.ocr import read_uploaded_file
 from core.parser import extract_role_from_jd, extract_keywords, parse_min_experience
