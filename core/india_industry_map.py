@@ -120,6 +120,23 @@ INDIA_INDUSTRY_KEYWORDS = [
     ("production", "Manufacturing"),
     ("plant", "Manufacturing"),
     ("factory", "Manufacturing"),
+
+        # Fashion / apparel / textiles
+    ("fashion", "Fashion & Apparel"),
+    ("apparel", "Fashion & Apparel"),
+    ("garment", "Fashion & Apparel"),
+    ("garments", "Fashion & Apparel"),
+    ("textile", "Fashion & Apparel"),
+    ("textiles", "Fashion & Apparel"),
+    ("retail fashion", "Fashion & Apparel"),
+
+    # Interior design / interiors / architecture
+    ("interior design", "Interior Design"),
+    ("interiors", "Interior Design"),
+    ("interior decorator", "Interior Design"),
+    ("interior decorating", "Interior Design"),
+    ("space planning", "Interior Design"),
+    ("architecture interior", "Interior Design"),
 ]
 
 MANUFACTURING_SIGNALS = [
