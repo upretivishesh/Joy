@@ -9,3 +9,5 @@ pdf2image
 pytesseract
 supabase
 spacy>=3.7.0
+cryptography
+requests
