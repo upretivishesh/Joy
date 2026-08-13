@@ -23,7 +23,7 @@ from core.screening import run_screening
 from core.persona_options import INDUSTRY_OPTIONS, LANGUAGE_OPTIONS, merge_with_custom
 from core.utils import (
     format_experience_years,
-    filter_history_by_search,          # now correctly from utils
+    filter_history_by_search,
     get_secret,
     init_state,
     inject_elite_theme,
@@ -47,8 +47,8 @@ st.set_page_config(page_title=f"{APP_NAME} AI Recruiter", page_icon="J", layout=
 inject_elite_theme()
 inject_multiselect_chip_fix()
 inject_clear_icon_fix()
-# inject_keepalive()   ← removed (does not exist)
 init_state()
+
 
 if not is_auth_configured():
     st.error(
@@ -118,7 +118,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- Gmail App Password (session-only) ----------
+# ---------- Gmail App Password (only shown when missing) ----------
 if not st.session_state.sender_password:
     with st.expander("Gmail App Password required for sending emails", expanded=True):
         st.caption(
@@ -142,9 +142,6 @@ if not st.session_state.sender_password:
                 st.session_state.sender_password = clean_pw
                 st.success("App Password saved for this session.")
                 st.rerun()
-# (no big success banner when already set — keeps the page clean)
-else:
-    st.success("App Password is already saved for this session.")
 
 with st.sidebar:
     st.title("Joy")
@@ -184,8 +181,9 @@ with st.sidebar:
         st.session_state.email_results = []
         st.rerun()
 
-screen_tab, email_tab, history_tab, lookup_tab, jd_tab = st.tabs(
-    ["Screen", "Email", "History", "Candidate Lookup", "JD Library"]
+# Tab order: Screen → Email → History → JD Library → Candidate Lookup
+screen_tab, email_tab, history_tab, jd_tab, lookup_tab = st.tabs(
+    ["Screen", "Email", "History", "JD Library", "Candidate Lookup"]
 )
 
 with screen_tab:
@@ -460,7 +458,6 @@ with screen_tab:
                 st.session_state.last_role = detected_role
                 st.session_state.last_jd = jd_text
 
-                # Explicit history save (safe)
                 try:
                     ok = save_history(results, detected_role, user_key, jd_text)
                     if not ok:
@@ -493,7 +490,6 @@ with screen_tab:
         st.subheader(f"Results: {st.session_state.last_role}")
         show_results_summary(st.session_state.results_df)
 
-        # Quick ranked view (read-only)
         display_cols = [
             c for c in [
                 "Rank", "Name", "Email", "Phone", "Experience",
@@ -750,7 +746,11 @@ with history_tab:
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
 
-        history_editable = order_columns_first(history_editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict", "Feedback"])
+        # Final Score kept before Feedback
+        history_editable = order_columns_first(
+            history_editable,
+            ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Final Score", "Verdict", "Feedback"]
+        )
         history_editable = format_experience_years(history_editable)
 
         if "Feedback" not in history_editable.columns:
@@ -859,70 +859,6 @@ with history_tab:
                 st.success(f"Sent {sent_count} of {len(history_results)} email(s).")
                 st.dataframe(pd.DataFrame(history_results), use_container_width=True, hide_index=True)
 
-with lookup_tab:
-    st.subheader("Candidate Lookup")
-    st.caption("Search any candidate ever screened — across every role and every client — and see their full timeline.")
-
-    lookup_query = st.text_input(
-        "Search by name, email, or phone",
-        placeholder="e.g. Vishesh Sharma, vishesh@gmail.com, or 98765...",
-        key="lookup_query",
-    )
-
-    if lookup_query.strip():
-        matches = search_candidates(user_key)
-
-        if matches.empty:
-            st.info("No candidate found matching that search.")
-        else:
-            unique_people = matches.drop_duplicates(subset=["Profile Key"]) if "Profile Key" in matches.columns else matches
-            st.caption(f"{len(unique_people)} unique candidate(s), {len(matches)} total screening record(s) found.")
-
-            group_col = "Profile Key" if "Profile Key" in matches.columns else "Name"
-            for _, group in matches.groupby(group_col, sort=False):
-                display_name = str(group.iloc[0].get("Name", "Unknown Candidate")).title()
-                display_email = str(group.iloc[0].get("Email", ""))
-                display_phone = str(group.iloc[0].get("Phone", ""))
-
-                with st.expander(f"{display_name} · {display_email or display_phone or 'No contact info'}", expanded=len(unique_people) == 1):
-                    contact_c1, contact_c2, contact_c3 = st.columns(3)
-                    contact_c1.metric("Screenings", len(group))
-                    good_hires = int((group.get("Feedback", pd.Series(dtype=str)) == "Hired").sum())
-                    bad_hires = int(
-                        group.get("Feedback", pd.Series(dtype=str))
-                        .isin(["Rejected", "Do Not Consider"])
-                        .sum()
-                    )
-                    contact_c2.metric("Hired", good_hires)
-                    contact_c3.metric("Rejected / DNC", bad_hires)
-
-                    timeline = group.sort_values("Screened At", ascending=False) if "Screened At" in group.columns else group
-
-                    for _, row in timeline.iterrows():
-                        role = row.get("Role", "Unknown Role")
-                        client = row.get("Client", "")
-                        screened_at = str(row.get("Screened At", ""))[:16]
-                        feedback = str(row.get("Feedback", "Pending") or "Pending")
-
-                        badge_class = "badge-pending"
-                        if feedback == "Hired":
-                            badge_class = "badge-good"
-                        elif feedback in ("Rejected", "Do Not Consider"):
-                            badge_class = "badge-bad"
-
-                        st.markdown(
-                            f"""
-                            <div class="timeline-card">
-                                <div class="tc-role">{role}{f' · {client}' if client else ''}</div>
-                                <div class="tc-meta">Screened {screened_at}</div>
-                                <span class="tc-badge {badge_class}">{feedback}</span>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-    else:
-        st.info("Type a name, email, or phone number above to look up a candidate's full history.")
-
 with jd_tab:
     col1, col2 = st.columns([8.5, 1.5], vertical_alignment="center")
     with col1:
@@ -1017,3 +953,67 @@ with jd_tab:
 
         st.divider()
         st.caption(f"{len(jd_lib)} JD(s) saved in your library.")
+
+with lookup_tab:
+    st.subheader("Candidate Lookup")
+    st.caption("Search any candidate ever screened — across every role and every client — and see their full timeline.")
+
+    lookup_query = st.text_input(
+        "Search by name, email, or phone",
+        placeholder="e.g. Vishesh Sharma, vishesh@gmail.com, or 98765...",
+        key="lookup_query",
+    )
+
+    if lookup_query.strip():
+        matches = search_candidates(user_key)
+
+        if matches.empty:
+            st.info("No candidate found matching that search.")
+        else:
+            unique_people = matches.drop_duplicates(subset=["Profile Key"]) if "Profile Key" in matches.columns else matches
+            st.caption(f"{len(unique_people)} unique candidate(s), {len(matches)} total screening record(s) found.")
+
+            group_col = "Profile Key" if "Profile Key" in matches.columns else "Name"
+            for _, group in matches.groupby(group_col, sort=False):
+                display_name = str(group.iloc[0].get("Name", "Unknown Candidate")).title()
+                display_email = str(group.iloc[0].get("Email", ""))
+                display_phone = str(group.iloc[0].get("Phone", ""))
+
+                with st.expander(f"{display_name} · {display_email or display_phone or 'No contact info'}", expanded=len(unique_people) == 1):
+                    contact_c1, contact_c2, contact_c3 = st.columns(3)
+                    contact_c1.metric("Screenings", len(group))
+                    good_hires = int((group.get("Feedback", pd.Series(dtype=str)) == "Hired").sum())
+                    bad_hires = int(
+                        group.get("Feedback", pd.Series(dtype=str))
+                        .isin(["Rejected", "Do Not Consider"])
+                        .sum()
+                    )
+                    contact_c2.metric("Hired", good_hires)
+                    contact_c3.metric("Rejected / DNC", bad_hires)
+
+                    timeline = group.sort_values("Screened At", ascending=False) if "Screened At" in group.columns else group
+
+                    for _, row in timeline.iterrows():
+                        role = row.get("Role", "Unknown Role")
+                        client = row.get("Client", "")
+                        screened_at = str(row.get("Screened At", ""))[:16]
+                        feedback = str(row.get("Feedback", "Pending") or "Pending")
+
+                        badge_class = "badge-pending"
+                        if feedback == "Hired":
+                            badge_class = "badge-good"
+                        elif feedback in ("Rejected", "Do Not Consider"):
+                            badge_class = "badge-bad"
+
+                        st.markdown(
+                            f"""
+                            <div class="timeline-card">
+                                <div class="tc-role">{role}{f' · {client}' if client else ''}</div>
+                                <div class="tc-meta">Screened {screened_at}</div>
+                                <span class="tc-badge {badge_class}">{feedback}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+    else:
+        st.info("Type a name, email, or phone number above to look up a candidate's full history.")
