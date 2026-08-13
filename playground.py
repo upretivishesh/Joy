@@ -15,7 +15,6 @@ from core.history import (
     confirm_delete_all_history,
     confirm_delete_jd,
     update_feedback,
-    filter_history_by_search,
     search_candidates,
 )
 from core.ocr import read_uploaded_file
@@ -24,11 +23,11 @@ from core.screening import run_screening
 from core.persona_options import INDUSTRY_OPTIONS, LANGUAGE_OPTIONS, merge_with_custom
 from core.utils import (
     format_experience_years,
+    filter_history_by_search,          # now correctly from utils
     get_secret,
     init_state,
     inject_elite_theme,
     inject_clear_icon_fix,
-    inject_keepalive,
     inject_multiselect_chip_fix,
     is_auth_configured,
     is_user_allowed,
@@ -48,9 +47,8 @@ st.set_page_config(page_title=f"{APP_NAME} AI Recruiter", page_icon="J", layout=
 inject_elite_theme()
 inject_multiselect_chip_fix()
 inject_clear_icon_fix()
-inject_keepalive()
+# inject_keepalive()   ← removed (does not exist)
 init_state()
-
 
 if not is_auth_configured():
     st.error(
