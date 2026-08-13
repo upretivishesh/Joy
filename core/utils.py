@@ -1,12 +1,52 @@
 import os
 import re
+import base64
+import hashlib
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from cryptography.fernet import Fernet
 
 from .constants import APP_NAME, DATA_DIR, DEFAULT_COMPANY, DEFAULT_QUESTIONS
+
+
+# ============================================================
+# Permanent App Password helpers (encrypted per user)
+# ============================================================
+def _get_fernet(user_key: str) -> Fernet:
+    """Derive a stable encryption key from secrets + user email."""
+    secret = get_secret("APP_PASSWORD_SECRET", "joy-default-change-me-in-secrets")
+    raw = f"{secret}:{user_key.strip().lower()}".encode()
+    key = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+    return Fernet(key)
+
+
+def save_app_password(user_key: str, password: str) -> bool:
+    try:
+        if not user_key or not password:
+            return False
+        fernet = _get_fernet(user_key)
+        encrypted = fernet.encrypt(password.encode())
+        path = Path(DATA_DIR) / f"app_pw_{safe_filename_part(user_key)}.enc"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(encrypted)
+        return True
+    except Exception:
+        return False
+
+
+def load_app_password(user_key: str) -> str:
+    try:
+        path = Path(DATA_DIR) / f"app_pw_{safe_filename_part(user_key)}.enc"
+        if not path.exists():
+            return ""
+        fernet = _get_fernet(user_key)
+        return fernet.decrypt(path.read_bytes()).decode()
+    except Exception:
+        return ""
 
 
 # ============================================================
