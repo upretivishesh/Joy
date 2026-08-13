@@ -118,37 +118,31 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---------- Gmail App Password (session-only) ----------
 if not st.session_state.sender_password:
-    st.markdown(
-        """
-        <div class="joy-card" style="margin-bottom: 1.25rem;">
-            <div style="font-weight:700; font-size:1.02rem; margin-bottom:0.45rem; color: var(--ink);">
-                Gmail App Password required for sending emails
-            </div>
-            <div style="color: var(--muted); line-height: 1.6; margin-bottom: 0.9rem;">
-                Google blocks regular passwords for SMTP.
-                Generate a 16-character App Password after enabling 2-Step Verification.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("[Generate Google App Password](https://myaccount.google.com/apppasswords)")
-    st.caption("This is saved only for this session and is cleared on refresh/restart.")
-    app_pw = st.text_input(
-        "App Password for the signed-in Gmail",
-        type="password",
-        placeholder="xxxx xxxx xxxx xxxx",
-        key="gmail_app_password_input",
-    )
-    if st.button("Save App Password", type="primary"):
-        clean_pw = re.sub(r"\s+", "", app_pw or "")
-        if len(clean_pw) < 16:
-            st.error("App Password must be at least 16 characters.")
-        else:
-            st.session_state.sender_password = clean_pw
-            st.success("App Password saved for this session.")
-            st.rerun()
+    with st.expander("Gmail App Password required for sending emails", expanded=True):
+        st.caption(
+            "Google blocks regular passwords for SMTP. "
+            "Generate a 16-character App Password after enabling 2-Step Verification."
+        )
+        st.markdown("[Generate Google App Password](https://myaccount.google.com/apppasswords)")
+        st.caption("Saved only for this session — cleared on refresh/restart.")
+
+        app_pw = st.text_input(
+            "App Password for the signed-in Gmail",
+            type="password",
+            placeholder="xxxx xxxx xxxx xxxx",
+            key="gmail_app_password_input",
+        )
+        if st.button("Save App Password", type="primary"):
+            clean_pw = re.sub(r"\s+", "", app_pw or "")
+            if len(clean_pw) < 16:
+                st.error("App Password must be at least 16 characters.")
+            else:
+                st.session_state.sender_password = clean_pw
+                st.success("App Password saved for this session.")
+                st.rerun()
+# (no big success banner when already set — keeps the page clean)
 else:
     st.success("App Password is already saved for this session.")
 
