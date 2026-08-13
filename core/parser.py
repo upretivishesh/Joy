@@ -764,11 +764,159 @@ def explicit_years_of_experience(text: str) -> float:
     return round(best, 1)
 
 
+# ---------------------------------------------------------------------------
+# NEW extract_experience() — replaces the old naive version.
+#
+# The old version's flow was: explicit statement -> full date-range parse
+# -> simple year-only fallback, with NO awareness of what SECTION a date
+# range lived in. That meant "B.Tech, 2014 - 2018" under an Education
+# heading and "May 2017 - Jul 2017" under an Internship heading both got
+# summed into calculate_total_experience() exactly like a real job would.
+#
+# This version adds section- and context-awareness on top of the existing
+# date-range machinery, in a new first pass. It only counts a date range as
+# work experience if:
+#   1. it is not inside an Education-type section (tracked via section
+#      headers as we scan line by line), and
+#   2. the line itself doesn't look like a degree/qualification entry even
+#      without a section header above it, and
+#   3. the 3-line context around it has no internship/traineeship signal.
+#
+# Falls back to the existing explicit_years_of_experience() statement
+# parser, then to the existing broad extract_year_ranges_simple() as a
+# last resort — both untouched, so nothing that depended on them elsewhere
+# breaks.
+# ---------------------------------------------------------------------------
+
+_EXP_INTERN_SIGNALS = re.compile(
+    r'\b(intern(ship)?|trainee|apprentice|summer\s+project|'
+    r'industrial\s+training|in-?plant\s+training|vacation\s+training|'
+    r'project\s+trainee|graduate\s+trainee|management\s+trainee)\b',
+    re.IGNORECASE
+)
+
+_EXP_EDU_SECTION_HEADER = re.compile(
+    r'^(education|academic\s+(background|qualifications?)|qualifications?|'
+    r'educational?\s+(details?|background|history)|degrees?)\s*:?\s*$',
+    re.IGNORECASE
+)
+
+_EXP_WORK_SECTION_HEADER = re.compile(
+    r'^(work\s+experience|professional\s+experience|employment(\s+history)?|'
+    r'experience|career\s+(history|summary)|work\s+history|'
+    r'positions?\s+held|professional\s+background)\s*:?\s*$',
+    re.IGNORECASE
+)
+
+# Lines that are clearly degree/qualification content, even with no
+# section header directly above them (many resumes skip the header).
+_EXP_EDU_CONTENT_LINE = re.compile(
+    r'\b(b\.?tech|b\.?e\.?|m\.?tech|m\.?sc|b\.?sc|mba|bba|ph\.?d|pgdm|'
+    r'diploma|bachelor|master|university|college|institute|iit|iim|nit|'
+    r'10th|12th|hsc|ssc|cbse|icse|matric)\b',
+    re.IGNORECASE
+)
+
+# Same shape as the date-range matching used elsewhere in this file, but
+# self-contained so this pass doesn't depend on DATE_RANGE_REGEX's exact
+# capture-group layout (which is tuned for the full parse_date_ranges()
+# pipeline, not for a quick per-line scan).
+_EXP_DATE_RANGE_RE = re.compile(
+    r'(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*)?'
+    r'(\d{4})'
+    r'\s*[-\u2013\u2014to]+\s*'
+    r'(?:(present|current|till\s*date|now)|'
+    r'(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*)?(\d{4}))',
+    re.IGNORECASE
+)
+
+
+def _extract_full_time_experience(resume_text: str) -> float:
+    """
+    Section- and context-aware pass. Returns 0.0 if it finds nothing
+    confidently full-time — caller falls back to the older parsers.
+    """
+    text = (resume_text or "").replace('\r\n', '\n').replace('\r', '\n')
+    lines = text.split('\n')
+    current_year = datetime.now().year
+
+    in_education = False
+    ft_ranges: list[int] = []
+    seen_keys: set[tuple[int, int]] = set()
+
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if _EXP_EDU_SECTION_HEADER.match(line):
+            in_education = True
+            continue
+        if _EXP_WORK_SECTION_HEADER.match(line):
+            in_education = False
+            continue
+
+        if _EXP_EDU_CONTENT_LINE.search(line):
+            continue
+
+        if in_education:
+            continue
+
+        context = ' '.join(l.strip() for l in lines[max(0, i - 1):i + 2])
+        if _EXP_INTERN_SIGNALS.search(context):
+            continue
+
+        for m in _EXP_DATE_RANGE_RE.finditer(line):
+            start_match = re.search(r'\d{4}', m.group(1) or "")
+            if not start_match:
+                continue
+            start_yr = int(start_match.group())
+            if not (1970 <= start_yr <= current_year + 1):
+                continue
+
+            if m.group(2):
+                end_yr = current_year
+            else:
+                end_match = re.search(r'\d{4}', m.group(3) or "")
+                if not end_match:
+                    continue
+                end_yr = int(end_match.group())
+
+            if end_yr < start_yr:
+                continue
+
+            key = (start_yr, end_yr)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                ft_ranges.append(end_yr - start_yr)
+
+    if ft_ranges:
+        total = sum(ft_ranges)
+        if total > 0:
+            return round(min(total, 45.0), 1)
+
+    return 0.0
+
+
 def extract_experience(text: str) -> float:
+    """
+    Extract FULL-TIME, post-graduation work experience in years.
+
+    Priority order:
+      1. Section/context-aware date-range scan (new) — skips education
+         and internship/trainee tenures explicitly.
+      2. Explicit "X years Y months of experience" statement (existing).
+      3. Broad year-range fallback across the whole document (existing,
+         least precise — last resort only).
+    """
     if not text:
         return 0.0
 
     lower = text.lower()
+
+    ft_years = _extract_full_time_experience(text)
+    if ft_years > 0:
+        return ft_years
 
     explicit = explicit_years_of_experience(lower)
     if explicit > 0:
