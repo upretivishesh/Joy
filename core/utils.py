@@ -100,7 +100,7 @@ def format_experience_years(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     numeric = pd.to_numeric(df["Experience"], errors="coerce").fillna(0)
-    df["Experience"] = numeric.apply(lambda v: f"{v:g} yrs")
+    df["Experience"] = numeric.apply(lambda v: f"{v:g} Years")
     return df
 
 
