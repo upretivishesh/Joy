@@ -788,10 +788,15 @@ def explicit_years_of_experience(text: str) -> float:
 # breaks.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# SMARTER EXPERIENCE EXTRACTION (full-time + post-education + distance-aware)
+# ---------------------------------------------------------------------------
+
 _EXP_INTERN_SIGNALS = re.compile(
-    r'\b(intern(ship)?|trainee|apprentice|summer\s+project|'
+    r'\b(intern(ship)?|trainee|apprentice|summer\s+(project|intern)|'
     r'industrial\s+training|in-?plant\s+training|vacation\s+training|'
-    r'project\s+trainee|graduate\s+trainee|management\s+trainee)\b',
+    r'project\s+trainee|graduate\s+trainee|management\s+trainee|'
+    r'student\s+trainee|campus\s+hire|co-?op)\b',
     re.IGNORECASE
 )
 
@@ -808,41 +813,104 @@ _EXP_WORK_SECTION_HEADER = re.compile(
     re.IGNORECASE
 )
 
-# Lines that are clearly degree/qualification content, even with no
-# section header directly above them (many resumes skip the header).
 _EXP_EDU_CONTENT_LINE = re.compile(
     r'\b(b\.?tech|b\.?e\.?|m\.?tech|m\.?sc|b\.?sc|mba|bba|ph\.?d|pgdm|'
     r'diploma|bachelor|master|university|college|institute|iit|iim|nit|'
-    r'10th|12th|hsc|ssc|cbse|icse|matric)\b',
+    r'10th|12th|hsc|ssc|cbse|icse|matric|graduation)\b',
     re.IGNORECASE
 )
 
-# Same shape as the date-range matching used elsewhere in this file, but
-# self-contained so this pass doesn't depend on DATE_RANGE_REGEX's exact
-# capture-group layout (which is tuned for the full parse_date_ranges()
-# pipeline, not for a quick per-line scan).
+# Distance / online / part-time education signals
+_EXP_DISTANCE_EDU = re.compile(
+    r'\b(distance|online|correspondence|open\s+university|ignou|part[- ]?time\s+education|'
+    r'external|weekend\s+program|executive\s+program|work[- ]?integrated)\b',
+    re.IGNORECASE
+)
+
 _EXP_DATE_RANGE_RE = re.compile(
     r'(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*)?'
     r'(\d{4})'
     r'\s*[-\u2013\u2014to]+\s*'
-    r'(?:(present|current|till\s*date|now)|'
+    r'(?:(present|current|till\s*date|now|ongoing)|'
     r'(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*)?(\d{4}))',
     re.IGNORECASE
 )
 
 
+def _find_highest_education_end_year(text: str) -> tuple[int, bool]:
+    """
+    Returns (latest_education_end_year, is_distance_education).
+    is_distance_education=True means the highest degree was done via distance/online
+    and therefore full-time work during those years is still valid.
+    """
+    text = (text or "").replace('\r\n', '\n').replace('\r', '\n')
+    lines = text.split('\n')
+    current_year = datetime.now().year
+
+    in_education = False
+    highest_end = 0
+    is_distance = False
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        if _EXP_EDU_SECTION_HEADER.match(line):
+            in_education = True
+            continue
+        if _EXP_WORK_SECTION_HEADER.match(line):
+            in_education = False
+            continue
+
+        if not (in_education or _EXP_EDU_CONTENT_LINE.search(line)):
+            continue
+
+        # Check if this education entry is distance/online
+        if _EXP_DISTANCE_EDU.search(line):
+            is_distance = True
+
+        for m in _EXP_DATE_RANGE_RE.finditer(line):
+            start_match = re.search(r'\d{4}', m.group(1) or "")
+            if not start_match:
+                continue
+            start_yr = int(start_match.group())
+            if not (1985 <= start_yr <= current_year + 1):
+                continue
+
+            if m.group(2):  # present
+                end_yr = current_year
+            else:
+                end_match = re.search(r'\d{4}', m.group(3) or "")
+                if not end_match:
+                    continue
+                end_yr = int(end_match.group())
+
+            if end_yr >= start_yr:
+                if end_yr > highest_end:
+                    highest_end = end_yr
+                    # re-check distance on the winning line
+                    is_distance = bool(_EXP_DISTANCE_EDU.search(line))
+
+    return highest_end, is_distance
+
+
 def _extract_full_time_experience(resume_text: str) -> float:
     """
-    Section- and context-aware pass. Returns 0.0 if it finds nothing
-    confidently full-time — caller falls back to the older parsers.
+    Strict full-time + post-education experience.
+    - Ignores internships / traineeships
+    - Cuts everything before highest education end year
+      (unless that education was distance/online → then concurrent work is allowed)
     """
     text = (resume_text or "").replace('\r\n', '\n').replace('\r', '\n')
     lines = text.split('\n')
     current_year = datetime.now().year
 
+    edu_end_year, is_distance_edu = _find_highest_education_end_year(text)
+
     in_education = False
-    ft_ranges: list[int] = []
-    seen_keys: set[tuple[int, int]] = set()
+    ft_ranges: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
 
     for i, raw_line in enumerate(lines):
         line = raw_line.strip()
@@ -856,13 +924,15 @@ def _extract_full_time_experience(resume_text: str) -> float:
             in_education = False
             continue
 
-        if _EXP_EDU_CONTENT_LINE.search(line):
+        # Skip pure education content lines
+        if _EXP_EDU_CONTENT_LINE.search(line) and not _EXP_DISTANCE_EDU.search(line):
             continue
 
-        if in_education:
+        if in_education and not is_distance_edu:
             continue
 
-        context = ' '.join(l.strip() for l in lines[max(0, i - 1):i + 2])
+        # 3-line context for internship signals
+        context = ' '.join(l.strip() for l in lines[max(0, i-1):i+2])
         if _EXP_INTERN_SIGNALS.search(context):
             continue
 
@@ -871,7 +941,7 @@ def _extract_full_time_experience(resume_text: str) -> float:
             if not start_match:
                 continue
             start_yr = int(start_match.group())
-            if not (1970 <= start_yr <= current_year + 1):
+            if not (1975 <= start_yr <= current_year + 1):
                 continue
 
             if m.group(2):
@@ -885,43 +955,59 @@ def _extract_full_time_experience(resume_text: str) -> float:
             if end_yr < start_yr:
                 continue
 
+            # ---------- POST-EDUCATION RULE ----------
+            if edu_end_year > 0 and not is_distance_edu:
+                # Only count experience that starts after (or very near) graduation
+                if start_yr < edu_end_year - 1:          # allow 1 year overlap for final-year joins
+                    continue
+            # If distance education → we allow concurrent full-time work
+
             key = (start_yr, end_yr)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                ft_ranges.append(end_yr - start_yr)
+            if key not in seen:
+                seen.add(key)
+                ft_ranges.append((start_yr, end_yr))
 
-    if ft_ranges:
-        total = sum(ft_ranges)
-        if total > 0:
-            return round(min(total, 45.0), 1)
+    if not ft_ranges:
+        return 0.0
 
-    return 0.0
+    # Merge overlapping ranges
+    ft_ranges.sort()
+    merged = []
+    for s, e in ft_ranges:
+        if not merged or s > merged[-1][1]:
+            merged.append([s, e])
+        else:
+            merged[-1][1] = max(merged[-1][1], e)
+
+    total_years = sum(e - s for s, e in merged)
+    return round(min(max(total_years, 0.0), 45.0), 1)
 
 
 def extract_experience(text: str) -> float:
     """
-    Extract FULL-TIME, post-graduation work experience in years.
+    Extract FULL-TIME, post-education work experience in years.
 
-    Priority order:
-      1. Section/context-aware date-range scan (new) — skips education
-         and internship/trainee tenures explicitly.
-      2. Explicit "X years Y months of experience" statement (existing).
-      3. Broad year-range fallback across the whole document (existing,
-         least precise — last resort only).
+    Priority:
+      1. Strict section + education-end-year + distance-aware scan (new)
+      2. Explicit "X years of experience" statement
+      3. Broad fallback (last resort)
     """
     if not text:
         return 0.0
 
     lower = text.lower()
 
+    # 1. Smart full-time + post-edu pass
     ft_years = _extract_full_time_experience(text)
     if ft_years > 0:
         return ft_years
 
+    # 2. Explicit statement
     explicit = explicit_years_of_experience(lower)
     if explicit > 0:
         return explicit
 
+    # 3. Last resort
     ranges = parse_date_ranges(lower)
     if ranges:
         return calculate_total_experience(ranges)
@@ -931,7 +1017,6 @@ def extract_experience(text: str) -> float:
         return year_only
 
     return 0.0
-
 
 # ---------------------------------------------------------------------------
 # KEYWORD EXTRACTION
