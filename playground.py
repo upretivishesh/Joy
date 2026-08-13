@@ -1,9 +1,16 @@
 import re
+import uuid
+import base64
+import hashlib
+from pathlib import Path
+from typing import Optional
 
 import pandas as pd
+import requests
 import streamlit as st
+from cryptography.fernet import Fernet
 
-from core.constants import APP_NAME, DEFAULT_COMPANY
+from core.constants import APP_NAME, DEFAULT_COMPANY, DATA_DIR
 from core.client_profile import load_client_profile, save_client_profile, list_client_companies
 from core.emailer import build_email_body, send_bulk_emails
 from core.history import (
@@ -39,7 +46,117 @@ from core.utils import (
     reset_jd_library_form,
     reset_screening_session,
     show_results_summary,
+    safe_filename_part,
 )
+
+
+# ============================================================
+# Permanent App Password helpers (encrypted per user)
+# ============================================================
+def _get_fernet(user_key: str) -> Fernet:
+    secret = get_secret("APP_PASSWORD_SECRET", "joy-default-change-me-in-secrets")
+    raw = f"{secret}:{user_key.strip().lower()}".encode()
+    key = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+    return Fernet(key)
+
+
+def save_app_password(user_key: str, password: str) -> bool:
+    try:
+        if not user_key or not password:
+            return False
+        fernet = _get_fernet(user_key)
+        encrypted = fernet.encrypt(password.encode())
+        path = Path(DATA_DIR) / f"app_pw_{safe_filename_part(user_key)}.enc"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(encrypted)
+        return True
+    except Exception:
+        return False
+
+
+def load_app_password(user_key: str) -> str:
+    try:
+        path = Path(DATA_DIR) / f"app_pw_{safe_filename_part(user_key)}.enc"
+        if not path.exists():
+            return ""
+        fernet = _get_fernet(user_key)
+        return fernet.decrypt(path.read_bytes()).decode()
+    except Exception:
+        return ""
+
+
+# ============================================================
+# Resume persistence (full History support)
+# ============================================================
+def save_resume_file(user_key: str, original_name: str, file_bytes: bytes) -> str:
+    """Save resume to disk and return relative path for later download."""
+    try:
+        resume_dir = Path(DATA_DIR) / "resumes" / safe_filename_part(user_key)
+        resume_dir.mkdir(parents=True, exist_ok=True)
+        unique = f"{uuid.uuid4().hex[:10]}_{safe_filename_part(original_name)}"
+        path = resume_dir / unique
+        path.write_bytes(file_bytes)
+        return str(path.relative_to(DATA_DIR))
+    except Exception:
+        return ""
+
+
+def get_resume_bytes(relative_path: str) -> Optional[bytes]:
+    try:
+        full = Path(DATA_DIR) / relative_path
+        if full.exists():
+            return full.read_bytes()
+    except Exception:
+        pass
+    return None
+
+
+# ============================================================
+# LinkedIn enrichment
+# ============================================================
+def enrich_linkedin_profile(linkedin_url: str) -> dict:
+    """
+    Full LinkedIn enrichment.
+    Uses LINKEDIN_API_KEY from secrets.
+    Supports common providers that accept a LinkedIn URL.
+    Returns a clean dict or empty dict on failure.
+    """
+    api_key = get_secret("LINKEDIN_API_KEY", "")
+    if not api_key or not linkedin_url:
+        return {}
+
+    linkedin_url = linkedin_url.strip()
+    if "linkedin.com" not in linkedin_url:
+        return {}
+
+    # Generic pattern used by ScrapIn / similar 2026 providers
+    # Change the endpoint if you use a different service
+    endpoint = get_secret(
+        "LINKEDIN_ENRICH_ENDPOINT",
+        "https://api.scrapin.io/v1/enrichment/profile"
+    )
+
+    try:
+        resp = requests.get(
+            endpoint,
+            params={"apikey": api_key, "linkedInUrl": linkedin_url},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+
+        # Normalise to a clean structure
+        return {
+            "headline": data.get("headline") or data.get("summary", ""),
+            "location": data.get("location") or data.get("geo", {}).get("city", ""),
+            "experience": data.get("experiences") or data.get("experience", []),
+            "education": data.get("education") or data.get("educations", []),
+            "skills": data.get("skills") or [],
+            "raw": data,
+        }
+    except Exception:
+        return {}
 
 
 st.set_page_config(page_title=f"{APP_NAME} AI Recruiter", page_icon="J", layout="wide")
@@ -104,6 +221,12 @@ if not st.session_state.gmail_authenticated or st.session_state.sender_email != 
         st.session_state.get("company_name", DEFAULT_COMPANY),
     )
 
+# ---------- Auto-load permanent App Password ----------
+if not st.session_state.sender_password:
+    saved_pw = load_app_password(google_email)
+    if saved_pw:
+        st.session_state.sender_password = saved_pw
+
 st.markdown(
     """
     <section class="hero">
@@ -118,7 +241,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- Gmail App Password (only shown when missing) ----------
+# ---------- Gmail App Password (only when missing) ----------
 if not st.session_state.sender_password:
     with st.expander("Gmail App Password required for sending emails", expanded=True):
         st.caption(
@@ -126,7 +249,7 @@ if not st.session_state.sender_password:
             "Generate a 16-character App Password after enabling 2-Step Verification."
         )
         st.markdown("[Generate Google App Password](https://myaccount.google.com/apppasswords)")
-        st.caption("Saved only for this session — cleared on refresh/restart.")
+        st.caption("This password is encrypted and saved permanently for your account.")
 
         app_pw = st.text_input(
             "App Password for the signed-in Gmail",
@@ -140,7 +263,8 @@ if not st.session_state.sender_password:
                 st.error("App Password must be at least 16 characters.")
             else:
                 st.session_state.sender_password = clean_pw
-                st.success("App Password saved for this session.")
+                save_app_password(google_email, clean_pw)
+                st.success("App Password saved permanently for your account.")
                 st.rerun()
 
 with st.sidebar:
@@ -422,6 +546,19 @@ with screen_tab:
 
             if results is not None and not results.empty:
                 results = results.reset_index(drop=True)
+
+                # ---------- Save resume files for permanent download ----------
+                file_map = {f.name: f.getvalue() for f in uploads}
+                resume_paths = []
+                for _, row in results.iterrows():
+                    src = str(row.get("Source File", ""))
+                    if src in file_map:
+                        rel = save_resume_file(user_key, src, file_map[src])
+                        resume_paths.append(rel)
+                    else:
+                        resume_paths.append("")
+                results["Resume Path"] = resume_paths
+
                 if "Candidate Industry" in results.columns:
                     results["Candidate Industry"] = (
                         results["Candidate Industry"]
@@ -447,6 +584,8 @@ with screen_tab:
                     results.insert(0, "Rank", range(1, len(results) + 1))
                 if "Send" not in results.columns:
                     results.insert(1, "Send", False)
+                if "LinkedIn URL" not in results.columns:
+                    results["LinkedIn URL"] = ""
 
                 detected_role = (
                     results["Role"].iloc[0]
@@ -493,7 +632,7 @@ with screen_tab:
         display_cols = [
             c for c in [
                 "Rank", "Name", "Email", "Phone", "Experience",
-                "Final Score", "Verdict", "Industry Match", "Matched Keywords"
+                "Final Score", "Verdict", "Industry Match", "Matched Keywords", "LinkedIn URL"
             ] if c in st.session_state.results_df.columns
         ]
         if display_cols:
@@ -505,7 +644,57 @@ with screen_tab:
                 hide_index=True,
                 height=380,
             )
-            st.caption("Go to the **Email** tab to select candidates and send outreach.")
+
+        # ---------- Open Resume + LinkedIn Enrichment ----------
+        st.markdown("#### Open Resume / Enrich LinkedIn")
+        selected_idx = st.selectbox(
+            "Select candidate",
+            options=st.session_state.results_df.index.tolist(),
+            format_func=lambda i: f"{st.session_state.results_df.loc[i, 'Name']}  ·  {st.session_state.results_df.loc[i, 'Email']}",
+        )
+        row = st.session_state.results_df.loc[selected_idx]
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            resume_path = str(row.get("Resume Path", ""))
+            if resume_path:
+                file_bytes = get_resume_bytes(resume_path)
+                if file_bytes:
+                    st.download_button(
+                        "Open / Download Resume",
+                        data=file_bytes,
+                        file_name=Path(resume_path).name,
+                        mime="application/octet-stream",
+                        use_container_width=True,
+                    )
+                else:
+                    st.caption("Resume file not found on disk.")
+            else:
+                st.caption("No resume file saved for this candidate.")
+
+        with col_b:
+            li_url = st.text_input("LinkedIn URL", value=str(row.get("LinkedIn URL", "")), key=f"li_{selected_idx}")
+            if li_url and "linkedin.com" in li_url:
+                st.markdown(f"[Open LinkedIn Profile]({li_url})")
+
+        with col_c:
+            if st.button("Enrich from LinkedIn", use_container_width=True):
+                with st.spinner("Enriching from LinkedIn..."):
+                    enriched = enrich_linkedin_profile(li_url)
+                    if enriched:
+                        st.session_state.results_df.at[selected_idx, "LinkedIn URL"] = li_url
+                        st.success("LinkedIn data fetched")
+                        st.json({
+                            "headline": enriched.get("headline"),
+                            "location": enriched.get("location"),
+                            "skills": enriched.get("skills", [])[:12],
+                            "experience_count": len(enriched.get("experience", [])),
+                            "education_count": len(enriched.get("education", [])),
+                        })
+                    else:
+                        st.warning("Enrichment failed. Check LINKEDIN_API_KEY or URL.")
+
+        st.caption("Go to the **Email** tab to select candidates and send outreach.")
 
 with email_tab:
     st.subheader("Outreach")
@@ -515,7 +704,7 @@ with email_tab:
     else:
         editable = st.session_state.results_df.copy()
         editable["Send"] = editable["Send"].astype(bool)
-        editable = editable.drop(columns=["Reason", "Duplicate", "Profile Key"], errors="ignore")
+        editable = editable.drop(columns=["Reason", "Duplicate", "Profile Key", "Resume Path"], errors="ignore")
         editable = order_columns_first(editable, ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Verdict"])
         editable = format_experience_years(editable)
 
@@ -527,7 +716,7 @@ with email_tab:
             disabled=[
                 "Rank", "Phone", "Experience", "Keyword Score", "Final Score",
                 "Verdict", "Industry Match", "Candidate Industry", "Matched Keywords",
-                "Missing Keywords", "Skills", "Source File", "AI Used",
+                "Missing Keywords", "Skills", "Source File", "AI Used", "LinkedIn URL",
             ],
             column_config={
                 "Send": st.column_config.CheckboxColumn("Send"),
@@ -746,10 +935,10 @@ with history_tab:
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
 
-        # Final Score kept before Feedback
+        # Final Score before Feedback
         history_editable = order_columns_first(
             history_editable,
-            ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Final Score", "Verdict", "Feedback"]
+            ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Final Score", "Verdict", "Feedback", "LinkedIn URL"]
         )
         history_editable = format_experience_years(history_editable)
 
@@ -768,6 +957,7 @@ with history_tab:
                 "Send": st.column_config.CheckboxColumn("Send"),
                 "Email": st.column_config.TextColumn("Email"),
                 "Profile Key": None,
+                "Resume Path": None,
                 "Feedback": st.column_config.SelectboxColumn(
                     "Feedback",
                     options=[
@@ -795,6 +985,34 @@ with history_tab:
                 st.info("No feedback changes to save.")
 
         st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
+
+        # ---------- Open Resume from History ----------
+        if not history_edited.empty and "Resume Path" in shown.columns:
+            st.markdown("#### Open Resume from History")
+            hist_idx = st.selectbox(
+                "Select candidate to open resume",
+                options=history_edited.index.tolist(),
+                format_func=lambda i: f"{history_edited.loc[i, 'Name']}  ·  {history_edited.loc[i, 'Email']}",
+                key="hist_resume_select",
+            )
+            hrow = history_edited.loc[hist_idx]
+            # Resume Path may have been dropped from the editor view, so look it up from original shown
+            orig_row = shown.loc[hist_idx] if hist_idx in shown.index else None
+            rpath = str(orig_row.get("Resume Path", "")) if orig_row is not None else ""
+            if rpath:
+                fb = get_resume_bytes(rpath)
+                if fb:
+                    st.download_button(
+                        "Download / Open Resume",
+                        data=fb,
+                        file_name=Path(rpath).name,
+                        mime="application/octet-stream",
+                        key="hist_resume_dl",
+                    )
+                else:
+                    st.caption("Resume file no longer on disk.")
+            else:
+                st.caption("No resume path stored for this record.")
 
         if not st.session_state.selected_history.empty:
             st.divider()
@@ -1015,5 +1233,21 @@ with lookup_tab:
                             """,
                             unsafe_allow_html=True,
                         )
+
+                        # Resume download + LinkedIn inside the timeline card
+                        rpath = str(row.get("Resume Path", ""))
+                        if rpath:
+                            fb = get_resume_bytes(rpath)
+                            if fb:
+                                st.download_button(
+                                    "Open Resume",
+                                    data=fb,
+                                    file_name=Path(rpath).name,
+                                    mime="application/octet-stream",
+                                    key=f"lookup_resume_{row.name}",
+                                )
+                        li = str(row.get("LinkedIn URL", ""))
+                        if li and "linkedin.com" in li:
+                            st.markdown(f"[Open LinkedIn]({li})")
     else:
         st.info("Type a name, email, or phone number above to look up a candidate's full history.")
