@@ -1183,7 +1183,7 @@ with lookup_tab:
     )
 
     if lookup_query.strip():
-        matches = search_candidates(user_key)
+        matches = search_candidates(user_key, lookup_query)
 
         if matches.empty:
             st.info("No candidate found matching that search.")
