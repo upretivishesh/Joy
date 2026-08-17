@@ -13,6 +13,7 @@ from core.parser import (
 )
 from core.scoring import score_resume, verdict_from_score
 from core.history import load_history, save_history
+from core.semantic import semantic_similarity_scores_batch
 
 
 POSITIVE_FEEDBACK = {"Interviewed", "Shortlisted", "Hired"}
@@ -262,24 +263,53 @@ def run_screening(
         "preferred_colleges": "",
     }
 
-    results = []
     progress_bar = st.progress(0)
     total = len(uploads)
 
+    # ---------- PASS 1: read every file and collect resume text ----------
+    # Done as its own pass (rather than inline in the scoring loop) so we
+    # can batch-embed all resume texts against the JD in one or two API
+    # calls below, instead of score_resume() making one semantic-scoring
+    # API call PER resume. For a 50-resume batch this turns ~100 sequential
+    # OpenAI embedding calls into ~2, which is both faster and cheaper —
+    # the JD embedding in particular was previously being recomputed once
+    # per resume even though it's identical across the whole batch.
+    file_entries = []  # list of (file, text) for files that read successfully
     for i, file in enumerate(uploads):
         try:
             text, read_error = read_uploaded_file(file.name, file.getvalue())
 
             if read_error:
                 read_errors.append(f"{file.name}: {read_error}")
-                progress_bar.progress((i + 1) / total)
-                continue
-
-            if not text.strip():
+            elif not text.strip():
                 read_errors.append(f"{file.name}: no readable text found")
-                progress_bar.progress((i + 1) / total)
-                continue
+            else:
+                file_entries.append((file, text))
+        except Exception as e:
+            read_errors.append(f"{file.name}: {e}")
 
+        progress_bar.progress((i + 1) / max(total, 1) * 0.4)
+
+    # ---------- Batch semantic scoring (one call for the whole set) ----------
+    semantic_scores = [50.0] * len(file_entries)
+    if api_key and file_entries:
+        try:
+            semantic_scores = semantic_similarity_scores_batch(
+                resume_texts=[text for _, text in file_entries],
+                jd_text=jd_text,
+                api_key=api_key,
+            )
+        except Exception as e:
+            # Fall back to the neutral default for the whole batch rather
+            # than failing the screening run — same fallback behavior the
+            # old per-resume call had on individual failures.
+            st.warning(f"Batch semantic scoring failed, using neutral scores: {e}")
+            semantic_scores = [50.0] * len(file_entries)
+
+    # ---------- PASS 2: score each resume using the precomputed value ----------
+    results = []
+    for idx, (file, text) in enumerate(file_entries):
+        try:
             row = score_resume(
                 jd_text=jd_text,
                 role=role,
@@ -296,6 +326,7 @@ def run_screening(
                 use_llm_keywords=bool(api_key),
                 client_company=client_company,
                 client_profile=client_profile,
+                precomputed_semantic_score=semantic_scores[idx] if api_key else None,
             )
 
             row["Client"] = client_company
@@ -337,7 +368,10 @@ def run_screening(
         except Exception as e:
             read_errors.append(f"{file.name}: {e}")
 
-        progress_bar.progress((i + 1) / total)
+        if file_entries:
+            progress_bar.progress(0.4 + (idx + 1) / len(file_entries) * 0.6)
+
+    progress_bar.progress(1.0)
 
     df = pd.DataFrame(results)
 
