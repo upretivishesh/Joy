@@ -75,8 +75,9 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
         negative = int(client_hist["Feedback"].isin(NEGATIVE_FEEDBACK).sum())
         total_decided = positive + negative
 
+        # Milder client bias (was *6)
         if total_decided >= 3:
-            client_bias = round(((positive - negative) / total_decided) * 6, 2)
+            client_bias = round(((positive - negative) / total_decided) * 4.5, 2)
 
         positive_hist = client_hist[client_hist["Feedback"].isin(POSITIVE_FEEDBACK)].copy()
 
@@ -128,16 +129,17 @@ def apply_candidate_memory(
     feedback = memory.get("feedback", "")
     prior_role = memory.get("role", "")
 
+    # Softened negative penalties, kept healthy positive rewards
     if feedback == "Hired":
-        return 15.0, f"Previously hired ({prior_role}).", "Hired"
+        return 16.0, f"Previously hired ({prior_role}).", "Hired"
     if feedback == "Shortlisted":
-        return 8.0, f"Previously shortlisted ({prior_role}).", "Shortlisted"
+        return 9.0, f"Previously shortlisted ({prior_role}).", "Shortlisted"
     if feedback == "Interviewed":
-        return 4.0, f"Previously interviewed ({prior_role}).", "Interviewed"
+        return 5.0, f"Previously interviewed ({prior_role}).", "Interviewed"
     if feedback == "Rejected":
-        return -8.0, f"Previously rejected ({prior_role}).", "Rejected"
+        return -5.0, f"Previously rejected ({prior_role}).", "Rejected"
     if feedback == "Do Not Consider":
-        return -20.0, f"Previously marked do not consider ({prior_role}).", "Do Not Consider"
+        return -12.0, f"Previously marked do not consider ({prior_role}).", "Do Not Consider"
 
     return 0.0, "", feedback or "Seen Before"
 
@@ -149,7 +151,7 @@ def apply_learned_profile(row: dict, learned_profile: dict) -> Tuple[float, List
     candidate_industry = _safe_str(row.get("Candidate Industry", ""))
     learned_industries = learned_profile.get("preferred_industries", []) or []
     if candidate_industry and candidate_industry in learned_industries:
-        adjustment += 3.0
+        adjustment += 3.5
         notes.append(f"Matches historically successful industry: {candidate_industry}")
 
     candidate_exp = pd.to_numeric(
@@ -159,7 +161,7 @@ def apply_learned_profile(row: dict, learned_profile: dict) -> Tuple[float, List
     max_hint = learned_profile.get("max_experience_hint")
     if pd.notna(candidate_exp) and min_hint is not None and max_hint is not None:
         if min_hint <= float(candidate_exp) <= max_hint:
-            adjustment += 2.0
+            adjustment += 2.5
             notes.append(
                 f"Experience aligns with prior successful range ({min_hint}-{max_hint} yrs)"
             )
@@ -174,7 +176,7 @@ def apply_learned_profile(row: dict, learned_profile: dict) -> Tuple[float, List
     }
     overlap = sorted(matched_keywords & good_fit_keywords)
     if overlap:
-        bonus = min(4.0, 1.0 * len(overlap))
+        bonus = min(4.5, 1.1 * len(overlap))
         adjustment += bonus
         notes.append("Shares winning keywords: " + ", ".join(overlap[:4]))
 
@@ -266,15 +268,8 @@ def run_screening(
     progress_bar = st.progress(0)
     total = len(uploads)
 
-    # ---------- PASS 1: read every file and collect resume text ----------
-    # Done as its own pass (rather than inline in the scoring loop) so we
-    # can batch-embed all resume texts against the JD in one or two API
-    # calls below, instead of score_resume() making one semantic-scoring
-    # API call PER resume. For a 50-resume batch this turns ~100 sequential
-    # OpenAI embedding calls into ~2, which is both faster and cheaper —
-    # the JD embedding in particular was previously being recomputed once
-    # per resume even though it's identical across the whole batch.
-    file_entries = []  # list of (file, text) for files that read successfully
+    # ---------- PASS 1: read every file ----------
+    file_entries = []
     for i, file in enumerate(uploads):
         try:
             text, read_error = read_uploaded_file(file.name, file.getvalue())
@@ -290,8 +285,9 @@ def run_screening(
 
         progress_bar.progress((i + 1) / max(total, 1) * 0.4)
 
-    # ---------- Batch semantic scoring (one call for the whole set) ----------
-    semantic_scores = [50.0] * len(file_entries)
+    # ---------- Batch semantic scoring ----------
+    # Neutral default raised to 55 to match the less-harsh score_resume
+    semantic_scores = [55.0] * len(file_entries)
     if api_key and file_entries:
         try:
             semantic_scores = semantic_similarity_scores_batch(
@@ -300,13 +296,10 @@ def run_screening(
                 api_key=api_key,
             )
         except Exception as e:
-            # Fall back to the neutral default for the whole batch rather
-            # than failing the screening run — same fallback behavior the
-            # old per-resume call had on individual failures.
             st.warning(f"Batch semantic scoring failed, using neutral scores: {e}")
-            semantic_scores = [50.0] * len(file_entries)
+            semantic_scores = [55.0] * len(file_entries)
 
-    # ---------- PASS 2: score each resume using the precomputed value ----------
+    # ---------- PASS 2: score each resume ----------
     results = []
     for idx, (file, text) in enumerate(file_entries):
         try:
