@@ -28,9 +28,6 @@ Do not commit Gmail credentials.
 Users enter their own Gmail address and App Password inside the app session when they want to send emails.
 
 
-Project Structure
-
-
 playground.py                  # Main Streamlit UI
 core/
 ├── ocr.py                     # PDF / image text extraction
@@ -48,35 +45,11 @@ requirements.txt
 packages.txt                   # System packages for Streamlit Cloud
 README.md
 
-Scoring Philosophy (current)Component
-Weight / Behaviour
-Notes
-Keyword match
-~25-28 %
-Soft multi-word matching
-Experience
-~24-26 %
-Gentle curve below required years
-Semantic similarity
-~25-26 %
-Batch-embedded
-Education
-~12 % (only when JD requires it)
-Soft gap penalty
-Skills density
-~9-12 %
-Contact + structure
-small
-AI recruiter score
-blended 45-55 % when available
-Only triggered on decent heuristic
-Memory / client bias
-post-score adjustment
-Softened negatives, healthy positives
-Verdicts
-Strong ≥ 78 · Good ≥ 62 · Review ≥ 45 · Low < 45
 
-Typical WorkflowPaste or upload a Job Description.
+
+Typical Workflow
+
+Paste or upload a Job Description.
 (Optional) set role title, min/max experience, preferred industries, extra keywords.
 Upload one or many resumes (PDF / DOCX / images).
 Click Screen.
@@ -84,7 +57,9 @@ Review ranked table, industry fit, matched/missing keywords, and reasons.
 Mark feedback (Shortlisted / Interviewed / Hired / Rejected …) – this improves future runs.
 Export results or send personalized emails.
 
-NotesName extraction prefers the LLM when an API key is present; otherwise uses the improved heuristic (position, email overlap, noise rejection, Indian name patterns).
+Notes
+
+Name extraction prefers the LLM when an API key is present; otherwise uses the improved heuristic (position, email overlap, noise rejection, Indian name patterns).
 All LLM calls are temperature-0 and JSON-only for reliability.
 History is stored per user key so multiple recruiters can keep separate learning profiles.
 The tool never stores Gmail credentials.
