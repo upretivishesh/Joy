@@ -473,7 +473,11 @@ def get_jd(user_key: str, role: str) -> str:
 
 def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: str) -> bool:
     if not profile_key_value or not role:
+        print(f"⚠️ update_feedback: missing profile_key ('{profile_key_value}') or role ('{role}')")
         return False
+
+    profile_key_value = str(profile_key_value).strip()
+    role = str(role).strip()
 
     if supabase:
         try:
@@ -481,16 +485,28 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
                 supabase.table("screening_history")
                 .update({"feedback": feedback})
                 .eq("user_key", user_key)
-                .eq("profile_key", str(profile_key_value))
+                .eq("profile_key", profile_key_value)
                 .eq("role", role)
                 .execute()
             )
             if result.data:
                 print(f"✅ Feedback updated in Supabase: {feedback}")
                 return True
+            else:
+                # Update ran but matched ZERO rows — this is the real bug.
+                # Don't silently fall through to a local Excel file that
+                # likely doesn't exist when Supabase is the primary store.
+                print(
+                    f"⚠️ Supabase update matched 0 rows for "
+                    f"profile_key='{profile_key_value}' role='{role}' user_key='{user_key}'. "
+                    f"Check for whitespace/casing mismatch against stored values."
+                )
+                return False
         except Exception as e:
             print(f"❌ Supabase update_feedback error: {e}")
+            return False
 
+    # Local Excel fallback — only reached if supabase client is None
     path = history_path(user_key)
     if path.exists():
         try:
@@ -499,10 +515,11 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
                 return False
 
             mask = (
-                (df["Profile Key"].astype(str) == str(profile_key_value))
-                & (df["Role"].astype(str) == str(role))
+                (df["Profile Key"].astype(str).str.strip() == profile_key_value)
+                & (df["Role"].astype(str).str.strip() == role)
             )
             if not mask.any():
+                print(f"⚠️ Local update_feedback: no row matched profile_key='{profile_key_value}' role='{role}'")
                 return False
 
             if "Feedback" not in df.columns:
@@ -515,6 +532,8 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
         except Exception as e:
             print(f"❌ Local update_feedback error: {e}")
             return False
+
+    return False
 
     return False
 
