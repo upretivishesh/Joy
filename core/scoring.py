@@ -61,69 +61,63 @@ def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, lis
 # ---------------------------------------------------------------------------
 def experience_score(candidate_years: float, required_years: float) -> int:
     if required_years <= 0:
-        return 65 if candidate_years == 0 else min(100, 65 + int(candidate_years * 4))
+        return 70 if candidate_years == 0 else min(100, 70 + int(candidate_years * 5))
 
     if candidate_years == 0:
-        return 40
+        return 45          # was 40
 
     if candidate_years >= required_years:
-        bonus = min(10, int((candidate_years - required_years) * 2))
+        bonus = min(12, int((candidate_years - required_years) * 2.5))
         return min(100, 100 + bonus)
 
     ratio = candidate_years / required_years
-    if ratio >= 0.90:
-        return 92
-    if ratio >= 0.80:
-        return 83
+    # Gentler curve
+    if ratio >= 0.85:
+        return 95
     if ratio >= 0.70:
-        return 72
+        return 85
     if ratio >= 0.55:
-        return 58
+        return 72
     if ratio >= 0.40:
-        return 42
-    return int(max(10, ratio * 80))
+        return 58
+    if ratio >= 0.25:
+        return 45
+    return int(max(20, ratio * 90))   # floor raised from ~10
 
 
 def education_score(
     resume_edu_level: int, required_edu: str, required_edu_level: int
 ) -> tuple[int, str]:
     if not required_edu or required_edu_level == -1:
-        return 75, "No specific education requirement stated"
+        return 80, "No specific education requirement stated"   # was 75
     if resume_edu_level == -1:
-        return 35, f"Education not clearly identified on resume (requires {required_edu})"
+        return 45, f"Education not clearly identified (requires {required_edu})"  # was 35
     if resume_edu_level >= required_edu_level:
         return 100, "Meets or exceeds education requirement"
 
     gap = required_edu_level - resume_edu_level
     if gap == 1:
-        return 52, f"One level below required education ({required_edu})"
-    return 20, f"Significantly below required education ({required_edu})"
+        return 65, f"One level below required education ({required_edu})"  # was 52
+    return 35, f"Significantly below required education ({required_edu})"  # was 20
 
 
 def contact_score(email: str, phone: str) -> int:
     score = 0
     if email:
-        score += 65
+        score += 70
     if phone:
-        score += 35
+        score += 30
     return score
-
 
 def section_presence_score(resume_text: str) -> int:
     lower = (resume_text or "").lower()
     sections = [
-        "experience",
-        "education",
-        "skills",
-        "objective",
-        "summary",
-        "projects",
-        "certifications",
-        "achievements",
+        "experience", "education", "skills", "objective", "summary",
+        "projects", "certifications", "achievements", "work history",
     ]
     found = sum(1 for s in sections if s in lower)
-    return min(20, found * 4)
-
+    return min(25, found * 4)   # slightly higher max
+    
 
 # ---------------------------------------------------------------------------
 # INDUSTRY FIT HELPERS
@@ -274,11 +268,11 @@ def make_reason(matched, missing, exp, min_exp, edu_reason=""):
 
 
 def verdict_from_score(score: float) -> str:
-    if score >= 82:
+    if score >= 78:          # was 82
         return "Strong Fit"
-    if score >= 68:
+    if score >= 62:          # was 68
         return "Good Fit"
-    if score >= 50:
+    if score >= 45:          # was 50
         return "Review"
     return "Low Fit"
 
@@ -304,7 +298,7 @@ def score_resume(
     client_profile: dict | None = None,
     precomputed_semantic_score: float | None = None,
 ) -> dict:
-    # 1. Keywords
+    # 1. Keywords (unchanged)
     final_keywords = keywords or []
     if use_llm_keywords and api_key:
         llm_kws = extract_keywords_llm(jd_text, api_key, model)
@@ -330,61 +324,56 @@ def score_resume(
         resume_edu_level, required_edu, required_edu_level
     )
 
-    # 2b. Rule-based industry
     rule_based_industry = get_candidate_industry(resume_text, filename)
 
     # 3. Sub-scores
     kw_score, matched, missing = keyword_match_score(resume_text, final_keywords)
     exp_sc = experience_score(exp, min_exp)
     cnt_score = contact_score(email, phone)
-    skill_score = min(100, len(skills) * 10)
+    skill_score = min(100, len(skills) * 12)   # slightly more generous
     structure_score = section_presence_score(resume_text)
 
-    # 4. Semantic score
-    # If the caller already batch-embedded this resume against the JD
-    # (see screening.py's run_screening, which embeds the whole batch in
-    # one or two API calls instead of one call pair per resume), use that
-    # value directly and skip the redundant single-pair API call here.
-    # Falls back to the original per-resume call when no batch score was
-    # supplied, so this function's behavior is unchanged for any other
-    # caller that invokes score_resume() directly.
+    # 4. Semantic
     if precomputed_semantic_score is not None:
         semantic_sc = precomputed_semantic_score
     else:
-        semantic_sc = 50.0
+        semantic_sc = 55.0   # neutral raised from 50
         if use_semantic and api_key:
             semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
 
-    # 5. Heuristic score
+    # 5. Heuristic – weights rebalanced toward experience + semantic
     has_edu_requirement = required_edu_level != -1
 
     if has_edu_requirement:
         heuristic = (
-            (kw_score * 0.27)
-            + (exp_sc * 0.22)
-            + (edu_sc * 0.15)
-            + (semantic_sc * 0.22)
+            (kw_score * 0.25)
+            + (exp_sc * 0.24)
+            + (edu_sc * 0.12)
+            + (semantic_sc * 0.25)
             + (skill_score * 0.09)
             + (cnt_score * 0.03)
             + (structure_score * 0.02)
         )
     else:
         heuristic = (
-            (kw_score * 0.30)
-            + (exp_sc * 0.25)
-            + (semantic_sc * 0.25)
+            (kw_score * 0.28)
+            + (exp_sc * 0.26)
+            + (semantic_sc * 0.26)
             + (skill_score * 0.12)
             + (cnt_score * 0.05)
             + (structure_score * 0.03)
         )
 
-    # 6. AI score
+    # Soft floor so mid-quality resumes are not crushed
+    heuristic = max(heuristic, 38.0)
+
+    # 6. AI score (only when heuristic is decent)
     ai_score = None
     ai_reason = ""
     industry_match = "N/A"
     candidate_industry = ""
 
-    if heuristic >= 50 and api_key:
+    if heuristic >= 45 and api_key:          # lowered from 50
         ai_score, ai_reason, industry_match, candidate_industry = ai_score_resume(
             jd_text=jd_text,
             resume_text=resume_text,
@@ -400,33 +389,29 @@ def score_resume(
         reason = ai_reason or make_reason(matched, missing, exp, min_exp, edu_reason)
         ai_used = False
     else:
-        ai_weight = 0.60 if heuristic >= 70 else 0.50
-        final_score = round((heuristic * (1 - ai_weight)) + (ai_score * ai_weight), 1)
+        # Slightly lower AI weight so heuristics are not overridden as harshly
+        ai_weight = 0.55 if heuristic >= 65 else 0.45
+        final_score = round(
+            (heuristic * (1 - ai_weight)) + (ai_score * ai_weight), 1
+        )
         reason = ai_reason or make_reason(matched, missing, exp, min_exp, edu_reason)
         ai_used = True
 
-    # 6b. Always backfill candidate industry if AI left it empty
+    # 6b / 6c – industry backfill (unchanged)
     if not candidate_industry or candidate_industry.strip().lower() in {
-        "",
-        "n/a",
-        "unknown",
-        "not detected",
+        "", "n/a", "unknown", "not detected"
     }:
         candidate_industry = rule_based_industry
 
-    # 6c. Fallback industry match from client persona
     if industry_match == "N/A" and client_profile:
         preferred = client_profile.get("preferred_industries") or []
-
         if preferred and rule_based_industry != "Others / Not Detected":
             rb_norm = _normalize_industry_label(rule_based_industry)
             rb_tokens = _industry_tokens(rule_based_industry)
-
             for pref in preferred:
                 pref_norm = _normalize_industry_label(str(pref))
                 pref_tokens = _industry_tokens(str(pref))
                 overlap = rb_tokens & pref_tokens
-
                 if rb_norm == pref_norm:
                     industry_match = "Yes"
                     break
@@ -434,19 +419,18 @@ def score_resume(
                     industry_match = "Partial"
                     break
 
-    # 7. Client persona adjustment
+    # 7. Client persona adjustment (unchanged logic)
     band_note = ""
     if client_profile:
         boost = 0
         industries = client_profile.get("preferred_industries") or []
-
         if industries:
             if industry_match == "Yes":
                 boost += 6
             elif industry_match == "Partial":
-                boost += 2
+                boost += 3          # was +2
             elif industry_match == "No":
-                boost -= 6
+                boost -= 4          # was -6 (less harsh)
 
         culture_notes = str(client_profile.get("culture_notes", "")).strip()
         if len(culture_notes) > 20:
@@ -455,7 +439,7 @@ def score_resume(
         min_band = float(client_profile.get("min_experience", 0) or 0)
         max_band = float(client_profile.get("max_experience", 0) or 0)
         if max_band > 0 and exp > 0 and not (min_band <= exp <= max_band):
-            boost -= 4
+            boost -= 3              # was -4
             band_note = (
                 f" Outside this client's usual {min_band:g}-{max_band:g} yr experience band."
             )
