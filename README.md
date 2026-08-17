@@ -18,7 +18,7 @@ It combines rule-based extraction, semantic similarity, keyword matching, and op
 
 ## Run Locally
 
-# Ubuntu / Debian
+Ubuntu / Debian
 sudo apt-get install -y tesseract-ocr poppler-utils
 
 OPENAI_API_KEY = "your_key"
@@ -28,39 +28,49 @@ Do not commit Gmail credentials.
 Users enter their own Gmail address and App Password inside the app session when they want to send emails.
 
 
-playground.py                  # Main Streamlit UI
+# Project Structure
+
+playground.py                  
 core/
-├── ocr.py                     # PDF / image text extraction
-├── parser.py                  # JD & resume field extraction
-├── name_extractor.py          # Improved name extraction (heuristic + NER)
-├── scoring.py                 # Balanced multi-signal scoring + verdicts
-├── llm_extractor.py           # LLM keyword & name helpers
-├── semantic.py                # Batch + single semantic similarity
-├── history.py                 # Screening history load / save
-├── india_industry_map.py      # Rule-based industry detection
-└── ai_client.py               # Thin OpenAI / chat_json wrapper
-data/                          # Screening history & learned profiles
-uploads/                       # Temporary uploaded resumes
+
+├── ocr.py                    
+├── parser.py              
+├── name_extractor.py        
+├── scoring.py                
+├── llm_extractor.py          
+├── semantic.py               
+├── history.py                 
+├── india_industry_map.py     
+└── ai_client.py              
+data/                         
+uploads/                      
 requirements.txt
-packages.txt                   # System packages for Streamlit Cloud
+packages.txt                 
 README.md
 
+# Typical Workflow
 
+- Paste or upload a Job Description
 
-Typical Workflow
+- (Optional) set role title, min/max experience, preferred industries, extra keywords.
 
-Paste or upload a Job Description.
-(Optional) set role title, min/max experience, preferred industries, extra keywords.
-Upload one or many resumes (PDF / DOCX / images).
-Click Screen.
-Review ranked table, industry fit, matched/missing keywords, and reasons.
-Mark feedback (Shortlisted / Interviewed / Hired / Rejected …) – this improves future runs.
-Export results or send personalized emails.
+- Upload one or many resumes (PDF / DOCX / images).
 
-Notes
+- Click Screen.
 
-Name extraction prefers the LLM when an API key is present; otherwise uses the improved heuristic (position, email overlap, noise rejection, Indian name patterns).
-All LLM calls are temperature-0 and JSON-only for reliability.
-History is stored per user key so multiple recruiters can keep separate learning profiles.
-The tool never stores Gmail credentials.
+- Review ranked table, industry fit, matched/missing keywords, and reasons.
+
+- Mark feedback (Shortlisted / Interviewed / Hired / Rejected …) – this improves future runs.
+
+- Export results or send personalized emails.
+
+# Notes
+
+- Name extraction prefers the LLM when an API key is present; otherwise uses the improved heuristic (position, email overlap, noise rejection, Indian name patterns).
+
+- All LLM calls are temperature-0 and JSON-only for reliability.
+
+- History is stored per user key so multiple recruiters can keep separate learning profiles.
+
+- The tool never stores Gmail credentials.
 
