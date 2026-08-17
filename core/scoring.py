@@ -302,6 +302,7 @@ def score_resume(
     use_llm_keywords: bool = True,
     client_company: str = "",
     client_profile: dict | None = None,
+    precomputed_semantic_score: float | None = None,
 ) -> dict:
     # 1. Keywords
     final_keywords = keywords or []
@@ -340,9 +341,19 @@ def score_resume(
     structure_score = section_presence_score(resume_text)
 
     # 4. Semantic score
-    semantic_sc = 50.0
-    if use_semantic and api_key:
-        semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
+    # If the caller already batch-embedded this resume against the JD
+    # (see screening.py's run_screening, which embeds the whole batch in
+    # one or two API calls instead of one call pair per resume), use that
+    # value directly and skip the redundant single-pair API call here.
+    # Falls back to the original per-resume call when no batch score was
+    # supplied, so this function's behavior is unchanged for any other
+    # caller that invokes score_resume() directly.
+    if precomputed_semantic_score is not None:
+        semantic_sc = precomputed_semantic_score
+    else:
+        semantic_sc = 50.0
+        if use_semantic and api_key:
+            semantic_sc = semantic_similarity_score(resume_text, jd_text, api_key)
 
     # 5. Heuristic score
     has_edu_requirement = required_edu_level != -1
