@@ -22,6 +22,7 @@ from core.history import (
     confirm_delete_all_history,
     confirm_delete_jd,
     update_feedback,
+    update_feedback_by_id,
     search_candidates,
 )
 from core.ocr import read_uploaded_file
@@ -973,37 +974,40 @@ with history_tab:
         )
 
         if st.button("Save feedback", use_container_width=False):
-            # Reset both frames to the SAME positional index before comparing.
-            # history_editable and history_edited can carry non-contiguous index
-            # values inherited from `hist` (Supabase/Excel row order), which makes
-            # direct Series comparison silently misalign or throw — either way
-            # every "changed" row gets missed and nothing saves.
             he_base = history_editable.reset_index(drop=True)
             he_new = history_edited.reset_index(drop=True)
-
+            shown_reset = shown.reset_index(drop=True)
+        
             try:
                 changed_mask = he_new["Feedback"].astype(str) != he_base["Feedback"].astype(str)
                 changed = he_new[changed_mask]
             except Exception as diff_err:
                 st.error(f"Could not compare feedback changes: {diff_err}")
                 changed = pd.DataFrame()
-
+        
             saved_count = 0
             failed = []
             for idx in changed.index:
                 row = he_new.loc[idx]
-                row_role = row.get("Role", selected_role if selected_role != "all" else "")
-                pkey = row.get("Profile Key", "")
-                if not pkey:
-                    # Profile Key column may have been hidden via column_config,
-                    # fall back to the original `shown` frame at the same position.
-                    orig_row = shown.reset_index(drop=True).loc[idx] if idx < len(shown) else None
-                    pkey = orig_row.get("Profile Key", "") if orig_row is not None else ""
-                if update_feedback(user_key, pkey, row_role, row["Feedback"]):
+                # Always pull Row ID from the untouched `shown` frame by position —
+                # never from the data_editor output, which may drop hidden columns.
+                row_id = None
+                if idx < len(shown_reset) and "Row ID" in shown_reset.columns:
+                    row_id = shown_reset.loc[idx, "Row ID"]
+        
+                if row_id is not None and update_feedback_by_id(row_id, row["Feedback"]):
                     saved_count += 1
                 else:
-                    failed.append(row.get("Name", f"row {idx}"))
-
+                    # Fallback to the old profile_key/role method only if Row ID is unavailable
+                    row_role = row.get("Role", selected_role if selected_role != "all" else "")
+                    pkey = row.get("Profile Key", "")
+                    if not pkey and idx < len(shown_reset):
+                        pkey = shown_reset.loc[idx].get("Profile Key", "")
+                    if update_feedback(user_key, pkey, row_role, row["Feedback"]):
+                        saved_count += 1
+                    else:
+                        failed.append(row.get("Name", f"row {idx}"))
+        
             if saved_count:
                 st.success(f"Saved feedback for {saved_count} candidate(s).")
                 st.rerun()
@@ -1011,7 +1015,6 @@ with history_tab:
                 st.warning(f"Detected changes but save failed for: {', '.join(failed)}. Check Profile Key / Role match in the database.")
             else:
                 st.info("No feedback changes to save.")
-
         st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
 
         # ---------- Open Resume from History ----------
