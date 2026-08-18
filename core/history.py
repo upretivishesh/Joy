@@ -122,6 +122,7 @@ def load_history(user_key: str) -> pd.DataFrame:
             if response.data:
                 df = pd.DataFrame(response.data)
                 rename_map = {
+                    "id": "Row ID",
                     "final_score": "Final Score",
                     "industry_match": "Industry Match",
                     "candidate_industry": "Candidate Industry",
@@ -535,8 +536,34 @@ def update_feedback(user_key: str, profile_key_value: str, role: str, feedback: 
 
     return False
 
-    return False
+def update_feedback_by_id(row_id, feedback: str) -> bool:
+    """
+    Update feedback using the Supabase primary key directly.
+    Bypasses profile_key/role matching entirely — immune to
+    whitespace, casing, or hidden-column drift in st.data_editor.
+    """
+    if row_id is None or (isinstance(row_id, float) and pd.isna(row_id)):
+        print("⚠️ update_feedback_by_id: missing row_id")
+        return False
 
+    if supabase:
+        try:
+            result = (
+                supabase.table("screening_history")
+                .update({"feedback": feedback})
+                .eq("id", int(row_id))
+                .execute()
+            )
+            if result.data:
+                print(f"✅ Feedback updated by id={row_id}: {feedback}")
+                return True
+            print(f"⚠️ Supabase update matched 0 rows for id={row_id}")
+            return False
+        except Exception as e:
+            print(f"❌ Supabase update_feedback_by_id error: {e}")
+            return False
+
+    return False
 
 def confirm_delete_all_history(user_key: str):
     clear_history(user_key)
