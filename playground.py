@@ -958,6 +958,7 @@ with history_tab:
                 "Send": st.column_config.CheckboxColumn("Send"),
                 "Email": st.column_config.TextColumn("Email"),
                 "Profile Key": None,
+                "Row ID": None,
                 "Resume Path": None,
                 "Feedback": st.column_config.SelectboxColumn(
                     "Feedback",
