@@ -104,6 +104,28 @@ def _extraction_quality_ok(text: str) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# LETTER-SPACING REPAIR — hardened version.
+#
+# Root cause of the "Ar Manauarjamal" / "Committed To Contributing To"
+# class of bug: the old merge logic glued together ANY run of consecutive
+# single-letter tokens on a line that crossed a 0.5 ratio, with no check
+# on what the merge actually produced. On resumes with unusual font
+# encodings, a short header line (e.g. an architect's "Ar." prefix next
+# to a name broken up by kerning artifacts) could trip the ratio check
+# by accident and get permanently, silently fused into one garbled token
+# — with no way to recover the original spacing afterward.
+#
+# Two defenses added:
+#   1. Raised the trigger threshold (0.5 -> 0.6) to cut false positives
+#      on short/ambiguous lines.
+#   2. A post-merge sanity check: if merging produced any single "word"
+#      longer than 20 characters, that's not a real word — it's fragments
+#      that were never meant to be joined. Reject the repair for that
+#      line and keep the original text instead of guessing wrong.
+#   3. Logs every line that actually gets rewritten, so misfires are
+#      auditable instead of invisible.
+# ---------------------------------------------------------------------------
 def repair_letter_spaced_text(text: str) -> str:
     """
     Collapse ' J o h n   D o e ' style extraction artifacts back into
@@ -126,7 +148,9 @@ def repair_letter_spaced_text(text: str) -> str:
             1 for t in tokens if len(t) == 1 and t.isalpha()
         ) / max(len(tokens), 1)
 
-        if single_letter_ratio < 0.5:
+        # Raised from 0.5 — fewer accidental triggers on short header
+        # lines (initials, title prefixes like "Ar.", bullet markers).
+        if single_letter_ratio < 0.6:
             out_lines.append(line)
             continue
 
@@ -147,7 +171,21 @@ def repair_letter_spaced_text(text: str) -> str:
         if current:
             words.append("".join(current))
 
-        out_lines.append(" ".join(w for w in words if w))
+        # Sanity check: a real word almost never exceeds ~20 characters.
+        # If the merge produced one, it fused unrelated fragments together
+        # (e.g. two separate names, or a title prefix + surname) instead
+        # of repairing genuine letter-spacing. Reject the repair for this
+        # line rather than emit a corrupted token with no way back.
+        if any(len(w) > 20 for w in words):
+            out_lines.append(line)
+            continue
+
+        merged_line = " ".join(w for w in words if w)
+
+        if merged_line != line:
+            print(f"[repair_letter_spaced_text] '{line[:50]}' -> '{merged_line[:50]}'")
+
+        out_lines.append(merged_line)
 
     return "\n".join(out_lines)
 
