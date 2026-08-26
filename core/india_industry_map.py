@@ -83,6 +83,37 @@ INDIA_INDUSTRY_KEYWORDS = [
     ("marketplace", "E-commerce"),
     ("retail", "Retail"),
 
+    # API / process chemistry signals (pharma OR agro route scouting, scale-up,
+    # PR&D) — must come BEFORE the generic "chemical" catch-all below, and
+    # BEFORE plain "pharma", so a resume doesn't get silently bucketed into
+    # generic "Chemicals" just because it never says the word "agrochemical"
+    # or "pharmaceutical" outright. This is the process-chemistry skillset
+    # Atomgrid actually needs regardless of which end molecule it was applied to.
+    ("route scouting", "API / Process Chemistry (Pharma or Agro)"),
+    ("route scoutting", "API / Process Chemistry (Pharma or Agro)"),
+    ("process r&d", "API / Process Chemistry (Pharma or Agro)"),
+    ("process rd", "API / Process Chemistry (Pharma or Agro)"),
+    ("pr&d", "API / Process Chemistry (Pharma or Agro)"),
+    ("process research", "API / Process Chemistry (Pharma or Agro)"),
+    ("process development", "API / Process Chemistry (Pharma or Agro)"),
+    ("scale up", "API / Process Chemistry (Pharma or Agro)"),
+    ("scale-up", "API / Process Chemistry (Pharma or Agro)"),
+    ("pilot plant", "API / Process Chemistry (Pharma or Agro)"),
+    ("active pharmaceutical ingredient", "API / Process Chemistry (Pharma or Agro)"),
+    ("active pharmaceutical ingredients", "API / Process Chemistry (Pharma or Agro)"),
+    ("api synthesis", "API / Process Chemistry (Pharma or Agro)"),
+    ("api intermediate", "API / Process Chemistry (Pharma or Agro)"),
+    ("api intermediates", "API / Process Chemistry (Pharma or Agro)"),
+    ("drug intermediate", "API / Process Chemistry (Pharma or Agro)"),
+    ("drug intermediates", "API / Process Chemistry (Pharma or Agro)"),
+    ("technology transfer", "API / Process Chemistry (Pharma or Agro)"),
+    ("tech transfer", "API / Process Chemistry (Pharma or Agro)"),
+    ("impurity profiling", "API / Process Chemistry (Pharma or Agro)"),
+    ("multi step synthesis", "API / Process Chemistry (Pharma or Agro)"),
+    ("multistep synthesis", "API / Process Chemistry (Pharma or Agro)"),
+    ("new chemical entity", "API / Process Chemistry (Pharma or Agro)"),
+    ("new chemical entities", "API / Process Chemistry (Pharma or Agro)"),
+
     # Healthcare / life sciences
     ("pharma", "Pharmaceuticals"),
     ("pharmaceutical", "Pharmaceuticals"),
