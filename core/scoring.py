@@ -162,6 +162,28 @@ def _industry_tokens(value: str) -> set[str]:
     }
 
 
+# Explicit adjacency pairs for industry labels that are functionally the same
+# skillset applied to a different end molecule. Token overlap alone misses
+# these because the words don't literally overlap (e.g. "API / Process
+# Chemistry" vs "Agrochemicals" share no tokens, but a route-scouting/
+# scale-up/PR&D chemist is directly transferable between them). Each pair is
+# treated as "Partial" in both directions, never silently "No".
+_INDUSTRY_ADJACENCY_PAIRS = [
+    ({"api", "process", "chemistry"}, {"agrochemicals"}),
+    ({"api", "process", "chemistry"}, {"pharmaceuticals"}),
+    ({"api", "process", "chemistry"}, {"chemicals"}),
+    ({"agrochemicals"}, {"pharmaceuticals"}),
+    ({"agrochemicals"}, {"chemicals"}),
+]
+
+
+def _is_adjacent_industry(a_tokens: set[str], b_tokens: set[str]) -> bool:
+    for left, right in _INDUSTRY_ADJACENCY_PAIRS:
+        if (left & a_tokens and right & b_tokens) or (left & b_tokens and right & a_tokens):
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # AI SCORING
 # ---------------------------------------------------------------------------
@@ -206,6 +228,13 @@ Also judge the candidate's INDUSTRY fit: has this candidate actually worked
 in the same or a closely adjacent industry to the one in the JD{" and/or the hiring client's own industry" if client_company.strip() else ""}?
 - "Yes" — candidate's work history is in the same or a directly comparable industry.
 - "Partial" — adjacent/transferable industry (e.g. FMCG vs D2C, general chemicals vs agrochemicals), not an exact match but relevant.
+  IMPORTANT: pharmaceutical API process chemistry (route scouting, process
+  R&D, scale-up, technology transfer, impurity profiling, multi-step
+  synthesis of drug intermediates/APIs) is a "Partial" match, never "No",
+  against an agrochemical process-chemistry role — it is the same bench
+  skillset (process development, optimization, validation, scale-up from
+  lab to pilot plant) applied to a different end molecule, not an
+  unrelated industry.
 - "No" — candidate's background is in an unrelated industry with no meaningful overlap.
 
 Return ONLY valid JSON:
@@ -415,7 +444,7 @@ def score_resume(
                 if rb_norm == pref_norm:
                     industry_match = "Yes"
                     break
-                elif overlap:
+                elif overlap or _is_adjacent_industry(rb_tokens, pref_tokens):
                     industry_match = "Partial"
                     break
 
