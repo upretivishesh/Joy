@@ -825,15 +825,15 @@ with history_tab:
     hist = load_history(user_key)
 
     with st.expander("🔍 DEBUG: Row ID check (delete after use)", expanded=True):
-    suspects = ["Gaurav Tiwari", "Mehak Chadha", "Saara Tiwari", "Anshul Uniyal"]
-    debug_rows = hist[hist["Name"].astype(str).str.contains("|".join(suspects), case=False, na=False)]
-    st.write("Matching rows found:", len(debug_rows))
-    if "Row ID" in debug_rows.columns:
-        st.dataframe(debug_rows[["Name", "Row ID", "Feedback", "Screened At"]])
-    else:
-        st.error("'Row ID' column is missing entirely from `hist` — Supabase rename isn't applying.")
-    st.write("Row ID dtype:", debug_rows["Row ID"].dtype if "Row ID" in debug_rows.columns else "N/A")
-    st.write("Any NaN Row IDs?", debug_rows["Row ID"].isna().sum() if "Row ID" in debug_rows.columns else "N/A")
+        suspects = ["Gaurav Tiwari", "Mehak Chadha", "Saara Tiwari", "Anshul Uniyal"]
+        debug_rows = hist[hist["Name"].astype(str).str.contains("|".join(suspects), case=False, na=False)]
+        st.write("Matching rows found:", len(debug_rows))
+        if "Row ID" in debug_rows.columns:
+            st.dataframe(debug_rows[["Name", "Row ID", "Feedback", "Screened At"]])
+        else:
+            st.error("'Row ID' column is missing entirely from `hist` — Supabase rename isn't applying.")
+        st.write("Row ID dtype:", debug_rows["Row ID"].dtype if "Row ID" in debug_rows.columns else "N/A")
+        st.write("Any NaN Row IDs?", debug_rows["Row ID"].isna().sum() if "Row ID" in debug_rows.columns else "N/A")
 
     if hist.empty:
         st.info("No saved screenings yet.")
