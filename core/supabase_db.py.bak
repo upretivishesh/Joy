@@ -1,0 +1,110 @@
+# ============================================================
+# DEAD CODE — NOT IMPORTED ANYWHERE IN app.py
+# ============================================================
+# This file duplicates functionality that actually lives in
+# core/history.py (load_history, save_history, save_jd,
+# load_jd_library, update_feedback_by_id, etc.) — that is the
+# file wired into app.py and the one you should edit.
+#
+# This file is kept only as a .bak for reference. Do not import
+# it or rely on it — nothing in the app calls into it.
+# ============================================================
+
+import streamlit as st
+from supabase import create_client, Client
+import pandas as pd
+from typing import Optional
+
+
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+
+def save_history_to_supabase(df: pd.DataFrame, role: str, user_key: str, jd_text: str = ""):
+    if df is None or df.empty:
+        return False
+
+    supabase = get_supabase()
+    records = []
+
+    for _, row in df.iterrows():
+        records.append({
+            "user_key": user_key,
+            "role": role,
+            "profile_key": str(row.get("Profile Key", "")),
+            "name": str(row.get("Name", "")),
+            "email": str(row.get("Email", "")),
+            "phone": str(row.get("Phone", "")),
+            "experience": float(row.get("Experience", 0) or 0),
+            "education": str(row.get("Education", "")),
+            "final_score": float(row.get("Final Score", 0) or 0),
+            "verdict": str(row.get("Verdict", "")),
+            "industry_match": str(row.get("Industry Match", "")),
+            "candidate_industry": str(row.get("Candidate Industry", "")),
+            "matched_keywords": str(row.get("Matched Keywords", "")),
+            "missing_keywords": str(row.get("Missing Keywords", "")),
+            "skills": str(row.get("Skills", "")),
+            "reason": str(row.get("Reason", "")),
+            "feedback": str(row.get("Feedback", "Pending")),
+            "client": str(row.get("Client", "")),
+            "source_file": str(row.get("Source File", "")),
+            "jd": jd_text[:5000] if jd_text else "",
+        })
+
+    try:
+        supabase.table("screening_history").insert(records).execute()
+        return True
+    except Exception as e:
+        st.error(f"Failed to save history: {e}")
+        return False
+
+
+def load_history_from_supabase(user_key: str) -> pd.DataFrame:
+    supabase = get_supabase()
+    try:
+        res = supabase.table("screening_history")\
+            .select("*")\
+            .eq("user_key", user_key)\
+            .order("created_at", desc=True)\
+            .execute()
+
+        if not res.data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(res.data)
+        return df
+    except Exception as e:
+        st.error(f"Failed to load history: {e}")
+        return pd.DataFrame()
+
+
+def save_jd_to_supabase(user_key: str, role: str, jd_text: str, tags: str = "") -> bool:
+    supabase = get_supabase()
+    try:
+        supabase.table("jd_library").insert({
+            "user_key": user_key,
+            "role": role,
+            "jd_text": jd_text,
+            "tags": tags
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Failed to save JD: {e}")
+        return False
+
+
+def load_jd_library_from_supabase(user_key: str) -> pd.DataFrame:
+    supabase = get_supabase()
+    try:
+        res = supabase.table("jd_library")\
+            .select("*")\
+            .eq("user_key", user_key)\
+            .order("created_at", desc=True)\
+            .execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Failed to load JD library: {e}")
+        return pd.DataFrame()
