@@ -932,21 +932,30 @@ with history_tab:
 
         history_editable = history_editable.loc[:, ~history_editable.columns.duplicated()]
         history_editable = history_editable.drop(columns=["Reason", "JD", "Duplicate"], errors="ignore")
-
+         
         if selected_role != "all":
             history_editable = history_editable.drop(columns=["Role"], errors="ignore")
-
+         
         # Final Score before Feedback
         history_editable = order_columns_first(
             history_editable,
             ["Rank", "Send", "Name", "Email", "Phone", "Experience", "Final Score", "Verdict", "Feedback", "LinkedIn URL"]
         )
         history_editable = format_experience_years(history_editable)
-
+         
         if "Feedback" not in history_editable.columns:
             history_editable["Feedback"] = "Pending"
         history_editable["Feedback"] = history_editable["Feedback"].replace("", "Pending")
-
+         
+        # --- KEY FIX: index by Row ID so data_editor round-trips it reliably ---
+        has_row_id = "Row ID" in history_editable.columns
+        if has_row_id:
+            # drop rows with no Row ID (shouldn't normally happen, but guards against
+            # legacy local-Excel rows that predate the Supabase id column)
+            history_editable = history_editable[history_editable["Row ID"].notna()].copy()
+            history_editable["Row ID"] = history_editable["Row ID"].astype(int)
+            history_editable = history_editable.set_index("Row ID", drop=False)
+         
         history_edited = st.data_editor(
             history_editable,
             height=500,
@@ -973,51 +982,53 @@ with history_tab:
                 ),
             },
         )
-
+         
         if st.button("Save feedback", use_container_width=False):
-            he_base = history_editable.reset_index(drop=True)
-            he_new = history_edited.reset_index(drop=True)
-            shown_reset = shown.reset_index(drop=True)
-        
-            try:
-                changed_mask = he_new["Feedback"].astype(str) != he_base["Feedback"].astype(str)
-                changed = he_new[changed_mask]
-            except Exception as diff_err:
-                st.error(f"Could not compare feedback changes: {diff_err}")
-                changed = pd.DataFrame()
-        
             saved_count = 0
             failed = []
-            for idx in changed.index:
-                row = he_new.loc[idx]
-                # Always pull Row ID from the untouched `shown` frame by position —
-                # never from the data_editor output, which may drop hidden columns.
-                row_id = None
-                if idx < len(shown_reset) and "Row ID" in shown_reset.columns:
-                    row_id = shown_reset.loc[idx, "Row ID"]
-        
-                if row_id is not None and update_feedback_by_id(row_id, row["Feedback"]):
-                    saved_count += 1
-                else:
-                    # Fallback to the old profile_key/role method only if Row ID is unavailable
+         
+            if has_row_id:
+                # Bulletproof path: index IS the Row ID, compare directly by it.
+                for row_id, new_row in history_edited.iterrows():
+                    try:
+                        old_feedback = str(history_editable.loc[row_id, "Feedback"])
+                    except KeyError:
+                        continue
+                    new_feedback = str(new_row["Feedback"])
+                    if new_feedback != old_feedback:
+                        if update_feedback_by_id(row_id, new_feedback):
+                            saved_count += 1
+                        else:
+                            failed.append(str(new_row.get("Name", f"id {row_id}")))
+            else:
+                # Legacy fallback for rows with no Row ID (local Excel only, no Supabase id)
+                he_base = history_editable.reset_index(drop=True)
+                he_new = history_edited.reset_index(drop=True)
+                try:
+                    changed_mask = he_new["Feedback"].astype(str) != he_base["Feedback"].astype(str)
+                    changed = he_new[changed_mask]
+                except Exception as diff_err:
+                    st.error(f"Could not compare feedback changes: {diff_err}")
+                    changed = pd.DataFrame()
+         
+                for idx in changed.index:
+                    row = he_new.loc[idx]
                     row_role = row.get("Role", selected_role if selected_role != "all" else "")
                     pkey = row.get("Profile Key", "")
-                    if not pkey and idx < len(shown_reset):
-                        pkey = shown_reset.loc[idx].get("Profile Key", "")
                     if update_feedback(user_key, pkey, row_role, row["Feedback"]):
                         saved_count += 1
                     else:
                         failed.append(row.get("Name", f"row {idx}"))
-        
+         
             if saved_count:
                 st.success(f"Saved feedback for {saved_count} candidate(s).")
                 st.rerun()
             elif failed:
-                st.warning(f"Detected changes but save failed for: {', '.join(failed)}. Check Profile Key / Role match in the database.")
+                st.warning(f"Detected changes but save failed for: {', '.join(failed)}. Check Row ID / Profile Key match in the database.")
             else:
                 st.info("No feedback changes to save.")
+         
         st.session_state.selected_history = history_edited[history_edited["Send"] == True].copy()
-
         # ---------- Open Resume from History ----------
         if not history_edited.empty and "Resume Path" in shown.columns:
             st.markdown("#### Open Resume from History")
