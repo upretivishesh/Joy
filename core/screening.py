@@ -25,7 +25,10 @@ def _safe_str(value) -> str:
     return str(value or "").strip()
 
 
-def get_learning_adjustments(user_key: str, client_company: str = ""):
+def get_learning_adjustments(
+    user_key: str,
+    client_company: str = "",
+):
     candidate_memory = {}
     client_bias = 0.0
     learned_profile = {
@@ -36,25 +39,33 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
     }
 
     try:
-        hist = load_history(user_key)
+        history = load_history(user_key)
     except Exception:
         return candidate_memory, client_bias, learned_profile
 
-    if hist is None or hist.empty:
+    if history is None or history.empty:
         return candidate_memory, client_bias, learned_profile
 
-    hist = hist.copy()
-    if "Feedback" not in hist.columns:
-        hist["Feedback"] = "Pending"
-    hist["Feedback"] = hist["Feedback"].fillna("Pending").astype(str).str.strip()
+    history = history.copy()
 
-    if "Profile Key" in hist.columns:
-        for _, row in hist.iterrows():
-            pk = _safe_str(row.get("Profile Key", ""))
-            fb = _safe_str(row.get("Feedback", "Pending"))
-            if pk and fb != "Pending":
-                candidate_memory[pk] = {
-                    "feedback": fb,
+    if "Feedback" not in history.columns:
+        history["Feedback"] = "Pending"
+
+    history["Feedback"] = (
+        history["Feedback"]
+        .fillna("Pending")
+        .astype(str)
+        .str.strip()
+    )
+
+    if "Profile Key" in history.columns:
+        for _, row in history.iterrows():
+            profile_key_value = _safe_str(row.get("Profile Key", ""))
+            feedback = _safe_str(row.get("Feedback", "Pending"))
+
+            if profile_key_value and feedback != "Pending":
+                candidate_memory[profile_key_value] = {
+                    "feedback": feedback,
                     "role": _safe_str(row.get("Role", "")),
                     "client": _safe_str(row.get("Client", "")),
                     "verdict": _safe_str(row.get("Verdict", "")),
@@ -63,28 +74,34 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
                     "matched_keywords": _safe_str(row.get("Matched Keywords", "")),
                 }
 
-    if client_company and "Client" in hist.columns:
-        client_hist = hist[
-            hist["Client"].astype(str).str.lower() == client_company.strip().lower()
+    if client_company and "Client" in history.columns:
+        client_history = history[
+            history["Client"].astype(str).str.lower()
+            == client_company.strip().lower()
         ].copy()
     else:
-        client_hist = hist.copy()
+        client_history = history.copy()
 
-    if not client_hist.empty:
-        positive = int(client_hist["Feedback"].isin(POSITIVE_FEEDBACK).sum())
-        negative = int(client_hist["Feedback"].isin(NEGATIVE_FEEDBACK).sum())
+    if not client_history.empty:
+        positive = int(client_history["Feedback"].isin(POSITIVE_FEEDBACK).sum())
+        negative = int(client_history["Feedback"].isin(NEGATIVE_FEEDBACK).sum())
         total_decided = positive + negative
 
-        # Milder client bias (was *6)
-        if total_decided >= 3:
-            client_bias = round(((positive - negative) / total_decided) * 4.5, 2)
+        # Small client-level bias only; it should not dominate fit.
+        if total_decided >= 5:
+            client_bias = round(
+                ((positive - negative) / total_decided) * 2.0,
+                2,
+            )
 
-        positive_hist = client_hist[client_hist["Feedback"].isin(POSITIVE_FEEDBACK)].copy()
+        positive_history = client_history[
+            client_history["Feedback"].isin(POSITIVE_FEEDBACK)
+        ].copy()
 
-        if not positive_hist.empty:
-            if "Candidate Industry" in positive_hist.columns:
+        if not positive_history.empty:
+            if "Candidate Industry" in positive_history.columns:
                 industry_counts = (
-                    positive_hist["Candidate Industry"]
+                    positive_history["Candidate Industry"]
                     .fillna("")
                     .astype(str)
                     .str.strip()
@@ -92,24 +109,38 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
                     .dropna()
                     .value_counts()
                 )
-                learned_profile["preferred_industries"] = industry_counts.head(5).index.tolist()
+                learned_profile["preferred_industries"] = (
+                    industry_counts.head(5).index.tolist()
+                )
 
-            if "Experience" in positive_hist.columns:
-                exp_series = pd.to_numeric(
-                    positive_hist["Experience"], errors="coerce"
+            if "Experience" in positive_history.columns:
+                experience_series = pd.to_numeric(
+                    positive_history["Experience"],
+                    errors="coerce",
                 ).dropna()
-                if not exp_series.empty:
+
+                if not experience_series.empty:
                     learned_profile["min_experience_hint"] = round(
-                        float(exp_series.quantile(0.25)), 1
+                        float(experience_series.quantile(0.25)),
+                        1,
                     )
                     learned_profile["max_experience_hint"] = round(
-                        float(exp_series.quantile(0.75)), 1
+                        float(experience_series.quantile(0.75)),
+                        1,
                     )
 
-            if "Matched Keywords" in positive_hist.columns:
+            if "Matched Keywords" in positive_history.columns:
                 keywords = []
-                for text in positive_hist["Matched Keywords"].fillna("").astype(str):
-                    keywords.extend([k.strip() for k in text.split(",") if k.strip()])
+
+                for text in positive_history["Matched Keywords"].fillna("").astype(str):
+                    keywords.extend(
+                        [
+                            keyword.strip()
+                            for keyword in text.split(",")
+                            if keyword.strip()
+                        ]
+                    )
+
                 if keywords:
                     learned_profile["good_fit_keywords"] = (
                         pd.Series(keywords).value_counts().head(10).index.tolist()
@@ -119,74 +150,101 @@ def get_learning_adjustments(user_key: str, client_company: str = ""):
 
 
 def apply_candidate_memory(
-    row: pd.Series, candidate_memory: dict
+    row: pd.Series,
+    candidate_memory: dict,
 ) -> Tuple[float, str, str]:
-    pk = _safe_str(row.get("Profile Key", "")).strip()
-    memory = candidate_memory.get(pk)
+    profile_key_value = _safe_str(row.get("Profile Key", "")).strip()
+    memory = candidate_memory.get(profile_key_value)
+
     if not memory:
         return 0.0, "", "New"
 
     feedback = memory.get("feedback", "")
     prior_role = memory.get("role", "")
 
-    # Softened negative penalties, kept healthy positive rewards
     if feedback == "Hired":
-        return 16.0, f"Previously hired ({prior_role}).", "Hired"
+        return 8.0, f"Previously hired ({prior_role}).", "Hired"
+
     if feedback == "Shortlisted":
-        return 9.0, f"Previously shortlisted ({prior_role}).", "Shortlisted"
+        return 5.0, f"Previously shortlisted ({prior_role}).", "Shortlisted"
+
     if feedback == "Interviewed":
-        return 5.0, f"Previously interviewed ({prior_role}).", "Interviewed"
+        return 3.0, f"Previously interviewed ({prior_role}).", "Interviewed"
+
     if feedback == "Rejected":
-        return -5.0, f"Previously rejected ({prior_role}).", "Rejected"
+        return -3.0, f"Previously rejected ({prior_role}).", "Rejected"
+
     if feedback == "Do Not Consider":
-        return -12.0, f"Previously marked do not consider ({prior_role}).", "Do Not Consider"
+        return -8.0, f"Previously marked do not consider ({prior_role}).", "Do Not Consider"
 
     return 0.0, "", feedback or "Seen Before"
 
 
-def apply_learned_profile(row: dict, learned_profile: dict) -> Tuple[float, List[str]]:
+def apply_learned_profile(
+    row: dict,
+    learned_profile: dict,
+) -> Tuple[float, List[str]]:
     adjustment = 0.0
     notes = []
 
     candidate_industry = _safe_str(row.get("Candidate Industry", ""))
     learned_industries = learned_profile.get("preferred_industries", []) or []
-    if candidate_industry and candidate_industry in learned_industries:
-        adjustment += 3.5
-        notes.append(f"Matches historically successful industry: {candidate_industry}")
 
-    candidate_exp = pd.to_numeric(
-        pd.Series([row.get("Experience", None)]), errors="coerce"
+    if candidate_industry and candidate_industry in learned_industries:
+        adjustment += 2.0
+        notes.append(
+            f"Matches historically successful industry: {candidate_industry}"
+        )
+
+    candidate_experience = pd.to_numeric(
+        pd.Series([row.get("Experience", None)]),
+        errors="coerce",
     ).iloc[0]
+
     min_hint = learned_profile.get("min_experience_hint")
     max_hint = learned_profile.get("max_experience_hint")
-    if pd.notna(candidate_exp) and min_hint is not None and max_hint is not None:
-        if min_hint <= float(candidate_exp) <= max_hint:
-            adjustment += 2.5
+
+    if (
+        pd.notna(candidate_experience)
+        and min_hint is not None
+        and max_hint is not None
+    ):
+        if min_hint <= float(candidate_experience) <= max_hint:
+            adjustment += 1.5
             notes.append(
-                f"Experience aligns with prior successful range ({min_hint}-{max_hint} yrs)"
+                f"Experience aligns with prior successful range "
+                f"({min_hint}-{max_hint} yrs)"
             )
 
     matched_keywords_text = _safe_str(row.get("Matched Keywords", ""))
     matched_keywords = {
-        k.strip().lower() for k in matched_keywords_text.split(",") if k.strip()
+        keyword.strip().lower()
+        for keyword in matched_keywords_text.split(",")
+        if keyword.strip()
     }
+
     good_fit_keywords = {
-        k.strip().lower()
-        for k in (learned_profile.get("good_fit_keywords", []) or [])
+        keyword.strip().lower()
+        for keyword in (learned_profile.get("good_fit_keywords", []) or [])
     }
+
     overlap = sorted(matched_keywords & good_fit_keywords)
+
     if overlap:
-        bonus = min(4.5, 1.1 * len(overlap))
+        bonus = min(2.5, 0.6 * len(overlap))
         adjustment += bonus
         notes.append("Shares winning keywords: " + ", ".join(overlap[:4]))
 
     return adjustment, notes
 
 
-def _required_education_from_jd(jd_requirements: dict) -> Tuple[int, str]:
+def _required_education_from_jd(
+    jd_requirements: dict,
+) -> Tuple[int, str]:
     required_edu_label = str(
         (jd_requirements or {}).get("required_education", "") or ""
     ).strip()
+
     if not required_edu_label:
         return -1, ""
 
@@ -220,7 +278,8 @@ def run_screening(
         return pd.DataFrame(), read_errors
 
     candidate_memory, client_bias, learned_profile = get_learning_adjustments(
-        user_key, client_company
+        user_key,
+        client_company,
     )
 
     role = (
@@ -229,7 +288,7 @@ def run_screening(
         else detect_role_title(jd_text, role_input, api_key, model)
     )
 
-    jd_req = (
+    jd_requirements = (
         extract_jd_requirements_ai(jd_text, api_key, model or "gpt-4o-mini")
         if api_key
         else {}
@@ -238,13 +297,15 @@ def run_screening(
     jd_min_exp = parse_min_experience(jd_text)
     effective_min_exp = jd_min_exp if jd_min_exp > 0 else float(min_exp or 0)
 
-    required_edu_level, required_edu_label = _required_education_from_jd(jd_req)
+    required_edu_level, required_edu_label = _required_education_from_jd(
+        jd_requirements
+    )
 
     keywords = extract_keywords(
         jd_text,
         extra_keywords=extra_keywords or "",
         limit=30,
-        jd_requirements=jd_req,
+        jd_requirements=jd_requirements,
     )
 
     merged_preferred_industries = list(
@@ -268,9 +329,10 @@ def run_screening(
     progress_bar = st.progress(0)
     total = len(uploads)
 
-    # ---------- PASS 1: read every file ----------
+    # PASS 1: read every uploaded file.
     file_entries = []
-    for i, file in enumerate(uploads):
+
+    for index, file in enumerate(uploads):
         try:
             text, read_error = read_uploaded_file(file.name, file.getvalue())
 
@@ -280,14 +342,14 @@ def run_screening(
                 read_errors.append(f"{file.name}: no readable text found")
             else:
                 file_entries.append((file, text))
-        except Exception as e:
-            read_errors.append(f"{file.name}: {e}")
+        except Exception as error:
+            read_errors.append(f"{file.name}: {error}")
 
-        progress_bar.progress((i + 1) / max(total, 1) * 0.4)
+        progress_bar.progress((index + 1) / max(total, 1) * 0.4)
 
-    # ---------- Batch semantic scoring ----------
-    # Neutral default raised to 55 to match the less-harsh score_resume
-    semantic_scores = [55.0] * len(file_entries)
+    # PASS 2: batch semantic scoring.
+    semantic_scores: list[float | None] = [None] * len(file_entries)
+
     if api_key and file_entries:
         try:
             semantic_scores = semantic_similarity_scores_batch(
@@ -295,13 +357,16 @@ def run_screening(
                 jd_text=jd_text,
                 api_key=api_key,
             )
-        except Exception as e:
-            st.warning(f"Batch semantic scoring failed, using neutral scores: {e}")
-            semantic_scores = [55.0] * len(file_entries)
+        except Exception as error:
+            st.warning(
+                f"Batch semantic scoring failed; continuing without semantic scores: {error}"
+            )
+            semantic_scores = [None] * len(file_entries)
 
-    # ---------- PASS 2: score each resume ----------
+    # PASS 3: score every resume.
     results = []
-    for idx, (file, text) in enumerate(file_entries):
+
+    for index, (file, text) in enumerate(file_entries):
         try:
             row = score_resume(
                 jd_text=jd_text,
@@ -312,43 +377,58 @@ def run_screening(
                 min_exp=effective_min_exp,
                 api_key=api_key or "",
                 model=model or "gpt-4o-mini",
-                jd_requirements=jd_req,
+                jd_requirements=jd_requirements,
                 required_edu=required_edu_label,
                 required_edu_level=required_edu_level,
                 use_semantic=True,
                 use_llm_keywords=bool(api_key),
                 client_company=client_company,
                 client_profile=client_profile,
-                precomputed_semantic_score=semantic_scores[idx] if api_key else None,
+                precomputed_semantic_score=semantic_scores[index],
             )
 
             row["Client"] = client_company
             row["Role"] = role
 
-            memory_adj, memory_note, learning_status = apply_candidate_memory(
-                pd.Series(row), candidate_memory
+            memory_adjustment, memory_note, learning_status = apply_candidate_memory(
+                pd.Series(row),
+                candidate_memory,
             )
-            learned_adj, learned_notes = apply_learned_profile(row, learned_profile)
 
-            total_adjustment = memory_adj + learned_adj + client_bias
+            learned_adjustment, learned_notes = apply_learned_profile(
+                row,
+                learned_profile,
+            )
 
-            if total_adjustment:
-                row["Final Score"] = max(
-                    0.0,
-                    min(100.0, round(float(row["Final Score"]) + total_adjustment, 1)),
-                )
-                row["Verdict"] = verdict_from_score(float(row["Final Score"]))
+            # Fit Score is the core JD-fit ranking.
+            fit_score = float(row["Final Score"])
 
-            row["Memory Adjustment"] = round(memory_adj, 1)
-            row["Learned Preference Adjustment"] = round(learned_adj, 1)
+            # Priority Score includes history and learned preferences.
+            priority_score = (
+                fit_score
+                + memory_adjustment
+                + learned_adjustment
+                + client_bias
+            )
+
+            row["Fit Score"] = round(max(0.0, min(100.0, fit_score)), 1)
+            row["Priority Score"] = round(
+                max(0.0, min(100.0, priority_score)),
+                1,
+            )
+
+            row["Memory Adjustment"] = round(memory_adjustment, 1)
+            row["Learned Preference Adjustment"] = round(learned_adjustment, 1)
             row["Client Bias Adjustment"] = round(client_bias, 1)
             row["Learning Status"] = learning_status
             row["Memory Note"] = memory_note
             row["Learned Notes"] = " | ".join(learned_notes)
 
             notes = []
+
             if memory_note:
                 notes.append(memory_note)
+
             notes.extend(learned_notes)
 
             if notes:
@@ -358,23 +438,36 @@ def run_screening(
 
             results.append(row)
 
-        except Exception as e:
-            read_errors.append(f"{file.name}: {e}")
+        except Exception as error:
+            read_errors.append(f"{file.name}: {error}")
 
         if file_entries:
-            progress_bar.progress(0.4 + (idx + 1) / len(file_entries) * 0.6)
+            progress_bar.progress(
+                0.4 + (index + 1) / len(file_entries) * 0.6
+            )
 
     progress_bar.progress(1.0)
 
-    df = pd.DataFrame(results)
+    dataframe = pd.DataFrame(results)
 
-    if not df.empty and "Final Score" in df.columns:
-        df = df.sort_values("Final Score", ascending=False).reset_index(drop=True)
+    if not dataframe.empty and "Fit Score" in dataframe.columns:
+        dataframe = (
+            dataframe.sort_values(
+                ["Fit Score", "Priority Score"],
+                ascending=[False, False],
+            )
+            .reset_index(drop=True)
+        )
 
-    if save_results and not df.empty:
+    if save_results and not dataframe.empty:
         try:
-            save_history(df=df, role=role, user_key=user_key, jd_text=jd_text)
-        except Exception as e:
-            st.error(f"Failed to save screening history: {e}")
+            save_history(
+                df=dataframe,
+                role=role,
+                user_key=user_key,
+                jd_text=jd_text,
+            )
+        except Exception as error:
+            st.error(f"Failed to save screening history: {error}")
 
-    return df, read_errors
+    return dataframe, read_errors
