@@ -63,7 +63,7 @@ JD_NOISE_WORDS = {
     "deliver", "delivering", "support", "supporting", "ensure", "ensuring",
     "daily", "basis", "track", "revolutionize", "new-age", "asset-light",
     "brand", "combines", "email", "quality", "sites", "standards",
-    "confidentiality", "partners", "transfer", "capa", "agrochemicals",
+    "confidentiality", "partners", "transfer", "agrochemicals",
     "across", "within", "between", "through", "along", "around", "including",
     "regarding", "maintain", "maintaining", "coordinate", "coordinating",
     "handle", "handling", "assist", "assisting", "perform", "performing",
@@ -148,6 +148,16 @@ def build_jd_blocklist(jd_text: str) -> set[str]:
     return blocklist
 
 
+# Kept even though they are shorter than 4 characters. clean_keywords used to
+# drop these, so SAP / QA / GMP never counted as a keyword match.
+SHORT_SKILL_KEEP = {
+    "sap", "sql", "aws", "gcp", "qa", "qc", "gmp", "glp", "api", "erp",
+    "crm", "hse", "ehs", "kpi", "sop", "plc", "mes", "nmr", "hplc", "gc",
+    "uv", "iso", "ohs", "ppe", "bpr", "coa", "oos", "oot", "capa", "ipr",
+    "ipqc", "r&d", "rnd", "c++", "c#", "p&l", "qa/qc", "sops",
+}
+
+
 def clean_keywords(keywords: list[str], jd_text: str = "") -> list[str]:
     if not keywords:
         return []
@@ -171,7 +181,7 @@ def clean_keywords(keywords: list[str], jd_text: str = "") -> list[str]:
             continue
         k = kw.lower().strip()
 
-        if len(k) < 4:
+        if len(k) < 4 and " " not in k and k not in SHORT_SKILL_KEEP:
             continue
         if k in blocklist or k in extra_generic:
             continue
@@ -260,7 +270,7 @@ Strict rules:
 - If education is not mentioned, use empty string for required_education
 
 JD:
-{jd_text[:3000]}"""
+{jd_text[:8000]}"""
 
         data = chat_json(system, prompt, api_key, model, max_tokens=700, temperature=0)
         try:
@@ -510,6 +520,12 @@ BAD_NAME_WORDS = {
     "delhi", "mumbai", "bangalore", "bengaluru", "pune", "hyderabad",
     "chennai", "kolkata", "ahmedabad", "noida", "gurugram", "gurgaon",
     "india",
+    # Taglines and relatives that were being saved as the candidate name.
+    "biodata", "personal", "details", "father", "mother", "spouse",
+    "wife", "husband", "guardian", "dob", "gender", "nationality",
+    "marital", "hobbies", "interests", "strengths", "weaknesses",
+    "proactive", "safety", "mindset", "player", "hardworking",
+    "teamwork", "dedicated", "passionate", "correspondence",
 }
 
 
@@ -600,7 +616,7 @@ def extract_name_ner(text: str) -> str:
             if any(w.lower() in BAD_NAME_WORDS for w in words):
                 continue
             # Prefer entities near the top of the document
-            pos = ent.start_char      
+            pos = ent.start_char
             position_score = 0
             if pos < 200:
                 position_score = 40
@@ -636,6 +652,9 @@ def extract_name(text: str, filename: str = "") -> str:
     ]
     for pattern in patterns:
         for m in re.finditer(pattern, text, flags=re.I):
+            prefix = text[max(0, m.start() - 32):m.start()].lower()
+            if re.search(r"(father|mother|spouse|husband|wife|guardian|reference)\b", prefix):
+                continue
             candidates.append(
                 (score_name_candidate(m.group(1), 0, email_tokens, email_local) + 90, m.group(1))
             )
@@ -763,30 +782,6 @@ def explicit_years_of_experience(text: str) -> float:
                 pass
     return round(best, 1)
 
-
-# ---------------------------------------------------------------------------
-# NEW extract_experience() — replaces the old naive version.
-#
-# The old version's flow was: explicit statement -> full date-range parse
-# -> simple year-only fallback, with NO awareness of what SECTION a date
-# range lived in. That meant "B.Tech, 2014 - 2018" under an Education
-# heading and "May 2017 - Jul 2017" under an Internship heading both got
-# summed into calculate_total_experience() exactly like a real job would.
-#
-# This version adds section- and context-awareness on top of the existing
-# date-range machinery, in a new first pass. It only counts a date range as
-# work experience if:
-#   1. it is not inside an Education-type section (tracked via section
-#      headers as we scan line by line), and
-#   2. the line itself doesn't look like a degree/qualification entry even
-#      without a section header above it, and
-#   3. the 3-line context around it has no internship/traineeship signal.
-#
-# Falls back to the existing explicit_years_of_experience() statement
-# parser, then to the existing broad extract_year_ranges_simple() as a
-# last resort — both untouched, so nothing that depended on them elsewhere
-# breaks.
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # SMARTER EXPERIENCE EXTRACTION (full-time + post-education + distance-aware)
@@ -1085,25 +1080,46 @@ def extract_skills(text: str) -> list[str]:
 # JD PARSING HELPERS
 # ---------------------------------------------------------------------------
 def parse_min_experience(jd_text: str) -> float:
-    patterns = [
-        r"(\d{1,2})\s*\+\s*(?:years?|yrs?)",
+    """Role bar in years.
+
+    Strong patterns are the overall requirement ("8-10 years", "minimum 8
+    years", "8 years of experience"). Weak patterns are "N+ years", which
+    often describe one tool ("2+ years in SAP") rather than the role.
+
+    The old code returned min() of every match, so a tool-level 2 beat an
+    8-year role bar and almost everyone cleared experience.
+    """
+    strong_patterns = [
         r"(\d{1,2})\s*[-–]\s*\d{1,2}\s*(?:years?|yrs?)",
         r"(?:minimum|min\.?)\s*(?:of\s+)?(\d{1,2})\s*(?:years?|yrs?)",
         r"at\s+least\s*(\d{1,2})\s*(?:years?|yrs?)",
         r"(?:over|more\s+than)\s+(\d{1,2})\s*(?:years?|yrs?)",
-        r"(\d{1,2})\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience",
+        r"(?<![-–])(?<![-–] )(\d{1,2})\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+|total\s+|overall\s+|work\s+)?experience",
         r"experience\s*[:\-]\s*(\d{1,2})\s*(?:years?|yrs?)?",
     ]
-    candidates = []
-    for pattern in patterns:
-        for match in re.finditer(pattern, jd_text or "", flags=re.I):
-            try:
-                val = float(match.group(1))
-                if 0 < val < 40:
-                    candidates.append(val)
-            except (ValueError, IndexError):
-                pass
-    return min(candidates) if candidates else 0.0
+    weak_patterns = [
+        r"(\d{1,2})\s*\+\s*(?:years?|yrs?)",
+    ]
+
+    def _collect(patterns: list[str]) -> list[float]:
+        found = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, jd_text or "", flags=re.I):
+                try:
+                    val = float(match.group(1))
+                    if 0 < val < 40:
+                        found.append(val)
+                except (ValueError, IndexError):
+                    pass
+        return found
+
+    strong = _collect(strong_patterns)
+    if strong:
+        return max(strong)
+    weak = _collect(weak_patterns)
+    if weak:
+        return max(weak)
+    return 0.0
 
 
 def clean_role_title(value: str) -> str:
