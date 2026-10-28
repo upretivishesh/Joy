@@ -1,5 +1,4 @@
 import re
-from typing import Dict, Tuple, Optional, List
 
 from .parser import (
     extract_email,
@@ -29,26 +28,31 @@ def keyword_match_score(
     lower = (resume_text or "").lower()
     matched: list[str] = []
     missing: list[str] = []
+    considered = 0
 
     for kw in keywords:
         kw_lower = kw.lower().strip()
         if not kw_lower:
             continue
 
+        considered += 1
+
         if " " in kw_lower:
             if kw_lower in lower:
                 matched.append(kw)
                 continue
 
-            kw_words = kw_lower.split()
-            hits = sum(
-                1 for word in kw_words
-                if re.search(rf"\b{re.escape(word)}\b", lower)
-            )
+            kw_words = [word for word in kw_lower.split() if word]
+            if not kw_words:
+                considered -= 1
+                continue
 
-            if hits == len(kw_words):
-                matched.append(kw)
-            elif len(kw_words) > 1 and hits / len(kw_words) >= 0.6:
+            # Every meaningful token must be present. A 60% hit was marking
+            # "supply chain planning" as matched when only two generic words
+            # appeared anywhere in the resume.
+            if all(
+                re.search(rf"\b{re.escape(word)}\b", lower) for word in kw_words
+            ):
                 matched.append(kw)
             else:
                 missing.append(kw)
@@ -58,7 +62,10 @@ def keyword_match_score(
             else:
                 missing.append(kw)
 
-    score = round((len(matched) / len(keywords)) * 100)
+    if considered == 0:
+        return 60, [], []
+
+    score = round((len(matched) / considered) * 100)
     return int(score), matched, missing
 
 
@@ -75,23 +82,25 @@ def experience_score(candidate_years: float, required_years: float) -> int:
         return 45
 
     if candidate_years >= required_years:
-        bonus = min(12, int((candidate_years - required_years) * 2.5))
-        return min(100, 100 + bonus)
+        extra = candidate_years - required_years
+        # 90 at the bar, 100 about 7 years above it.
+        # The old `min(100, 100 + bonus)` made 8, 12, and 20 years identical.
+        return int(min(100, 90 + min(10, extra * 1.5)))
 
     ratio = candidate_years / required_years
-
+    # These stay below the at-bar score of 90. The previous 95 at 85% of
+    # the requirement let a near-miss outrank someone who actually qualified.
     if ratio >= 0.85:
-        return 95
+        return 80
     if ratio >= 0.70:
-        return 85
+        return 70
     if ratio >= 0.55:
-        return 72
-    if ratio >= 0.40:
         return 58
+    if ratio >= 0.40:
+        return 46
     if ratio >= 0.25:
-        return 45
-
-    return int(max(20, ratio * 90))
+        return 34
+    return int(max(18, ratio * 80))
 
 
 def education_score(
@@ -101,18 +110,14 @@ def education_score(
 ) -> tuple[int, str]:
     if not required_edu or required_edu_level == -1:
         return 80, "No specific education requirement stated"
-
     if resume_edu_level == -1:
         return 45, f"Education not clearly identified (requires {required_edu})"
-
     if resume_edu_level >= required_edu_level:
         return 100, "Meets or exceeds education requirement"
 
     gap = required_edu_level - resume_edu_level
-
     if gap == 1:
         return 65, f"One level below required education ({required_edu})"
-
     return 35, f"Significantly below required education ({required_edu})"
 
 
@@ -225,7 +230,6 @@ def ai_score_resume(
 
     try:
         requirements_context = ""
-
         if jd_requirements:
             requirements_context = f"""
 Structured requirements extracted from JD:
@@ -237,7 +241,6 @@ Structured requirements extracted from JD:
 """
 
         client_context = ""
-
         if client_company.strip():
             client_context = f"""
 The hiring client is: {client_company}.
@@ -251,7 +254,6 @@ Score from 0 to 100 based on how well the resume matches the job requirements.
 
 Also judge the candidate's INDUSTRY fit: has this candidate actually worked
 in the same or a closely adjacent industry to the one in the JD{" and/or the hiring client's own industry" if client_company.strip() else ""}?
-
 - "Yes" — candidate's work history is in the same or a directly comparable industry.
 - "Partial" — adjacent or transferable industry, not an exact match but relevant.
 - "No" — candidate's background is in an unrelated industry with no meaningful overlap.
@@ -262,15 +264,18 @@ Important:
   is a "Partial" match against agrochemical process-chemistry roles.
 - Judge demonstrated responsibilities, achievements, domain exposure, and
   transferable skills, not only exact keyword matches.
+- Do not reward a resume that repeats JD wording without the scope, tenure,
+  or outcomes the role needs.
 - Do not penalize a candidate for resume formatting or missing sections if the
   relevant experience is present.
+- If a required education level is stated and the resume clearly falls short,
+  reflect that in the score.
 
 Return ONLY valid JSON:
 {{"score": 0, "reason": "2-3 sentence specific reason", "industry_match": "Yes|Partial|No", "candidate_industry": "1-4 word label for the industry/sector this candidate has actually worked in"}}
 
 Role: {role}
 {requirements_context}{client_context}
-
 Job Description:
 {jd_text[:8000]}
 
@@ -292,10 +297,8 @@ Resume:
         score = int(float(data.get("score", 0)))
         reason = str(data.get("reason", "")).strip()
         industry_match = str(data.get("industry_match", "")).strip().title()
-
         if industry_match not in {"Yes", "Partial", "No"}:
             industry_match = "N/A"
-
         candidate_industry = str(data.get("candidate_industry", "")).strip()
 
         return (
@@ -336,10 +339,8 @@ def make_reason(
         f"Skills missing: {missing_text}.",
         exp_text + ".",
     ]
-
     if edu_reason:
         parts.append(edu_reason + ".")
-
     return " ".join(parts)
 
 
@@ -375,7 +376,6 @@ def score_resume(
     precomputed_semantic_score: float | None = None,
 ) -> dict:
     final_keywords = keywords or []
-
     if use_llm_keywords and api_key:
         llm_keywords = extract_keywords_llm(jd_text, api_key, model)
         if llm_keywords:
@@ -387,7 +387,6 @@ def score_resume(
     skills = extract_skills(resume_text)
 
     name = ""
-
     if api_key:
         name = extract_candidate_name_llm(
             resume_text,
@@ -395,7 +394,6 @@ def score_resume(
             model,
             contact_email=email,
         )
-
     if not name:
         name = extract_name(resume_text, filename)
 
@@ -418,7 +416,6 @@ def score_resume(
     structure_sc = section_presence_score(resume_text)
 
     semantic_sc: float | None = None
-
     if precomputed_semantic_score is not None:
         semantic_sc = float(precomputed_semantic_score)
     elif use_semantic and api_key:
@@ -433,7 +430,8 @@ def score_resume(
 
     has_edu_requirement = required_edu_level != -1
 
-    # Heuristic score is now only a fallback and evidence score.
+    # Evidence score. Used as the whole result only when AI is unavailable,
+    # and as 25% of the result when AI returns a score.
     if semantic_sc is None:
         if has_edu_requirement:
             heuristic = (
@@ -473,7 +471,6 @@ def score_resume(
                 + structure_sc * 0.03
             )
 
-    # Lower, softer floor: prevents weak resumes from being artificially lifted.
     if email and phone:
         heuristic = max(heuristic, 30.0)
     else:
@@ -484,7 +481,6 @@ def score_resume(
     industry_match = "N/A"
     candidate_industry = ""
 
-    # Always allow AI to evaluate the candidate when a key is available.
     if api_key:
         ai_score, ai_reason, industry_match, candidate_industry = ai_score_resume(
             jd_text=jd_text,
@@ -497,16 +493,9 @@ def score_resume(
         )
 
     if ai_score is not None:
-        if semantic_sc is None:
-            fit_score = (ai_score * 0.70) + (heuristic * 0.30)
-        else:
-            fit_score = (
-                ai_score * 0.60
-                + semantic_sc * 0.15
-                + keyword_sc * 0.15
-                + experience_sc * 0.10
-            )
-
+        # Do not add keyword or semantic again here. They are already inside
+        # the heuristic. A second 15% + 15% pull made JD wording beat real fit.
+        fit_score = (ai_score * 0.75) + (heuristic * 0.25)
         final_score = round(max(0.0, min(100.0, fit_score)), 1)
         reason = ai_reason or make_reason(
             matched,
@@ -537,18 +526,14 @@ def score_resume(
 
     if industry_match == "N/A" and client_profile:
         preferred = client_profile.get("preferred_industries") or []
-
         if preferred and rule_based_industry != "Others / Not Detected":
             rule_based_tokens = _industry_tokens(rule_based_industry)
-
             for preference in preferred:
                 preference_tokens = _industry_tokens(str(preference))
                 overlap = rule_based_tokens & preference_tokens
-
                 if _normalize_industry_label(rule_based_industry) == _normalize_industry_label(str(preference)):
                     industry_match = "Yes"
                     break
-
                 if overlap or _is_adjacent_industry(
                     rule_based_tokens,
                     preference_tokens,
@@ -556,13 +541,10 @@ def score_resume(
                     industry_match = "Partial"
                     break
 
-    # Persona fit is retained as a small adjustment, but no longer dominates.
     persona_boost = 0.0
     band_note = ""
-
     if client_profile:
         industries = client_profile.get("preferred_industries") or []
-
         if industries:
             if industry_match == "Yes":
                 persona_boost += 4
@@ -571,14 +553,8 @@ def score_resume(
             elif industry_match == "No":
                 persona_boost -= 3
 
-        culture_notes = str(client_profile.get("culture_notes", "")).strip()
-
-        if len(culture_notes) > 20:
-            persona_boost += 1.5
-
         min_band = float(client_profile.get("min_experience", 0) or 0)
         max_band = float(client_profile.get("max_experience", 0) or 0)
-
         if max_band > 0 and exp > 0 and not (min_band <= exp <= max_band):
             persona_boost -= 2
             band_note = (
@@ -591,7 +567,6 @@ def score_resume(
                 0.0,
                 min(100.0, round(final_score + persona_boost, 1)),
             )
-
             if band_note:
                 reason = (reason + band_note).strip()
 
